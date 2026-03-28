@@ -1,0 +1,37 @@
+{
+  "monitorEnabled": true,
+  "predictEnabled": true,
+  "predictEndpoint": "http://localhost:5000/predict",
+  "backendBaseUrl": "http://localhost:8080",
+  "clientIngressToken": "",
+  "companyId": 1,
+  "siteSelectors": [
+    {
+      "siteId": "chatgpt",
+      "hosts": ["chat.openai.com", "chatgpt.com"],
+      "inputSelectors": [
+        "#prompt-textarea",
+        "textarea[data-testid='prompt-textarea']",
+        "textarea"
+      ]
+    },
+    {
+      "siteId": "doubao",
+      "hosts": ["doubao.com", "www.doubao.com"],
+      "inputSelectors": [
+        "textarea",
+        "div[contenteditable='true']",
+        "[data-testid='chat-input']"
+      ]
+    },
+    {
+      "siteId": "yiyan",
+      "hosts": ["yiyan.baidu.com"],
+      "inputSelectors": [
+        "textarea",
+        "div[contenteditable='true']",
+        "#chat-input"
+      ]
+    }
+  ]
+}

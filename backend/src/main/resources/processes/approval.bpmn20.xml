@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+             xmlns:omgdc="http://www.omg.org/spec/DD/20100524/DC"
+             xmlns:omgdi="http://www.omg.org/spec/DD/20100524/DI"
+             xmlns:flowable="http://flowable.org/bpmn"
+             typeLanguage="http://www.w3.org/2001/XMLSchema"
+             expressionLanguage="http://www.w3.org/1999/XPath"
+             targetNamespace="http://trustai/approval">
+  <process id="approvalProcess" name="审批流程" isExecutable="true">
+    <startEvent id="start" name="开始"/>
+    <userTask id="deptTask" name="部门审批" flowable:candidateGroups="deptApprover"/>
+    <exclusiveGateway id="gwDept" name="部门审批网关"/>
+    <userTask id="complianceTask" name="合规审批" flowable:candidateGroups="complianceApprover"/>
+    <exclusiveGateway id="gwCompliance" name="合规审批网关"/>
+    <endEvent id="end" name="结束"/>
+
+    <sequenceFlow id="flow_start_dept" sourceRef="start" targetRef="deptTask"/>
+
+    <sequenceFlow id="flow_dept_reject" sourceRef="deptTask" targetRef="gwDept"/>
+    <sequenceFlow id="flow_gw_dept_reject" sourceRef="gwDept" targetRef="deptTask">
+      <conditionExpression xsi:type="tFormalExpression"><![CDATA[${status == 'reject'}]]></conditionExpression>
+    </sequenceFlow>
+    <sequenceFlow id="flow_gw_dept_pass" sourceRef="gwDept" targetRef="complianceTask">
+      <conditionExpression xsi:type="tFormalExpression"><![CDATA[${status != 'reject'}]]></conditionExpression>
+    </sequenceFlow>
+
+    <sequenceFlow id="flow_compliance" sourceRef="complianceTask" targetRef="gwCompliance"/>
+    <sequenceFlow id="flow_gw_compliance_reject" sourceRef="gwCompliance" targetRef="deptTask">
+      <conditionExpression xsi:type="tFormalExpression"><![CDATA[${status == 'reject'}]]></conditionExpression>
+    </sequenceFlow>
+    <sequenceFlow id="flow_gw_compliance_pass" sourceRef="gwCompliance" targetRef="end">
+      <conditionExpression xsi:type="tFormalExpression"><![CDATA[${status != 'reject'}]]></conditionExpression>
+    </sequenceFlow>
+  </process>
+</definitions>

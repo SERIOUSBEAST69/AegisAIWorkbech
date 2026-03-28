@@ -1,0 +1,597 @@
+package com.trustai.controller;
+
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.trustai.config.DemoAccountCatalog;
+import com.trustai.config.jwt.JwtUtil;
+import com.trustai.dto.UserProfileDTO;
+import com.trustai.entity.Company;
+import com.trustai.entity.Role;
+import com.trustai.entity.User;
+import com.trustai.exception.BizException;
+import com.trustai.service.AuthVerificationService;
+import com.trustai.service.CompanyService;
+import com.trustai.service.CurrentUserService;
+import com.trustai.service.RoleService;
+import com.trustai.service.UserService;
+import com.trustai.utils.R;
+import java.util.Date;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import lombok.Data;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.util.StringUtils;
+import org.springframework.validation.annotation.Validated;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequestMapping("/api/auth")
+@Validated
+public class AuthController {
+    private static final Logger log = LoggerFactory.getLogger(AuthController.class);
+    private static final String ACCOUNT_TYPE_DEMO = "demo";
+    private static final String ACCOUNT_TYPE_REAL = "real";
+    private static final String ACCOUNT_STATUS_PENDING = "pending";
+    private static final String ACCOUNT_STATUS_ACTIVE = "active";
+    private static final String ACCOUNT_STATUS_REJECTED = "rejected";
+    private static final String ACCOUNT_STATUS_DISABLED = "disabled";
+
+    @Autowired private UserService userService;
+    @Autowired private PasswordEncoder passwordEncoder;
+    @Autowired private JwtUtil jwtUtil;
+    @Autowired private CurrentUserService currentUserService;
+    @Autowired private RoleService roleService;
+    @Autowired private AuthVerificationService authVerificationService;
+    @Autowired private CompanyService companyService;
+
+    @PostMapping("/login")
+    public R<?> login(@Valid @RequestBody LoginReq req) {
+        ensureDemoUserByUsername(req.getUsername());
+        User user = findUserByUsername(req.getUsername());
+        log.info("login pick user id={}", user != null ? user.getId() : null);
+        assertLoginAllowed(user, "用户不存在");
+        if (!passwordEncoder.matches(req.getPassword(), user.getPassword())) {
+            throw new BizException(40100, "用户名或密码错误");
+        }
+        user.setLoginType("password");
+        user.setUpdateTime(new Date());
+        userService.updateById(user);
+        return R.ok(buildSession(user, true));
+    }
+
+    @PostMapping("/login-phone")
+    public R<?> loginByPhone(@Valid @RequestBody PhoneLoginReq req) {
+        authVerificationService.verifyPhoneCode(req.getPhone(), req.getCode());
+        ensureDemoUserByPhone(req.getPhone());
+        User user = findUserByPhone(req.getPhone());
+        assertLoginAllowed(user, "手机号未注册");
+        user.setLoginType("phone");
+        user.setUpdateTime(new Date());
+        userService.updateById(user);
+        return R.ok(buildSession(user, true));
+    }
+
+    @PostMapping("/login-wechat")
+    public R<?> loginByWechat(@Valid @RequestBody WechatLoginReq req) {
+        String openId = normalizeWechatOpenId(req.getWechatOpenId(), req.getNickname());
+        ensureDemoUserByWechat(openId);
+        User user = findUserByWechat(openId);
+        if (user == null) {
+            throw new BizException(40100, "微信身份未注册，请先完成账号注册");
+        }
+        assertLoginAllowed(user, "用户不存在");
+        user.setLoginType("wechat");
+        user.setUpdateTime(new Date());
+        userService.updateById(user);
+        return R.ok(buildSession(user, true));
+    }
+
+    @PostMapping("/register")
+    public R<?> register(@Valid @RequestBody RegisterReq req) {
+        User user = createUser(req, StringUtils.hasText(req.getLoginType()) ? req.getLoginType() : inferLoginType(req));
+        String accountStatus = normalizeAccountStatus(user);
+        if (ACCOUNT_STATUS_ACTIVE.equals(accountStatus)) {
+            return R.ok(buildSession(user, true));
+        }
+        return R.ok(new RegisterResp(false, true, accountStatus, "注册申请已提交，等待管理员审批", toProfile(user)));
+    }
+
+    @PostMapping("/phone-code")
+    public R<?> sendPhoneCode(@Valid @RequestBody PhoneCodeReq req) {
+        Map<String, String> payload = new LinkedHashMap<>();
+        AuthVerificationService.PhoneCodePayload issued = authVerificationService.issuePhoneCode(req.getPhone());
+        payload.put("phone", issued.phone());
+        payload.put("expiresAt", String.valueOf(issued.expiresAt()));
+        payload.put("codeHint", issued.developmentMode() ? issued.code() : "");
+        payload.put("message", issued.developmentMode() ? "验证码已生成，可用于本地联调" : "验证码已发送");
+        return R.ok(payload);
+    }
+
+    @GetMapping("/registration-options")
+    public R<?> registrationOptions() {
+        List<Map<String, String>> identities = DemoAccountCatalog.roleLabels().entrySet().stream()
+            .map(entry -> option(entry.getKey(), entry.getValue()))
+            .toList();
+        List<Map<String, String>> organizations = List.of(
+            option("enterprise", "企业"),
+            option("school", "学校"),
+            option("ai-team", "AI应用团队"),
+            option("public-sector", "政企/公共机构")
+        );
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("identities", identities);
+        result.put("organizations", organizations);
+        return R.ok(result);
+    }
+
+    @GetMapping("/me")
+    public R<?> me(Authentication authentication) {
+        if (authentication == null || !authentication.isAuthenticated()) {
+            throw new BizException(40100, "未登录或令牌失效");
+        }
+        User user = currentUserService.requireCurrentUser();
+        return R.ok(buildSession(user, false));
+    }
+
+    @PostMapping("/logout")
+    @PreAuthorize("isAuthenticated()")
+    public R<?> logout() {
+        return R.okMsg("退出成功");
+    }
+
+    private SessionResp buildSession(User user, boolean includeToken) {
+        String token = includeToken ? jwtUtil.generateToken(user.getUsername(), user.getId(), user.getCompanyId()) : null;
+        user.setPassword(null);
+        return new SessionResp(token, toProfile(user), true, System.currentTimeMillis());
+    }
+
+    private User findUserByUsername(String username) {
+        List<User> users = userService.list(new QueryWrapper<User>().eq("username", username));
+        return pickLatestUser(users);
+    }
+
+    private User findUserByPhone(String phone) {
+        List<User> users = userService.list(new QueryWrapper<User>().eq("phone", phone));
+        return pickLatestUser(users);
+    }
+
+    private User findUserByWechat(String wechatOpenId) {
+        List<User> users = userService.list(new QueryWrapper<User>().eq("wechat_open_id", wechatOpenId));
+        return pickLatestUser(users);
+    }
+
+    private User pickLatestUser(List<User> users) {
+        User user = users.stream()
+            .filter(candidate -> candidate.getPassword() != null && candidate.getPassword().startsWith("$2"))
+            .findFirst()
+            .orElseGet(() -> users.stream()
+                .findFirst()
+                .orElse(null));
+        if (user == null) {
+            return null;
+        }
+        return user;
+    }
+
+    private void ensureDemoUserByUsername(String username) {
+        ensureDemoUser(DemoAccountCatalog.demoAccountSeeds().stream()
+            .filter(seed -> seed.username().equals(username))
+            .findFirst()
+            .orElse(null));
+    }
+
+    private void ensureDemoUserByPhone(String phone) {
+        ensureDemoUser(DemoAccountCatalog.demoAccountSeeds().stream()
+            .filter(seed -> seed.phone().equals(phone))
+            .findFirst()
+            .orElse(null));
+    }
+
+    private void ensureDemoUserByWechat(String wechatOpenId) {
+        ensureDemoUser(DemoAccountCatalog.demoAccountSeeds().stream()
+            .filter(seed -> seed.wechatOpenId().equals(wechatOpenId))
+            .findFirst()
+            .orElse(null));
+    }
+
+    private void ensureDemoUser(DemoAccountCatalog.DemoAccountSeed seed) {
+        if (seed == null) {
+            return;
+        }
+        Role role = resolveOrCreateRoleForCompany(seed.roleCode(), DemoAccountCatalog.DEMO_COMPANY_ID);
+        if (role == null) {
+            return;
+        }
+
+        User user = findUserByUsername(seed.username());
+        boolean isNew = user == null;
+        if (isNew) {
+            user = new User();
+            user.setUsername(seed.username());
+            user.setCreateTime(new Date());
+        }
+
+        user.setUsername(seed.username());
+        user.setRealName(seed.realName());
+        user.setNickname(seed.realName());
+        user.setRoleId(role.getId());
+        if (user.getCompanyId() == null) {
+            user.setCompanyId(DemoAccountCatalog.DEMO_COMPANY_ID);
+        }
+        user.setDeviceId(seed.username() + "-device");
+        user.setOrganizationType(seed.organizationType());
+        user.setDepartment(seed.department());
+        user.setPhone(seed.phone());
+        user.setEmail(seed.email());
+        user.setLoginType("password");
+        user.setWechatOpenId(seed.wechatOpenId());
+        user.setAccountType(ACCOUNT_TYPE_DEMO);
+        user.setAccountStatus(ACCOUNT_STATUS_ACTIVE);
+        user.setApprovedBy(1L);
+        user.setApprovedAt(new Date());
+        user.setRejectReason(null);
+        user.setStatus(1);
+        user.setUpdateTime(new Date());
+        if (isNew || !isBcryptHash(user.getPassword()) || !passwordMatches(user.getPassword(), seed.password())) {
+            user.setPassword(passwordEncoder.encode(seed.password()));
+        }
+
+        if (isNew) {
+            userService.save(user);
+        } else {
+            userService.updateById(user);
+        }
+    }
+
+    private Role resolveOrCreateRoleForCompany(String roleCode, Long companyId) {
+        Role role = roleService.lambdaQuery()
+            .eq(Role::getCode, roleCode)
+            .eq(companyId != null, Role::getCompanyId, companyId)
+            .list()
+            .stream()
+            .min(Comparator.comparing(Role::getId))
+            .orElse(null);
+        if (role != null) {
+            return role;
+        }
+        String roleName = DemoAccountCatalog.roleLabels().get(roleCode);
+        if (!StringUtils.hasText(roleName)) {
+            return null;
+        }
+        Role created = new Role();
+        created.setCompanyId(companyId);
+        created.setCode(roleCode);
+        created.setName(roleName);
+        created.setDescription("系统默认角色: " + roleName);
+        created.setCreateTime(new Date());
+        created.setUpdateTime(new Date());
+        roleService.save(created);
+        return created;
+    }
+
+    private boolean isBcryptHash(String value) {
+        return StringUtils.hasText(value) && value.startsWith("$2");
+    }
+
+    private boolean passwordMatches(String encodedPassword, String rawPassword) {
+        try {
+            return StringUtils.hasText(encodedPassword) && passwordEncoder.matches(rawPassword, encodedPassword);
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
+    private User createUser(RegisterReq req, String loginType) {
+        if (!StringUtils.hasText(req.getRoleCode())) {
+            throw new BizException(40000, "请选择身份");
+        }
+
+        String accountType = resolveAccountType(req);
+        boolean realAccount = ACCOUNT_TYPE_REAL.equals(accountType);
+        Long companyId = resolveCompanyId(req, accountType);
+        Role role = resolveOrCreateRoleForCompany(req.getRoleCode(), companyId);
+        if (role == null) {
+            throw new BizException(40000, "身份不存在，请联系管理员");
+        }
+
+        String username = resolveUsername(req, loginType);
+        if (userService.lambdaQuery().eq(User::getUsername, username).count() > 0) {
+            throw new BizException(40000, "用户名已存在");
+        }
+        if (StringUtils.hasText(req.getPhone()) && userService.lambdaQuery().eq(User::getPhone, req.getPhone()).count() > 0) {
+            throw new BizException(40000, "手机号已注册");
+        }
+
+        String wechatOpenId = StringUtils.hasText(req.getWechatOpenId()) ? normalizeWechatOpenId(req.getWechatOpenId(), req.getNickname()) : null;
+        if (StringUtils.hasText(wechatOpenId) && userService.lambdaQuery().eq(User::getWechatOpenId, wechatOpenId).count() > 0) {
+            throw new BizException(40000, "微信身份已绑定");
+        }
+
+        if ("phone".equals(loginType)) {
+            authVerificationService.verifyPhoneCode(req.getPhone(), req.getPhoneCode());
+        }
+
+        User user = new User();
+        user.setUsername(username);
+        user.setPassword(passwordEncoder.encode(resolvePassword(req, loginType)));
+        user.setRealName(StringUtils.hasText(req.getRealName()) ? req.getRealName() : req.getNickname());
+        user.setNickname(StringUtils.hasText(req.getNickname()) ? req.getNickname() : req.getRealName());
+        user.setRoleId(role.getId());
+        user.setCompanyId(companyId);
+        user.setDeviceId(username + "-device");
+        user.setDepartment(req.getDepartment());
+        user.setOrganizationType(req.getOrganizationType());
+        user.setPhone(req.getPhone());
+        user.setEmail(req.getEmail());
+        user.setLoginType(loginType);
+        user.setWechatOpenId(wechatOpenId);
+        user.setAccountType(accountType);
+        user.setAccountStatus(realAccount ? ACCOUNT_STATUS_PENDING : ACCOUNT_STATUS_ACTIVE);
+        user.setApprovedBy(realAccount ? null : 1L);
+        user.setApprovedAt(realAccount ? null : new Date());
+        user.setRejectReason(null);
+        user.setStatus(1);
+        user.setCreateTime(new Date());
+        user.setUpdateTime(new Date());
+        userService.save(user);
+        return user;
+    }
+
+    private String resolveAccountType(RegisterReq req) {
+        if (!StringUtils.hasText(req.getAccountType())) {
+            return ACCOUNT_TYPE_REAL;
+        }
+        String normalized = req.getAccountType().trim().toLowerCase();
+        if (!ACCOUNT_TYPE_DEMO.equals(normalized) && !ACCOUNT_TYPE_REAL.equals(normalized)) {
+            throw new BizException(40000, "不支持的账号类型");
+        }
+        return normalized;
+    }
+
+    private Long resolveCompanyId(RegisterReq req, String accountType) {
+        if (ACCOUNT_TYPE_DEMO.equals(accountType)) {
+            return 1L;
+        }
+        if (!StringUtils.hasText(req.getCompanyName())) {
+            throw new BizException(40000, "真实账号注册必须填写公司名称");
+        }
+        String companyName = req.getCompanyName().trim();
+        Company existing = companyService.lambdaQuery()
+            .eq(Company::getCompanyName, companyName)
+            .list()
+            .stream()
+            .min(Comparator.comparing(Company::getId))
+            .orElse(null);
+        if (existing != null) {
+            return existing.getId();
+        }
+        Company company = new Company();
+        company.setCompanyName(companyName);
+        company.setCompanyCode(buildCompanyCode(companyName));
+        company.setStatus(1);
+        company.setCreateTime(new Date());
+        company.setUpdateTime(new Date());
+        companyService.save(company);
+        return company.getId();
+    }
+
+    private String buildCompanyCode(String companyName) {
+        String base = companyName.toLowerCase().replaceAll("[^a-z0-9]+", "-").replaceAll("^-+|-+$", "");
+        if (!StringUtils.hasText(base)) {
+            base = "tenant";
+        }
+        String candidate = base;
+        int suffix = 1;
+        while (companyService.count(new QueryWrapper<Company>().eq("company_code", candidate)) > 0) {
+            candidate = base + "-" + suffix;
+            suffix++;
+        }
+        return candidate;
+    }
+
+    private String resolveUsername(RegisterReq req, String loginType) {
+        if (StringUtils.hasText(req.getUsername())) {
+            return req.getUsername().trim();
+        }
+        if ("phone".equals(loginType) && StringUtils.hasText(req.getPhone())) {
+            return "phone_" + req.getPhone();
+        }
+        if ("wechat".equals(loginType)) {
+            return "wx_" + normalizeWechatOpenId(req.getWechatOpenId(), req.getNickname()).replaceAll("[^a-zA-Z0-9_]", "_");
+        }
+        if (StringUtils.hasText(req.getPhone())) {
+            return "user_" + req.getPhone();
+        }
+        return "user_" + UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+    }
+
+    private String resolvePassword(RegisterReq req, String loginType) {
+        if ("password".equals(loginType) && !StringUtils.hasText(req.getConfirmPassword())) {
+            throw new BizException(40000, "请确认注册密码");
+        }
+        if (StringUtils.hasText(req.getPassword())) {
+            if ("password".equals(loginType)
+                && StringUtils.hasText(req.getConfirmPassword())
+                && !req.getPassword().equals(req.getConfirmPassword())) {
+                throw new BizException(40000, "两次输入的密码不一致");
+            }
+            return req.getPassword();
+        }
+        if ("phone".equals(loginType) || "wechat".equals(loginType)) {
+            return UUID.randomUUID().toString();
+        }
+        throw new BizException(40000, "请输入密码");
+    }
+
+    private String normalizeWechatOpenId(String wechatOpenId, String nickname) {
+        if (StringUtils.hasText(wechatOpenId)) {
+            return wechatOpenId.trim();
+        }
+        if (StringUtils.hasText(nickname)) {
+            return "wx_" + nickname.trim().replaceAll("\\s+", "_").toLowerCase();
+        }
+        throw new BizException(40000, "请提供微信身份标识");
+    }
+
+    private String inferLoginType(RegisterReq req) {
+        if (StringUtils.hasText(req.getWechatOpenId())) {
+            return "wechat";
+        }
+        if (StringUtils.hasText(req.getPhone())) {
+            return "phone";
+        }
+        return "password";
+    }
+
+    private Map<String, String> option(String code, String label) {
+        Map<String, String> item = new LinkedHashMap<>();
+        item.put("code", code);
+        item.put("label", label);
+        return item;
+    }
+
+    private void assertLoginAllowed(User user, String notFoundMessage) {
+        if (user == null) {
+            throw new BizException(40100, notFoundMessage);
+        }
+        if (user.getStatus() != null && user.getStatus() == 0) {
+            throw new BizException(40100, "账号已禁用，请联系管理员");
+        }
+        String status = normalizeAccountStatus(user);
+        if (ACCOUNT_STATUS_PENDING.equals(status)) {
+            throw new BizException(40100, "账号待审批，请联系管理员审核后再登录");
+        }
+        if (ACCOUNT_STATUS_REJECTED.equals(status)) {
+            String reason = StringUtils.hasText(user.getRejectReason()) ? ("，原因：" + user.getRejectReason()) : "";
+            throw new BizException(40100, "账号审批未通过" + reason);
+        }
+        if (ACCOUNT_STATUS_DISABLED.equals(status)) {
+            throw new BizException(40100, "账号已禁用，请联系管理员");
+        }
+    }
+
+    private String normalizeAccountStatus(User user) {
+        if (StringUtils.hasText(user.getAccountStatus())) {
+            return user.getAccountStatus().trim().toLowerCase();
+        }
+        if (user.getStatus() != null && user.getStatus() == 0) {
+            return ACCOUNT_STATUS_DISABLED;
+        }
+        return ACCOUNT_STATUS_ACTIVE;
+    }
+
+    private String resolveCompanyName(Long companyId) {
+        if (companyId == null) {
+            return null;
+        }
+        Company company = companyService.getById(companyId);
+        return company == null ? null : company.getCompanyName();
+    }
+
+    private UserProfileDTO toProfile(User user) {
+        Role role = currentUserService.getCurrentRole(user);
+        return UserProfileDTO.builder()
+            .id(user.getId())
+            .companyId(user.getCompanyId())
+            .companyName(resolveCompanyName(user.getCompanyId()))
+            .accountType(user.getAccountType())
+            .accountStatus(normalizeAccountStatus(user))
+            .username(user.getUsername())
+            .avatar(user.getAvatar())
+            .nickname(user.getNickname())
+            .realName(user.getRealName())
+            .email(user.getEmail())
+            .phone(user.getPhone())
+            .department(user.getDepartment())
+            .organizationType(user.getOrganizationType())
+            .loginType(user.getLoginType())
+            .roleName(role == null ? null : role.getName())
+            .roleCode(role == null ? null : role.getCode())
+            .deviceId(user.getDeviceId())
+            .lastActiveAt(user.getUpdateTime() == null ? null : user.getUpdateTime().toInstant().atZone(java.time.ZoneId.systemDefault()).toLocalDateTime())
+            .build();
+    }
+
+    @Data
+    public static class LoginReq {
+        @NotBlank(message = "用户名不能为空")
+        private String username;
+        @NotBlank(message = "密码不能为空")
+        private String password;
+    }
+
+    @Data
+    public static class PhoneLoginReq {
+        @NotBlank(message = "手机号不能为空")
+        private String phone;
+        @NotBlank(message = "验证码不能为空")
+        private String code;
+    }
+
+    @Data
+    public static class WechatLoginReq {
+        private String nickname;
+        private String phone;
+        private String wechatOpenId;
+        private String roleCode;
+        private String organizationType;
+        private String department;
+    }
+
+    @Data
+    public static class PhoneCodeReq {
+        @NotBlank(message = "手机号不能为空")
+        private String phone;
+    }
+
+    @Data
+    public static class RegisterReq {
+        private String username;
+        private String password;
+        private String confirmPassword;
+        private String realName;
+        private String nickname;
+        private String companyName;
+        private String accountType;
+        @NotBlank(message = "身份不能为空")
+        private String roleCode;
+        private String organizationType;
+        private String department;
+        private String phone;
+        private String phoneCode;
+        private String email;
+        private String loginType;
+        private String wechatOpenId;
+    }
+
+    @Data
+    public static class RegisterResp {
+        private final boolean authenticated;
+        private final boolean pendingApproval;
+        private final String accountStatus;
+        private final String message;
+        private final UserProfileDTO user;
+    }
+
+    @Data
+    public static class SessionResp {
+        private final String token;
+        private final UserProfileDTO user;
+        private final boolean authenticated;
+        private final long serverTime;
+    }
+
+}

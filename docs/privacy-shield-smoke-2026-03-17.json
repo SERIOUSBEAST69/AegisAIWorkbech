@@ -1,0 +1,45 @@
+{
+  "generatedAt": "2026-03-17T21:54:55",
+  "baseUrl": "http://localhost:8080",
+  "login": {
+    "admin": true,
+    "executive": true,
+    "secops": true,
+    "employee": true,
+    "businessOwner": true
+  },
+  "privacyPublicConfigCode": 20000,
+  "privacyEventPostCodes": [20000, 20000],
+  "employeePrivacyView": {
+    "code": 20000,
+    "total": 3,
+    "summaryOnly": false,
+    "firstUserId": "employee.demo"
+  },
+  "businessOwnerPrivacyView": {
+    "code": 20000,
+    "total": 1,
+    "summaryOnly": false,
+    "firstUserId": "biz.demo"
+  },
+  "executivePrivacyView": {
+    "code": 20000,
+    "summaryOnly": true,
+    "listCount": 0
+  },
+  "adminPrivacyView": {
+    "code": 20000,
+    "summaryOnly": false,
+    "listCount": 4
+  },
+  "privacyConfigAccess": {
+    "admin": 20000,
+    "secops": 20000,
+    "executive": 40300
+  },
+  "anomalyCheckAccess": {
+    "executive": 40300,
+    "employee": 50000,
+    "employeeMsg": "请求体不能为空"
+  }
+}

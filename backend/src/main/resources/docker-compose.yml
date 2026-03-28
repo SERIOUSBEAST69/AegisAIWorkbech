@@ -1,0 +1,159 @@
+version: '3.8'
+
+services:
+  # 1. MySQL 容器
+  mysql:
+    image: mysql:8.0
+    container_name: aegisai-mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root                # 改为 root
+      MYSQL_DATABASE: aegisai
+      MYSQL_CHARACTER_SET_SERVER: utf8mb4
+      MYSQL_COLLATION_SERVER: utf8mb4_unicode_ci
+      MYSQL_ROOT_HOST: "%"
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./aegisai.sql:/docker-entrypoint-initdb.d/aegisai.sql
+    networks:
+      - aegisai-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]   # 密码改为 root
+      interval: 5s
+      timeout: 10s
+      retries: 10
+
+  # 2. Redis 容器
+  redis:
+    image: redis:7.0
+    container_name: aegisai-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    command: redis-server --requirepass root    # 密码改为 root
+    volumes:
+      - redis-data:/data
+    networks:
+      - aegisai-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "root", "ping"]   # 密码改为 root
+      interval: 5s
+      timeout: 10s
+      retries: 10
+
+  # 3. Elasticsearch 容器
+  es:
+    image: elasticsearch:8.14.0
+    container_name: aegisai-es
+    restart: always
+    environment:
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "TZ=Asia/Shanghai"
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+    networks:
+      - aegisai-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:9200 || exit 1"]
+      interval: 10s
+      timeout: 20s
+      retries: 10
+
+  # 4. AI 推理服务（Flask+BERT+LSTM）
+  ai-inference:
+    build:
+      context: ../../python-service
+      dockerfile: Dockerfile
+    container_name: ai-inference
+    restart: always
+    ports:
+      - "5000:5000"
+    networks:
+      - aegisai-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:5000/health || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+
+  # 原有服务（mysql/redis/es/backend）保持不变
+  # ========== 新增 RabbitMQ 服务 ==========
+  rabbitmq:
+    image: rabbitmq:3.12-management  # 带管理界面版本（便于调试）
+    container_name: aegisai-rabbitmq
+    restart: always
+    ports:
+      - "5672:5672"    # MQ 通信端口
+      - "15672:15672"  # 管理界面端口（浏览器访问）
+    environment:
+      RABBITMQ_DEFAULT_USER: admin     # 用户名（可自定义）
+      RABBITMQ_DEFAULT_PASS: 123456    # 密码（可自定义）
+      RABBITMQ_DEFAULT_VHOST: /aegisai # 虚拟主机（匹配你的配置）
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq # 持久化数据卷
+    networks:
+      - aegisai-network  # 加入现有网络，和后端互通
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+# 新增 RabbitMQ 数据卷（追加到 volumes 节点）
+
+  # 4. 应用容器
+  aegisai-backend:
+    build: .
+    container_name: aegisai-backend
+    restart: always
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/aegisai?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: root          # 改为 root
+      SPRING_REDIS_HOST: redis
+      SPRING_REDIS_PORT: 6379
+      SPRING_REDIS_PASSWORD: root               # 改为 root
+      SPRING_ELASTICSEARCH_URIS: http://es:9200
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_RABBITMQ_USERNAME: admin
+      SPRING_RABBITMQ_PASSWORD: 123456
+      SPRING_RABBITMQ_VIRTUAL_HOST: /aegisai
+      AI_INFERENCE_URL: http://ai-inference:5000
+      AI_AES_KEY: 12345678901234567890123456789012
+      SECURITY_JWT_SECRET: aegisai-secret-key-please-change-at-least-32-chars
+      CLIENT_INGRESS_ENFORCE: "true"
+      CLIENT_INGRESS_TOKEN: aegis-client-ingress-local-dev
+      CLIENT_INGRESS_DEFAULT_COMPANY_ID: "1"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      es:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      ai-inference:
+        condition: service_started
+    networks:
+      - aegisai-network
+
+networks:
+  aegisai-network:
+    driver: bridge
+
+volumes:
+  mysql-data:
+  redis-data:
+  es-data:
+  rabbitmq-data:

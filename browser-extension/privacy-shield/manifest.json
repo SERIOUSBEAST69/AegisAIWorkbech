@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "AegisAI Privacy Shield",
+  "version": "1.0.0",
+  "description": "Monitor AI web input and warn before sensitive data is sent.",
+  "permissions": ["storage", "activeTab", "scripting"],
+  "host_permissions": [
+    "https://chat.openai.com/*",
+    "https://chatgpt.com/*",
+    "https://www.doubao.com/*",
+    "https://doubao.com/*",
+    "https://yiyan.baidu.com/*",
+    "http://localhost:8080/*",
+    "http://127.0.0.1:8080/*",
+    "http://localhost:5000/*",
+    "http://127.0.0.1:5000/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "aegis-privacy-shield@aegisai.local",
+      "strict_min_version": "109.0"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chat.openai.com/*",
+        "https://chatgpt.com/*",
+        "https://www.doubao.com/*",
+        "https://doubao.com/*",
+        "https://yiyan.baidu.com/*"
+      ],
+      "js": ["content.js"],
+      "css": ["styles.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}

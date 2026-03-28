@@ -1,0 +1,63 @@
+#aegis-privacy-banner {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%) translateY(-20px);
+  min-width: 340px;
+  max-width: 86vw;
+  background: rgba(161, 23, 23, 0.96);
+  color: #fff;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 230, 230, 0.4);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  z-index: 2147483647;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+}
+
+#aegis-privacy-banner.visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+  pointer-events: auto;
+}
+
+.aegis-privacy-inner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  flex-wrap: wrap;
+}
+
+.aegis-privacy-title {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.aegis-privacy-types {
+  font-size: 12px;
+  opacity: 0.92;
+}
+
+.aegis-privacy-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.aegis-privacy-actions button {
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 5px 10px;
+}
+
+.aegis-privacy-actions button:hover {
+  background: rgba(255, 255, 255, 0.25);
+}

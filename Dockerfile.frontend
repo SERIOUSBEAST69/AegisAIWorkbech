@@ -1,0 +1,32 @@
+# 构建阶段
+FROM hub.rat.dev/library/node:18-alpine AS builder
+WORKDIR /app
+
+# 复制依赖清单（在仓库根目录）
+COPY package*.json ./
+RUN npm install --legacy-peer-deps
+
+# 复制前端源码与配置
+COPY src ./src
+COPY index.html .
+COPY vite.config.js .
+
+# 可选：如果有 public/，取消注释
+# COPY public ./public
+
+# 构建参数：设置 API 基础地址（构建时生效）
+ARG VITE_API_BASE_URL
+ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
+
+# 构建生产版本
+RUN npm run build
+
+# 运行阶段
+FROM hub.rat.dev/library/nginx:alpine
+COPY --from=builder /app/dist /usr/share/nginx/html
+
+# Nginx 代理配置：支持 SPA history 路由 + 转发 /api/* 到后端
+COPY docker/nginx/default.conf /etc/nginx/conf.d/default.conf
+
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]

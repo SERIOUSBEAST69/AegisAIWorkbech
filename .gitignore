@@ -1,0 +1,11 @@
+node_modules
+python-service/__pycache__
+python-service/models/
+python-service/anomaly_events.db
+python-service/behavior_data.csv
+*.pyc
+*.pyo
+dist/
+backend/target/
+*.class
+yarn.lock

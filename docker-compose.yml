@@ -1,0 +1,195 @@
+services:
+  # 1. MySQL 容器
+  mysql:
+    image: mysql:8.0
+    container_name: aegisai-mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: aegisai
+      MYSQL_CHARACTER_SET_SERVER: utf8mb4
+      MYSQL_COLLATION_SERVER: utf8mb4_unicode_ci
+      MYSQL_ROOT_HOST: "%"
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./aegisai.sql:/docker-entrypoint-initdb.d/aegisai.sql
+    networks:
+      - aegisai-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+      interval: 5s
+      timeout: 10s
+      retries: 10
+
+  # 2. Redis 容器
+  redis:
+    image: redis:7.0
+    container_name: aegisai-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    command: redis-server --requirepass root
+    volumes:
+      - redis-data:/data
+    networks:
+      - aegisai-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "root", "ping"]
+      interval: 5s
+      timeout: 10s
+      retries: 10
+
+  # 3. Elasticsearch 容器
+  es:
+    image: elasticsearch:8.14.0
+    container_name: aegisai-es
+    restart: always
+    environment:
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "TZ=Asia/Shanghai"
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+    networks:
+      - aegisai-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s --fail http://localhost:9200 || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
+  # 4. AI 推理服务（Flask+BERT+LSTM）
+  ai-inference:
+    build:
+      context: ./python-service
+      dockerfile: Dockerfile
+    container_name: ai-inference
+    restart: always
+    environment:
+      BERT_MOCK: "false"
+      HF_ENDPOINT: https://hf-mirror.com
+    ports:
+      - "5000:5000"
+    networks:
+      - aegisai-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health', timeout=5)"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+
+  # 5. RabbitMQ 服务
+  rabbitmq:
+    image: rabbitmq:3.12-management
+    container_name: aegisai-rabbitmq
+    restart: always
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: 123456
+      RABBITMQ_DEFAULT_VHOST: /aegisai
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    networks:
+      - aegisai-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 6. 数据库兼容性迁移
+  mysql-bootstrap:
+    image: mysql:8.0
+    container_name: aegisai-mysql-bootstrap
+    restart: "no"
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: root
+      MYSQL_PASSWORD: root
+      MYSQL_DATABASE: aegisai
+    volumes:
+      - ./docker/mysql/bootstrap:/bootstrap
+    entrypoint: ["/bootstrap/bootstrap.sh"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - aegisai-network
+
+  # 7. 后端应用容器
+  aegisai-backend:
+    build: .
+    container_name: aegisai-backend
+    restart: always
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/aegisai?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: root
+      SPRING_REDIS_HOST: redis
+      SPRING_REDIS_PORT: 6379
+      SPRING_REDIS_PASSWORD: root
+      SPRING_ELASTICSEARCH_URIS: http://es:9200
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_RABBITMQ_USERNAME: admin
+      SPRING_RABBITMQ_PASSWORD: 123456
+      SPRING_RABBITMQ_VIRTUAL_HOST: /aegisai
+      AI_INFERENCE_URL: http://ai-inference:5000
+      AI_AES_KEY: "12345678901234567890123456789012"
+      SECURITY_JWT_SECRET: aegisai-secret-key-please-change-at-least-32-chars
+      CROSS_SITE_ALLOWED_ORIGINS: http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080,http://127.0.0.1:8080
+      CLIENT_INGRESS_ENFORCE: "true"
+      CLIENT_INGRESS_TOKEN: aegis-client-ingress-local-dev
+      CLIENT_INGRESS_DEFAULT_COMPANY_ID: "1"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      mysql-bootstrap:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      es:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      ai-inference:
+        condition: service_started
+    networks:
+      - aegisai-network
+
+  # 8. 前端应用容器
+  aegisai-frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend.dev
+    container_name: aegisai-frontend
+    restart: always
+    ports:
+      - "3000:5173"
+    depends_on:
+      aegisai-backend:
+        condition: service_started
+    networks:
+      - aegisai-network
+
+networks:
+  aegisai-network:
+    driver: bridge
+
+volumes:
+  mysql-data:
+  redis-data:
+  es-data:
+  rabbitmq-data:
