@@ -17,7 +17,6 @@
         </p>
       </div>
       <div class="page-header-actions">
-        <el-tag v-if="isMock" type="warning" size="large">演示数据</el-tag>
         <el-tag v-if="isElectron" type="success" size="large">客户端已连接</el-tag>
         <el-tag v-else type="info" size="large">Web 模式</el-tag>
         <el-button
@@ -34,24 +33,6 @@
         </el-button>
       </div>
     </div>
-
-    <!-- 演示数据免责提示（仅当后端不可用时显示） -->
-    <el-alert
-      v-if="isMock"
-      type="warning"
-      show-icon
-      :closable="false"
-      style="margin-bottom: 16px;"
-    >
-      <template #title>
-        <strong>当前显示的是演示数据，非真实员工信息</strong>
-      </template>
-      <template #default>
-        设备名称（如 WIN-WORKSTATION-01）和用户标识（如 employee_a）均为占位示例。
-        真实数据需在员工终端上安装 Aegis 客户端（见下方下载区），客户端会将扫描结果上报至本系统。
-        <strong>本系统无法在未安装客户端的情况下监控员工的桌面 AI 应用程序。</strong>
-      </template>
-    </el-alert>
 
     <!-- 统计卡片 -->
     <div v-if="!isEmployeeView" class="stats-grid scene-block">
@@ -490,7 +471,6 @@ const userStore = useUserStore();
 // ── 状态 ──────────────────────────────────────────────────────────────────────
 const loading        = ref(false);
 const localScanning  = ref(false);
-const isMock         = ref(false);
 const stats          = ref({ totalClients: 0, highRiskClients: 0, totalShadowAi: 0, recentReports: 0, riskDistribution: {} });
 const clients        = ref([]);
 const searchKeyword  = ref('');
@@ -650,7 +630,6 @@ async function runLocalScan() {
       ]);
       stats.value   = s;
       clients.value = c;
-      isMock.value  = !!(s?._mock || c?.[0]?._mock);
       // 构造一个汇总结果显示在本地扫描面板
       const totalShadow = Number(s?.totalShadowAi ?? 0);
       const riskLevel   = s?.highRiskClients > 0 ? 'high' : totalShadow > 0 ? 'medium' : 'none';
@@ -744,7 +723,6 @@ async function refresh() {
     ]);
     stats.value   = s;
     clients.value = c;
-    isMock.value  = !!(s?._mock || c?.[0]?._mock);
   } catch (err) {
     ElMessage.error('加载失败：' + (err.message || '网络异常'));
   } finally {

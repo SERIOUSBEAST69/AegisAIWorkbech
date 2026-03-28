@@ -47,6 +47,12 @@
     </dependencyManagement>
 
     <dependencies>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
         <!-- Spring Boot 核心 Web 依赖 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

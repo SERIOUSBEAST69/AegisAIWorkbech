@@ -26,7 +26,7 @@ function redirectToLogin() {
 
 function handleUnauthorized(message, data) {
   const session = getSession();
-  const hasRealSession = Boolean(session?.token && session.mode !== 'mock');
+  const hasRealSession = Boolean(session?.token);
   const error = createClientError(message || '未登录或会话已失效', {
     code: 40100,
     sessionExpired: hasRealSession,

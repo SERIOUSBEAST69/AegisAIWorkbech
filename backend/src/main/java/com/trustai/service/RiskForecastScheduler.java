@@ -28,7 +28,7 @@ import org.springframework.stereotype.Service;
  * <p>降级策略：若 Python 微服务不可用，自动回退到移动平均预测，并在日志中标记。
  *
  * <p>自问自答 – Q2（数据来源）：
- * 本调度任务确保 forecastSeries 数据来源于真实历史数据库，而非写死的 Mock 数组。
+ * 本调度任务确保 forecastSeries 数据来源于真实历史数据库，而非写死的静态数组。
  */
 @Slf4j
 @Service

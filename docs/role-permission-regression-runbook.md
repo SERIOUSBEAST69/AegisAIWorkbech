@@ -28,7 +28,7 @@ Any other response is treated as "auth passed" (even if business validation fail
 
 ## Expected Use After Deployment
 1. Deploy backend from current repository commit.
-2. Ensure database has all seven roles and demo users.
+2. Ensure database has all seven roles and baseline real users.
 3. Run the script.
 4. Open docs/role-permission-e2e-summary.json and confirm mismatchCount is 0.
 5. If mismatchCount > 0, inspect rows in docs/role-permission-e2e-results.csv.

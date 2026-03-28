@@ -39,10 +39,7 @@ public class DataAssetController {
     @GetMapping("/list")
     @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN')")
     public R<List<DataAsset>> list(@RequestParam(required = false) String name) {
-        User currentUser = currentUserService.requireCurrentUser();
-        if (isDemoAccount(currentUser)) {
-            return R.ok(buildDemoAssets(currentUser.getCompanyId(), name));
-        }
+        currentUserService.requireCurrentUser();
         QueryWrapper<DataAsset> qw = new QueryWrapper<>();
         companyScopeService.withCompany(qw);
         if (name != null && !name.isEmpty()) qw.like("name", name);
@@ -99,28 +96,7 @@ public class DataAssetController {
     @GetMapping("/{id}")
     @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN')")
     public R<DataAssetDetailDto> detail(@PathVariable Long id) {
-        User currentUser = currentUserService.requireCurrentUser();
-        if (isDemoAccount(currentUser)) {
-            DataAsset demo = buildDemoAssets(currentUser.getCompanyId(), null).stream()
-                .filter(item -> id.equals(item.getId()))
-                .findFirst()
-                .orElse(null);
-            if (demo == null) {
-                throw new BizException(40400, "演示数据资产不存在");
-            }
-            DataAssetDetailDto dto = new DataAssetDetailDto();
-            dto.setId(demo.getId());
-            dto.setName(demo.getName());
-            dto.setType(demo.getType());
-            dto.setSensitivityLevel(demo.getSensitivityLevel());
-            dto.setLocation(demo.getLocation());
-            dto.setDescription(demo.getDescription());
-            dto.setDiscoveryTime(demo.getCreateTime());
-            dto.setOwnerId(currentUser.getId());
-            dto.setCreateTime(demo.getCreateTime());
-            dto.setUpdateTime(demo.getUpdateTime());
-            return R.ok(dto);
-        }
+        currentUserService.requireCurrentUser();
         DataAsset scoped = dataAssetService.getOne(companyScopeService.withCompany(new QueryWrapper<DataAsset>()).eq("id", id));
         if (scoped == null) {
             throw new BizException(40400, "数据资产不存在或不在当前公司");
@@ -253,38 +229,6 @@ public class DataAssetController {
         } catch (IOException e) {
             throw new BizException(50000, "数据文件上传失败: " + e.getMessage());
         }
-    }
-
-    private boolean isDemoAccount(User user) {
-        return user != null && "demo".equalsIgnoreCase(user.getAccountType());
-    }
-
-    private List<DataAsset> buildDemoAssets(Long companyId, String keyword) {
-        List<DataAsset> seeded = List.of(
-            demoAsset(90001L, companyId, "客户主数据-演示", "database", "high", "demo://crm/customer_master", "包含姓名、手机号、证件号等字段，用于演示脱敏命中"),
-            demoAsset(90002L, companyId, "订单交易流-演示", "stream", "medium", "demo://orders/realtime", "近24小时交易流水，展示风险监测与审计追踪"),
-            demoAsset(90003L, companyId, "员工通讯录-演示", "file", "medium", "demo://hr/address-book.xlsx", "用于演示共享审批与最小权限授权"),
-            demoAsset(90004L, companyId, "营销线索池-演示", "api", "high", "demo://growth/leads", "对接外部线索系统的API模拟数据"),
-            demoAsset(90005L, companyId, "匿名行为画像-演示", "lakehouse", "low", "demo://ai/behavior-profile", "用于演示模型调用成本和风险评级场景")
-        );
-        if (!StringUtils.hasText(keyword)) {
-            return seeded;
-        }
-        return seeded.stream().filter(item -> item.getName() != null && item.getName().contains(keyword)).toList();
-    }
-
-    private DataAsset demoAsset(Long id, Long companyId, String name, String type, String sensitivity, String location, String description) {
-        DataAsset asset = new DataAsset();
-        asset.setId(id);
-        asset.setCompanyId(companyId == null ? 1L : companyId);
-        asset.setName(name);
-        asset.setType(type);
-        asset.setSensitivityLevel(sensitivity);
-        asset.setLocation(location);
-        asset.setDescription(description);
-        asset.setCreateTime(new Date());
-        asset.setUpdateTime(new Date());
-        return asset;
     }
 
     public static class IdReq { @jakarta.validation.constraints.NotNull private Long id; public Long getId(){return id;} public void setId(Long id){this.id=id;} }

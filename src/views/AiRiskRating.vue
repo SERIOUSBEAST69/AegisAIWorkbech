@@ -203,7 +203,6 @@ import { ref, onMounted } from 'vue';
 import { ElMessage } from 'element-plus';
 import { Refresh, RefreshRight } from '@element-plus/icons-vue';
 import request from '../api/request';
-import { shouldUseApiFallback } from '../api/fallback';
 
 // ── State ─────────────────────────────────────────────────────────────────────
 const services  = ref([]);
@@ -213,34 +212,16 @@ const showDetail= ref(false);
 const selected  = ref(null);
 const updatedAt = ref(null);
 
-// ── Mock fallback data ────────────────────────────────────────────────────────
-// 当 Python 推理服务不可用时使用静态 mock，保证演示可用
-const MOCK_SERVICES = [
-  { id: 'gemini',   name: 'Gemini',          provider: 'Google',           logo: '✨', category: 'chat',   total_risk_score: 62, risk_level: 'high',   tags: ['境外存储', '默认训练', '多项安全认证'] },
-  { id: 'chatgpt',  name: 'ChatGPT',         provider: 'OpenAI',           logo: '🤖', category: 'chat',   total_risk_score: 55, risk_level: 'medium', tags: ['境外存储', '默认训练', 'SOC2认证'] },
-  { id: 'doubao',   name: '豆包',            provider: '字节跳动',          logo: '🫘', category: 'chat',   total_risk_score: 43, risk_level: 'medium', tags: ['境内存储', '默认训练', '等保三级'] },
-  { id: 'claude',   name: 'Claude',          provider: 'Anthropic',        logo: '🧡', category: 'chat',   total_risk_score: 44, risk_level: 'medium', tags: ['境外存储', 'SOC2认证', '安全对齐'] },
-  { id: 'copilot',  name: 'GitHub Copilot',  provider: 'Microsoft/OpenAI', logo: '🐙', category: 'coding', total_risk_score: 41, risk_level: 'medium', tags: ['境外存储', '企业版不训练', '多项安全认证'] },
-  { id: 'wenxin',   name: '文心一言',         provider: '百度',              logo: '🔮', category: 'chat',   total_risk_score: 36, risk_level: 'low',    tags: ['境内存储', '等保三级', 'ISO27001'] },
-  { id: 'kimi',     name: 'Kimi',            provider: '月之暗面',           logo: '🌙', category: 'chat',   total_risk_score: 35, risk_level: 'low',    tags: ['境内存储', 'ISO27001', '长文档'] },
-  { id: 'tongyi',   name: '通义千问',         provider: '阿里云',             logo: '☁️', category: 'chat',   total_risk_score: 30, risk_level: 'low',    tags: ['境内存储', '企业版不训练', '多项安全认证', '等保三级'] },
-];
-
 // ── API ───────────────────────────────────────────────────────────────────────
 async function loadList() {
   loading.value = true;
   try {
-    // 通过 Java 后端代理调用 Python 推理服务 /api/ai-risk/list
     const data = await request.get('/ai-risk/list');
-    services.value = Array.isArray(data?.services) ? data.services : MOCK_SERVICES;
+    services.value = Array.isArray(data?.services) ? data.services : [];
     updatedAt.value = data?.updated_at || null;
   } catch (err) {
-    if (shouldUseApiFallback(err)) {
-      services.value = MOCK_SERVICES;
-    } else {
-      ElMessage.warning('风险评级服务暂不可用，已使用内置数据');
-      services.value = MOCK_SERVICES;
-    }
+    services.value = [];
+    ElMessage.error('风险评级服务不可用，请检查后端与推理服务');
   } finally {
     loading.value = false;
   }

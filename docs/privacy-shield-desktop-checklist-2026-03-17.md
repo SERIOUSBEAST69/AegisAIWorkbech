@@ -7,7 +7,7 @@
 - Browser extension has been loaded from browser-extension/privacy-shield.
 
 ## Account
-- Use employee.demo / demo1234 for user-level verification.
+- Use employee / Passw0rd! for user-level verification.
 
 ## Case 1: Non-AI Window Copy (Word/Notepad)
 1. Open Notepad or Word.
@@ -51,14 +51,14 @@ Expected:
 - A privacy event is uploaded with action=ignore.
 
 ## Case 6: Role-Scoped Visibility
-1. Login as employee.demo and open /ai/anomaly -> 隐私盾告警 tab.
-2. Login as exec.demo and open the same tab.
-3. Login as admin and secops.demo and open the same tab.
+1. Login as employee and open /ai/anomaly -> 隐私盾告警 tab.
+2. Login as executive and open the same tab.
+3. Login as admin and secops and open the same tab.
 
 Expected:
-- employee.demo: personal records only.
-- exec.demo: summary-only, no list details.
-- admin/secops.demo: full records and config management panel.
+- employee: personal records only.
+- executive: summary-only, no list details.
+- admin/secops: full records and config management panel.
 
 ## Recording Template
 - Tester:

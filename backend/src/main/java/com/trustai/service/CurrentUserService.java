@@ -1,10 +1,12 @@
 package com.trustai.service;
 
+import com.trustai.config.jwt.JwtPrincipal;
 import com.trustai.entity.Role;
 import com.trustai.entity.User;
 import com.trustai.exception.BizException;
 import java.util.Objects;
 import java.util.Arrays;
+import org.springframework.security.access.AccessDeniedException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -26,7 +28,18 @@ public class CurrentUserService {
         if (auth == null || !auth.isAuthenticated()) {
             throw new BizException(40100, "未登录");
         }
-        User user = userService.lambdaQuery().eq(User::getUsername, auth.getName()).one();
+        User user = null;
+        Object principal = auth.getPrincipal();
+        if (principal instanceof JwtPrincipal jwtPrincipal && jwtPrincipal.userId() != null) {
+            user = userService.getById(jwtPrincipal.userId());
+            if (user != null && StringUtils.hasText(jwtPrincipal.username())
+                && !jwtPrincipal.username().equalsIgnoreCase(user.getUsername())) {
+                throw new BizException(40100, "令牌用户信息不一致");
+            }
+        }
+        if (user == null) {
+            user = userService.lambdaQuery().eq(User::getUsername, auth.getName()).one();
+        }
         if (user == null) {
             throw new BizException(40100, "用户不存在");
         }
@@ -35,11 +48,10 @@ public class CurrentUserService {
 
     public void requireAdmin() {
         User user = requireCurrentUser();
-        Role role = getCurrentRole(user);
-        boolean isAdmin = "admin".equalsIgnoreCase(user.getUsername())
-                || (role != null && ADMIN_ROLE_CODE.equalsIgnoreCase(role.getCode()));
+        String roleCode = getCurrentRoleCode(user, getCurrentRole(user));
+        boolean isAdmin = ADMIN_ROLE_CODE.equalsIgnoreCase(roleCode);
         if (!isAdmin) {
-            throw new BizException(40300, "仅管理员可操作");
+            throw new AccessDeniedException("仅管理员可操作");
         }
     }
 
@@ -48,14 +60,14 @@ public class CurrentUserService {
         Role role = getCurrentRole(user);
         String currentRoleCode = getCurrentRoleCode(user, role);
         if (!StringUtils.hasText(currentRoleCode)) {
-            throw new BizException(40300, "当前账号未分配身份");
+            throw new AccessDeniedException("当前账号未分配身份");
         }
 
         boolean allowed = Arrays.stream(roleCodes)
             .filter(StringUtils::hasText)
             .anyMatch(code -> code.equalsIgnoreCase(currentRoleCode));
         if (!allowed) {
-            throw new BizException(40300, "当前身份无权执行该操作");
+            throw new AccessDeniedException("当前身份无权执行该操作");
         }
     }
 

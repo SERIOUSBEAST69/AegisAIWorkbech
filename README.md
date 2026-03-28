@@ -51,7 +51,7 @@ python app.py
 - 服务地址：http://localhost:5000
 - 健康检查：http://localhost:5000/health
 
-> **注意**：不启动 Python 服务时，AI 风险评级页面会使用内置 mock 数据；异常检测页面会显示"❌ 推理服务不可用"提示。
+> **注意**：不启动 Python 服务时，AI 风险评级与异常检测接口会直接返回服务不可用，请先启动推理服务。
 
 ### 4. 启动 Electron 客户端（可选）
 ```bash
@@ -69,6 +69,26 @@ cd python-service
 python openclaw_simulator.py --count 1200 --url http://localhost:8080
 ```
 > 上报接口 `/api/security/events/report` 无需登录 token，可直接调用。前提是 Spring Boot 后端已启动。
+
+---
+
+## CI 与回归命令
+
+在项目根目录执行：
+
+```bash
+npm run security:scan
+npm run build
+npm run test:backend:integration
+```
+
+一条命令完成本地 CI 同步校验：
+
+```bash
+npm run verify:ci
+```
+
+前端已接入 Web Vitals 上报到 `/api/ops-metrics/web-vitals`，后端可通过运维指标接口统一查看服务端与端侧观测信息。
 
 ---
 

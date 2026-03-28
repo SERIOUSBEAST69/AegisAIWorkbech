@@ -10,7 +10,6 @@ import java.util.Collections;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.core.userdetails.User;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -36,8 +35,8 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             Claims claims = jwtUtil.parse(token);
             String username = claims.getSubject();
             Long uid = claims.get("uid", Long.class);
-            User principal = new User(username, "", Collections.emptyList());
-            UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities());
+            JwtPrincipal principal = new JwtPrincipal(uid, username);
+            UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(principal, null, Collections.emptyList());
             auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
             SecurityContextHolder.getContext().setAuthentication(auth);
             chain.doFilter(request, response);

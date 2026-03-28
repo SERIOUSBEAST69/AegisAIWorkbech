@@ -11,6 +11,7 @@ import com.trustai.entity.AiModel;
 import com.trustai.entity.AuditLog;
 import com.trustai.entity.RiskEvent;
 import com.trustai.entity.SecurityEvent;
+import com.trustai.exception.BizException;
 import org.springframework.stereotype.Service;
 
 import java.net.URI;
@@ -94,14 +95,14 @@ public class AiGatewayService {
         ProviderConfig cfg = ProviderConfig.of(provider);
         String statusFlag = "success";
         if (cfg == null) {
-            Map<String, Object> mock = mock("unsupported provider: " + provider, req.getMessages());
-            persistLog(req, model, provider, mock, begin, "fail");
-            return mock;
+            Map<String, Object> errorResp = Map.of("reason", "unsupported provider: " + provider);
+            persistLog(req, model, provider, errorResp, begin, "fail");
+            throw new BizException(40000, "不支持的模型供应商: " + provider);
         }
         if (cfg.apiKey == null || cfg.apiKey.isEmpty()) {
-            Map<String, Object> mock = mock("apiKey missing for " + provider + " (返回模拟响应)", req.getMessages());
-            persistLog(req, model, provider, mock, begin, "fail");
-            return mock;
+            Map<String, Object> errorResp = Map.of("reason", "apiKey missing for " + provider);
+            persistLog(req, model, provider, errorResp, begin, "fail");
+            throw new BizException(50000, "AI 网关未配置 API Key，请先完成供应商配置");
         }
 
         try {
@@ -124,9 +125,9 @@ public class AiGatewayService {
             persistLog(req, model, provider, map, begin, statusFlag);
             return map;
         } catch (Exception e) {
-            Map<String, Object> mock = mock("invoke failed: " + e.getMessage(), req.getMessages());
-            persistLog(req, model, provider, mock, begin, "fail");
-            return mock;
+            Map<String, Object> errorResp = Map.of("reason", "invoke failed: " + e.getMessage());
+            persistLog(req, model, provider, errorResp, begin, "fail");
+            throw new BizException(50000, "AI 网关调用失败: " + e.getMessage());
         }
     }
 
@@ -455,14 +456,6 @@ public class AiGatewayService {
         } catch (Exception ignored) {
             return defaultValue;
         }
-    }
-
-    private Map<String, Object> mock(String reason, List<Message> messages) {
-        Map<String, Object> map = new HashMap<>();
-        map.put("provider", "mock");
-        map.put("reply", "【模拟响应】" + (messages.isEmpty() ? "" : messages.get(messages.size()-1).getContent()));
-        map.put("reason", reason);
-        return map;
     }
 
     private void persistLog(ChatReq req, AiModel model, String provider, Map<String, Object> resp, Instant begin, String status) {

@@ -25,7 +25,7 @@
           <div class="wizard-sheen" aria-hidden="true"></div>
         <header class="wizard-topbar">
           <span class="brand-chip">{{ currentStepMeta.kicker }}</span>
-          <span class="panel-mini-meta">{{ environmentLabel }}</span>
+          <span class="panel-mini-meta">Real API</span>
         </header>
 
         <div class="step-indicator-row">
@@ -116,24 +116,6 @@
                     </div>
                   </div>
 
-                  <div v-if="flowType === 'login'" class="demo-strip">
-                    <div class="demo-strip-head">
-                      <span>DEMO IDENTITY</span>
-                      <strong>需要直接体验，可以从这里跳过填写</strong>
-                    </div>
-                    <div class="demo-grid">
-                      <button
-                        v-for="account in demoAccounts"
-                        :key="account.username"
-                        type="button"
-                        class="demo-card clickable"
-                        @click="applyDemoAccount(account)"
-                      >
-                        <span>{{ account.label }}</span>
-                        <strong>{{ account.username }}</strong>
-                      </button>
-                    </div>
-                  </div>
                 </div>
               </template>
 
@@ -324,18 +306,6 @@ const accessFlows = [
 const accessModes = [
   { value: 'password', label: '账号密码', icon: UserFilled, loginHint: '通过账号与密码建立安全会话。', registerHint: '创建一组适合长期使用的工作台凭据。' },
 ];
-
-const demoAccounts = [
-  { label: '治理管理员', username: 'admin', password: 'admin', phone: '13800138000', nickname: '平台管理员', roleCode: 'ADMIN', organizationType: 'enterprise', department: '治理中心', wechatOpenId: 'wx_admin' },
-  { label: '管理层', username: 'exec.demo', password: 'demo1234', phone: '13800138001', nickname: '经营负责人', roleCode: 'EXECUTIVE', organizationType: 'enterprise', department: '经营管理部', wechatOpenId: 'wx_exec_demo' },
-  { label: '安全运维', username: 'secops.demo', password: 'demo1234', phone: '13800138002', nickname: '安全运维负责人', roleCode: 'SECOPS', organizationType: 'enterprise', department: '安全运营中心', wechatOpenId: 'wx_secops_demo' },
-  { label: '数据管理员', username: 'data.demo', password: 'demo1234', phone: '13800138003', nickname: '数据管理员', roleCode: 'DATA_ADMIN', organizationType: 'enterprise', department: '数据治理部', wechatOpenId: 'wx_data_demo' },
-  { label: 'AI开发者', username: 'builder.demo', password: 'demo1234', phone: '13800138004', nickname: 'AI应用开发者', roleCode: 'AI_BUILDER', organizationType: 'ai-team', department: '模型平台组', wechatOpenId: 'wx_builder_demo' },
-  { label: '业务负责人', username: 'biz.demo', password: 'demo1234', phone: '13800138006', nickname: '业务负责人', roleCode: 'BUSINESS_OWNER', organizationType: 'enterprise', department: '业务创新部', wechatOpenId: 'wx_biz_demo' },
-  { label: '普通员工', username: 'employee.demo', password: 'demo1234', phone: '13800138007', nickname: '普通员工', roleCode: 'EMPLOYEE', organizationType: 'enterprise', department: '业务一线', wechatOpenId: 'wx_employee_demo' },
-];
-
-const environmentLabel = import.meta.env.VITE_USE_MOCK === 'true' ? 'Mock' : 'Real API';
 const CAPTCHA_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 
 const currentStep = ref(1);
@@ -821,24 +791,13 @@ async function sendPhoneCode(target) {
         registerForm.phoneCode = result.codeHint;
       }
     }
-    ElMessage.success(result?.message || `验证码已发送，当前固定为 ${result?.codeHint || '123456'}`);
+    ElMessage.success(result?.message || '验证码已发送');
     startCountdown(target);
     return result;
   } catch (err) {
     globalError.value = err?.message || '验证码发送失败';
     return null;
   }
-}
-
-function applyDemoAccount(account) {
-  flowType.value = 'login';
-  activeMode.value = 'password';
-  modeChosen.value = true;
-  registerForm.loginType = 'password';
-  passwordForm.username = account.username;
-  passwordForm.password = account.password;
-  passwordForm.captcha = '';
-  goToStep(4);
 }
 
 function getPortalPose(lifted) {
@@ -1518,7 +1477,6 @@ onBeforeUnmount(() => {
 }
 
 .cluster-title,
-.demo-strip-head span,
 .review-hero span,
 .form-stage-meta span {
   color: #89a6dd;
@@ -1529,7 +1487,6 @@ onBeforeUnmount(() => {
 }
 
 .choice-cluster,
-.demo-strip,
 .review-card,
 .review-note,
 .flow-card,
@@ -1547,8 +1504,7 @@ onBeforeUnmount(() => {
 }
 
 .flow-card,
-.mode-card,
-.demo-card {
+.mode-card {
   width: 100%;
   text-align: left;
   padding: 18px;
@@ -1557,7 +1513,6 @@ onBeforeUnmount(() => {
 
 .flow-card,
 .mode-card,
-.demo-card,
 .back-button,
 .next-button,
 .assist-button,
@@ -1566,8 +1521,7 @@ onBeforeUnmount(() => {
 }
 
 .flow-card:hover,
-.mode-card:hover,
-.demo-card:hover {
+.mode-card:hover {
   transform: translateY(-2px);
 }
 
@@ -1593,7 +1547,6 @@ onBeforeUnmount(() => {
 
 .flow-card strong,
 .mode-copy strong,
-.demo-strip-head strong,
 .review-hero strong,
 .review-card strong,
 .form-stage-meta strong {
@@ -1641,40 +1594,6 @@ onBeforeUnmount(() => {
   background: rgba(255,255,255,0.04);
   color: #d6e4fb;
   font-size: 24px;
-}
-
-.demo-strip {
-  padding: 18px;
-}
-
-.demo-strip-head strong {
-  margin-top: 8px;
-  font-size: 18px;
-}
-
-.demo-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(156px, 100%), 1fr));
-  gap: 10px;
-  margin-top: 16px;
-}
-
-.demo-card {
-  border-radius: 18px;
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(186, 210, 255, 0.14);
-}
-
-.demo-card span {
-  display: block;
-  color: #bdd0eb;
-  font-size: 12px;
-}
-
-.demo-card strong {
-  margin-top: 6px;
-  color: #f4f8ff;
-  font-size: 14px;
 }
 
 .step-layout-form {
@@ -1965,7 +1884,6 @@ onBeforeUnmount(() => {
 
   .flow-grid,
   .review-grid,
-  .demo-grid,
   .compact-grid {
     grid-template-columns: 1fr;
   }
@@ -2120,8 +2038,6 @@ onBeforeUnmount(() => {
 
   .flow-card,
   .mode-card,
-  .demo-card,
-  .demo-strip,
   .review-card,
   .review-note {
     padding: 14px;

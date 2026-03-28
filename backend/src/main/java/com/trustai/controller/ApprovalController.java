@@ -8,6 +8,7 @@ import com.trustai.exception.BizException;
 import com.trustai.service.ApprovalRequestService;
 import com.trustai.service.CompanyScopeService;
 import com.trustai.service.CurrentUserService;
+import com.trustai.service.KeyTaskMetricService;
 import com.trustai.utils.R;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -26,6 +27,7 @@ public class ApprovalController {
     @Autowired private ApprovalRequestService approvalRequestService;
     @Autowired private CurrentUserService currentUserService;
     @Autowired private CompanyScopeService companyScopeService;
+    @Autowired private KeyTaskMetricService keyTaskMetricService;
 
     private static final Set<String> APPROVE_STATUS = new HashSet<>(Arrays.asList("通过", "拒绝"));
     private static final String ROLE_ADMIN = "ADMIN";
@@ -40,6 +42,7 @@ public class ApprovalController {
     @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN','BUSINESS_OWNER','EMPLOYEE')")
     public R<List<ApprovalRequest>> list(@RequestParam(required = false) Long applicantId,
                                          @RequestParam(required = false) Long assetId) {
+        currentUserService.requireAnyRole("ADMIN", "DATA_ADMIN", "BUSINESS_OWNER", "EMPLOYEE");
         User currentUser = currentUserService.requireCurrentUser();
         String roleCode = currentUserService.currentRoleCode();
         QueryWrapper<ApprovalRequest> qw = companyScopeService.withCompany(new QueryWrapper<>());
@@ -56,64 +59,82 @@ public class ApprovalController {
     @PostMapping("/apply")
     @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN','BUSINESS_OWNER','EMPLOYEE')")
     public R<?> apply(@RequestBody ApprovalRequest req) {
-        User currentUser = currentUserService.requireCurrentUser();
-        String roleCode = currentUserService.currentRoleCode();
-        req.setCompanyId(companyScopeService.requireCompanyId());
-        req.setApplicantId(currentUser.getId());
-        req.setReason(normalizeApplyReason(req.getReason(), roleCode));
-        req.setApproverId(null);
-        req.setStatus(null);
-        req.setTaskId(null);
-        req.setProcessInstanceId(null);
-        approvalRequestService.startApproval(req);
-        return R.okMsg("提交成功");
+        try {
+            User currentUser = currentUserService.requireCurrentUser();
+            String roleCode = currentUserService.currentRoleCode();
+            req.setCompanyId(companyScopeService.requireCompanyId());
+            req.setApplicantId(currentUser.getId());
+            req.setReason(normalizeApplyReason(req.getReason(), roleCode));
+            req.setApproverId(null);
+            req.setStatus(null);
+            req.setTaskId(null);
+            req.setProcessInstanceId(null);
+            approvalRequestService.startApproval(req);
+            keyTaskMetricService.record("approval.flow", true);
+            return R.okMsg("提交成功");
+        } catch (RuntimeException ex) {
+            keyTaskMetricService.record("approval.flow", false);
+            throw ex;
+        }
     }
 
     @PostMapping("/reject")
     @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN','BUSINESS_OWNER')")
     public R<?> reject(@RequestBody ApproveReq req) {
-        User currentUser = currentUserService.requireCurrentUser();
-        String roleCode = currentUserService.currentRoleCode();
-        ApprovalRequest before = approvalRequestService.getOne(
-            companyScopeService.withCompany(new QueryWrapper<ApprovalRequest>()).eq("id", req.getRequestId())
-        );
-        if (before == null) return R.error(40000, "申请不存在");
-        if (!canOperateRequest(roleCode, before, currentUser)) {
-            throw new BizException(40300, "当前身份无权审批该类型申请");
+        try {
+            User currentUser = currentUserService.requireCurrentUser();
+            String roleCode = currentUserService.currentRoleCode();
+            ApprovalRequest before = approvalRequestService.getOne(
+                companyScopeService.withCompany(new QueryWrapper<ApprovalRequest>()).eq("id", req.getRequestId())
+            );
+            if (before == null) return R.error(40000, "申请不存在");
+            if (!canOperateRequest(roleCode, before, currentUser)) {
+                throw new BizException(40300, "当前身份无权审批该类型申请");
+            }
+            String prevStatus = before.getStatus();
+            approvalRequestService.approve(req.getRequestId(), currentUser.getId(), "拒绝");
+            ApprovalRequest after = approvalRequestService.getById(req.getRequestId());
+            java.util.Map<String, Object> detail = new java.util.HashMap<>();
+            detail.put("requestId", req.getRequestId());
+            detail.put("previousStatus", prevStatus);
+            detail.put("currentStatus", after == null ? "驳回" : after.getStatus());
+            detail.put("approverId", currentUser.getId());
+            detail.put("message", "审批已驳回，状态已从「" + prevStatus + "」回退至「驳回」。");
+            keyTaskMetricService.record("approval.flow", true);
+            return R.ok(detail);
+        } catch (RuntimeException ex) {
+            keyTaskMetricService.record("approval.flow", false);
+            throw ex;
         }
-        String prevStatus = before.getStatus();
-        // 驳回并回退
-        approvalRequestService.approve(req.getRequestId(), currentUser.getId(), "拒绝");
-        ApprovalRequest after = approvalRequestService.getById(req.getRequestId());
-        java.util.Map<String, Object> detail = new java.util.HashMap<>();
-        detail.put("requestId", req.getRequestId());
-        detail.put("previousStatus", prevStatus);
-        detail.put("currentStatus", after == null ? "驳回" : after.getStatus());
-        detail.put("approverId", currentUser.getId());
-        detail.put("message", "审批已驳回，状态已从「" + prevStatus + "」回退至「驳回」。");
-        return R.ok(detail);
     }
 
     @PostMapping("/approve")
     @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN','BUSINESS_OWNER')")
     public R<?> approve(@RequestBody ApproveReq req) {
-        if (!APPROVE_STATUS.contains(req.getStatus())) return R.error(40000, "不支持的状态");
-        User currentUser = currentUserService.requireCurrentUser();
-        String roleCode = currentUserService.currentRoleCode();
-        ApprovalRequest request = approvalRequestService.getOne(
-            companyScopeService.withCompany(new QueryWrapper<ApprovalRequest>()).eq("id", req.getRequestId())
-        );
-        if (request == null) return R.error(40000, "申请不存在");
-        if (!canOperateRequest(roleCode, request, currentUser)) {
-            throw new BizException(40300, "当前身份无权审批该类型申请");
+        try {
+            if (!APPROVE_STATUS.contains(req.getStatus())) return R.error(40000, "不支持的状态");
+            User currentUser = currentUserService.requireCurrentUser();
+            String roleCode = currentUserService.currentRoleCode();
+            ApprovalRequest request = approvalRequestService.getOne(
+                companyScopeService.withCompany(new QueryWrapper<ApprovalRequest>()).eq("id", req.getRequestId())
+            );
+            if (request == null) return R.error(40000, "申请不存在");
+            if (!canOperateRequest(roleCode, request, currentUser)) {
+                throw new BizException(40300, "当前身份无权审批该类型申请");
+            }
+            approvalRequestService.approve(req.getRequestId(), currentUser.getId(), req.getStatus());
+            keyTaskMetricService.record("approval.flow", true);
+            return R.okMsg("审批完成");
+        } catch (RuntimeException ex) {
+            keyTaskMetricService.record("approval.flow", false);
+            throw ex;
         }
-        approvalRequestService.approve(req.getRequestId(), currentUser.getId(), req.getStatus());
-        return R.okMsg("审批完成");
     }
 
     @GetMapping("/todo")
     @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN','BUSINESS_OWNER')")
     public R<List<ApprovalRequest>> todo() {
+        currentUserService.requireAnyRole("ADMIN", "DATA_ADMIN", "BUSINESS_OWNER");
         User currentUser = currentUserService.requireCurrentUser();
         String roleCode = currentUserService.currentRoleCode();
         List<ApprovalRequest> todos = approvalRequestService.todo(currentUser.getId());

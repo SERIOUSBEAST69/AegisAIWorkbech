@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install Frontend Dependencies
+        run: npm ci
+
+      - name: Sensitive Logging Scan
+        run: npm run security:scan
+
+      - name: Build Frontend
+        run: npm run build
+
+      - name: Install Playwright Browser
+        run: npm run test:e2e:install
+
+      - name: Run Frontend E2E
+        run: npm run test:e2e
+
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Compile Backend
+        working-directory: backend
+        run: mvn -q -DskipTests compile
+
+      - name: Run Integration Regression Tests
+        working-directory: backend
+        run: mvn -q "-Dtest=AccountApprovalIntegrationTest,DashboardSecurityIntegrationTest,ValidationGuardIntegrationTest,PermissionMatrixIntegrationTest" test

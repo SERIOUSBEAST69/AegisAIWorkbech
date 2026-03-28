@@ -3,7 +3,7 @@
 CREATE TABLE `sys_user` (
   `id` BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '用户ID',
   `company_id` BIGINT COMMENT '公司ID',
-  `account_type` VARCHAR(20) DEFAULT 'demo' COMMENT '账号类型 demo/real',
+  `account_type` VARCHAR(20) DEFAULT 'real' COMMENT '账号类型 real',
   `account_status` VARCHAR(20) DEFAULT 'active' COMMENT '账号状态 pending/active/rejected/disabled',
   `username` VARCHAR(50) NOT NULL COMMENT '用户名',
   `password` VARCHAR(100) NOT NULL COMMENT '密码（加密存储）',

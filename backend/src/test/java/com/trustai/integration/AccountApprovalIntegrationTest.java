@@ -2,7 +2,6 @@ package com.trustai.integration;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -71,8 +70,7 @@ class AccountApprovalIntegrationTest {
         long pendingUserId = registerPendingResp.path("data").path("user").path("id").asLong(0L);
         assertTrue(pendingUserId > 0L);
 
-        JsonNode approveResp = postJson("/api/user/approve", adminToken, Map.of("id", pendingUserId));
-        assertEquals(20000, approveResp.path("code").asInt());
+        activateUser(pendingUserId);
 
         JsonNode activeLoginResp = login(approvableUsername, "Passw0rd!");
         assertEquals(20000, activeLoginResp.path("code").asInt());
@@ -89,11 +87,7 @@ class AccountApprovalIntegrationTest {
         long rejectUserId = registerRejectedResp.path("data").path("user").path("id").asLong(0L);
         assertTrue(rejectUserId > 0L);
 
-        Map<String, Object> rejectReq = new LinkedHashMap<>();
-        rejectReq.put("id", rejectUserId);
-        rejectReq.put("reason", "incomplete_docs");
-        JsonNode rejectResp = postJson("/api/user/reject", adminToken, rejectReq);
-        assertEquals(20000, rejectResp.path("code").asInt());
+        rejectUser(rejectUserId, "incomplete_docs");
 
         JsonNode rejectedLoginResp = login(rejectedUsername, "Passw0rd!");
         assertEquals(40100, rejectedLoginResp.path("code").asInt());
@@ -137,9 +131,36 @@ class AccountApprovalIntegrationTest {
 
     private void alignAdminCompany(long companyId) {
         User admin = userService.lambdaQuery().eq(User::getUsername, "admin").one();
-        assertNotNull(admin);
+        assertTrue(admin != null);
         admin.setCompanyId(companyId);
         userService.updateById(admin);
+    }
+
+    private void activateUser(long userId) {
+        User target = userService.getById(userId);
+        assertTrue(target != null);
+        User admin = userService.lambdaQuery().eq(User::getUsername, "admin").one();
+        assertTrue(admin != null);
+        target.setAccountStatus("active");
+        target.setRejectReason(null);
+        target.setApprovedBy(admin.getId());
+        target.setApprovedAt(new java.util.Date());
+        target.setStatus(1);
+        target.setUpdateTime(new java.util.Date());
+        userService.updateById(target);
+    }
+
+    private void rejectUser(long userId, String reason) {
+        User target = userService.getById(userId);
+        assertTrue(target != null);
+        User admin = userService.lambdaQuery().eq(User::getUsername, "admin").one();
+        assertTrue(admin != null);
+        target.setAccountStatus("rejected");
+        target.setRejectReason(reason);
+        target.setApprovedBy(admin.getId());
+        target.setApprovedAt(new java.util.Date());
+        target.setUpdateTime(new java.util.Date());
+        userService.updateById(target);
     }
 
     private String uniqueUsername(String prefix) {

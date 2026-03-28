@@ -25,7 +25,7 @@
           <span class="tower-unit">起重点事件</span>
           <div class="tower-divider"></div>
           <div class="tower-footnote">
-            {{ forecastDataSource === 'real_db' ? '🟢 真实历史 DB · LSTM 预测' : '⚪ 演示数据' }}
+            {{ forecastDataSource === 'real_db' ? '🟢 真实历史 DB · LSTM 预测' : '⚪ 降级预测' }}
             · 来自近 7 日风险事件数据库聚合
           </div>
         </div>
@@ -337,7 +337,6 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import * as echarts from 'echarts';
 import gsap from 'gsap';
 import { ElMessage } from 'element-plus';
 import { dashboardApi } from '../api/dashboard';
@@ -348,7 +347,6 @@ import AIPrivacyShield from '../components/AIPrivacyShield.vue';
 import { useUserStore } from '../store/user';
 import { getPersonaExperience, personalizeWorkbench } from '../utils/persona';
 import { quickPrivacyCheck } from '../utils/privacyPatterns';
-import { isMockSession } from '../utils/auth';
 
 function createEmptyOverview() {
   return {
@@ -511,39 +509,10 @@ async function sendAiDraft() {
   }
 }
 
-const MOCK_AI_MODELS = [
-  { id: 1, modelCode: 'gpt-4', modelName: 'GPT-4', provider: 'OpenAI', riskLevel: 'medium', status: 'enabled' },
-  { id: 2, modelCode: 'gpt-3.5-turbo', modelName: 'GPT-3.5', provider: 'OpenAI', riskLevel: 'low', status: 'enabled' },
-  { id: 3, modelCode: 'claude-3-opus', modelName: 'Claude 3', provider: 'Anthropic', riskLevel: 'high', status: 'enabled' },
-  { id: 4, modelCode: 'ernie-bot', modelName: '文心一言', provider: '百度', riskLevel: 'low', status: 'enabled' },
-  { id: 5, modelCode: 'qwen-turbo', modelName: '通义千问', provider: '阿里云', riskLevel: 'medium', status: 'enabled' },
-];
-
 async function fetchAiModels() {
   aiModelLoadState.value = 'loading';
   aiModelLoadMessage.value = '';
-  
-  // 直接使用预设模型列表，确保中文显示正确
-  aiModelOptions.value = MOCK_AI_MODELS;
-  if (!selectedAiModelCode.value && aiModelOptions.value.length > 0) {
-    selectedAiModelCode.value = aiModelOptions.value[0].modelCode;
-  }
-  aiModelLoadState.value = 'ready';
-  aiModelLoadMessage.value = '使用预设模型列表';
-  return;
-  
-  // 保留原有的API请求代码作为注释
-  /*
-  if (isMockSession()) {
-    aiModelOptions.value = MOCK_AI_MODELS;
-    if (!selectedAiModelCode.value && aiModelOptions.value.length > 0) {
-      selectedAiModelCode.value = aiModelOptions.value[0].modelCode;
-    }
-    aiModelLoadState.value = 'ready';
-    aiModelLoadMessage.value = '演示模式：使用预设模型列表';
-    return;
-  }
-  
+
   try {
     let payload;
     try {
@@ -574,14 +543,11 @@ async function fetchAiModels() {
       aiModelLoadState.value = 'ready';
     }
   } catch (error) {
-    aiModelOptions.value = MOCK_AI_MODELS;
-    if (!selectedAiModelCode.value && aiModelOptions.value.length > 0) {
-      selectedAiModelCode.value = aiModelOptions.value[0].modelCode;
-    }
-    aiModelLoadState.value = 'ready';
-    aiModelLoadMessage.value = '已切换到演示模式，使用预设模型列表';
+    aiModelOptions.value = [];
+    selectedAiModelCode.value = '';
+    aiModelLoadState.value = 'error';
+    aiModelLoadMessage.value = error?.message || '模型目录加载失败';
   }
-  */
 }
 
 function normalizeModelListPayload(payload) {
@@ -767,6 +733,14 @@ let trendChart;
 let riskChart;
 let resizeHandler;
 let securityStatusTimer;
+let echartsLib;
+
+async function ensureEcharts() {
+  if (!echartsLib) {
+    echartsLib = await import('echarts');
+  }
+  return echartsLib;
+}
 
 const metricVisualMap = {
   assets: { icon: 'DataAnalysis', color: 'var(--color-primary)' },
@@ -804,7 +778,8 @@ function riskTone(level) {
   return 'neutral';
 }
 
-function renderTrendChart() {
+async function renderTrendChart() {
+  const echarts = await ensureEcharts();
   if (!trendChartRef.value) return;
   if (!trendChart) {
     trendChart = echarts.init(trendChartRef.value);
@@ -919,7 +894,8 @@ function renderTrendChart() {
   });
 }
 
-function renderRiskChart() {
+async function renderRiskChart() {
+  const echarts = await ensureEcharts();
   if (!riskChartRef.value) return;
   if (!riskChart) {
     riskChart = echarts.init(riskChartRef.value);
@@ -1007,16 +983,15 @@ async function fetchData() {
         forecastSeries: series,
         forecastNextDay: Math.round(series[0] ?? personalized.trend.forecastNextDay),
       };
-      // 标记数据来源（real_db = 实际 LSTM 输出；mock = 降级均值）
-      forecastDataSource.value = forecastData._dataSource || (forecastData.method === 'lstm' ? 'real_db' : 'mock');
+      // 标记数据来源（real_db = 实际 LSTM 输出；degraded = 降级均值）
+      forecastDataSource.value = forecastData._dataSource || (forecastData.method === 'lstm' ? 'real_db' : 'degraded');
     }
 
     overview.value = personalized;
     insights.value = insightData;
     trustPulse.value = pulseData;
     await nextTick();
-    renderTrendChart();
-    renderRiskChart();
+    await Promise.all([renderTrendChart(), renderRiskChart()]);
     playEntryScene();
   } catch (error) {
     ElMessage.error(error?.message || '首页工作台加载失败');
@@ -1027,8 +1002,7 @@ async function fetchData() {
 
 watch(() => overview.value.trend, async () => {
   await nextTick();
-  renderTrendChart();
-  renderRiskChart();
+  await Promise.all([renderTrendChart(), renderRiskChart()]);
 }, { deep: true });
 
 onMounted(() => {
@@ -1446,110 +1420,8 @@ onBeforeUnmount(() => {
   color: #dcefff;
 }
 
-.persona-grid {
-  grid-column: 1 / -1;
-  display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
-  gap: 20px;
-}
-
-.persona-card,
-.journey-card {
-  padding: 22px;
-}
-
-.persona-benefits {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-}
-
-.persona-benefit,
-.journey-item,
-.quick-action-card {
-  border-radius: 18px;
-  border: 1px solid rgba(255,255,255,0.08);
-  background: rgba(255,255,255,0.03);
-}
-
-.persona-benefit {
-  padding: 16px;
-}
-
-.persona-benefit span,
-.quick-action-kicker {
-  color: #88acff;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-.persona-benefit strong,
-.journey-item strong,
-.quick-action-card strong {
-  display: block;
-  margin-top: 10px;
-  color: #f5f8ff;
-  font-size: 18px;
-}
-
-.persona-benefit p,
-.journey-item p,
-.quick-action-card p {
-  margin: 10px 0 0;
-  color: #90a0b8;
-  line-height: 1.7;
-}
-
-.journey-list {
-  display: grid;
-  gap: 12px;
-}
-
-.journey-item {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 16px;
-  padding: 16px;
-}
-
-.journey-step {
-  min-width: 42px;
-  height: 42px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 14px;
-  background: linear-gradient(135deg, rgba(64, 122, 255, 0.28), rgba(31, 212, 191, 0.18));
-  color: #f4f8ff;
-  font-size: 14px;
-  font-weight: 800;
-}
-
-.quick-scene {
-  grid-column: 1 / -1;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
-}
-
-.quick-action-card {
-  width: 100%;
-  padding: 20px;
-  text-align: left;
-  transition: transform 0.22s ease, border-color 0.22s ease, background 0.22s ease;
-}
-
-.quick-action-card:hover {
-  transform: translateY(-3px);
-  border-color: rgba(118, 168, 255, 0.34);
-  background: rgba(255,255,255,0.05);
-}
-
 .chart-card,
-.todo-card,
-.feed-card {
+.todo-card {
   padding: 22px;
 }
 
@@ -1642,24 +1514,19 @@ onBeforeUnmount(() => {
   border-radius: 50%;
 }
 
-.risk-dot.danger,
-.feed-level.danger {
+.risk-dot.danger {
   background: #ff6b6b;
 }
 
-.risk-dot.warning,
-.feed-level.warning {
+.risk-dot.warning {
   background: #ffb454;
 }
 
-.risk-dot.safe,
-.feed-level.safe {
+.risk-dot.safe {
   background: #2ecc71;
 }
 
-.risk-dot.neutral,
-.feed-level.neutral,
-.feed-level.processing {
+.risk-dot.neutral {
   background: #7f8aa3;
 }
 
@@ -1670,19 +1537,16 @@ onBeforeUnmount(() => {
 }
 
 .risk-copy strong,
-.todo-copy strong,
-.feed-item strong {
+.todo-copy strong {
   color: #f6f8fe;
 }
 
 .risk-copy span,
-.todo-copy p,
-.feed-item p {
+.todo-copy p {
   color: #90a0b8;
 }
 
-.todo-list,
-.feed-list {
+.todo-list {
   display: grid;
   gap: 12px;
 }
@@ -1718,8 +1582,7 @@ onBeforeUnmount(() => {
   text-align: center;
 }
 
-.todo-copy p,
-.feed-item p {
+.todo-copy p {
   margin: 6px 0 0;
   line-height: 1.6;
 }
@@ -1730,53 +1593,15 @@ onBeforeUnmount(() => {
   font-weight: 700;
 }
 
-.feed-item {
-  padding: 16px 18px;
-  border-radius: 18px;
-  border: 1px solid rgba(255,255,255,0.06);
-  background: rgba(255,255,255,0.03);
-}
-
-.feed-topline {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 10px;
-}
-
-.feed-level {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 72px;
-  padding: 6px 10px;
-  border-radius: 999px;
-  color: #08101e;
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-}
-
-.feed-time {
-  color: #7e8ca7;
-  font-size: 12px;
-}
-
 @media (max-width: 1280px) {
   .pulse-grid,
   .hero-scene,
-  .persona-grid,
   .risk-layout,
 
   .pulse-layout {
     grid-template-columns: 1fr;
   }
   .stat-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .persona-benefits,
-  .quick-scene {
     grid-template-columns: 1fr;
   }
 
@@ -1792,8 +1617,7 @@ onBeforeUnmount(() => {
 
   .hero-scene,
   .chart-card,
-  .todo-card,
-  .feed-card {
+  .todo-card {
     padding: 18px;
   }
 

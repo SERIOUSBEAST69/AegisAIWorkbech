@@ -1,5 +1,6 @@
 package com.trustai.utils;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -24,5 +25,11 @@ public class R<T> {
     }
     public static <T> R<T> error(String msg) {
         return error(50000, msg);
+    }
+
+    // 兼容更规范的响应字段命名：{ code, message, data }
+    @JsonProperty("message")
+    public String getMessage() {
+        return msg;
     }
 }

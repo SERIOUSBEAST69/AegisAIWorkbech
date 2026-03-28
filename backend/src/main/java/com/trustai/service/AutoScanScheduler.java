@@ -25,7 +25,7 @@ import org.springframework.stereotype.Service;
  * </ol>
  *
  * <p>扫描结果写入 sensitive_scan_task 表，前端敏感扫描页实时读取，
- * 不存在任何写死/Mock 数据。
+ * 不存在任何写死的静态示例数据。
  */
 @Slf4j
 @Service

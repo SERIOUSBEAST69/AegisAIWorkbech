@@ -18,7 +18,7 @@ public class WorkbenchOverviewDTO {
     private List<RiskBucket> riskDistribution = new ArrayList<>();
     private List<TodoItem> todos = new ArrayList<>();
     private List<ActivityFeed> feeds = new ArrayList<>();
-    /** 数据来源标识：real_db = 真实数据库查询；mock = 降级/演示数据。前端据此显示数据来源标签。*/
+    /** 数据来源标识：real_db = 真实数据库查询；degraded = 降级结果。前端据此显示数据来源标签。*/
     private String _dataSource = "real_db";
 
     @Data

@@ -1,7 +1,6 @@
 package com.trustai.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
-import com.trustai.config.DemoAccountCatalog;
 import com.trustai.config.jwt.JwtUtil;
 import com.trustai.dto.UserProfileDTO;
 import com.trustai.entity.Company;
@@ -42,12 +41,20 @@ import org.springframework.web.bind.annotation.RestController;
 @Validated
 public class AuthController {
     private static final Logger log = LoggerFactory.getLogger(AuthController.class);
-    private static final String ACCOUNT_TYPE_DEMO = "demo";
     private static final String ACCOUNT_TYPE_REAL = "real";
     private static final String ACCOUNT_STATUS_PENDING = "pending";
     private static final String ACCOUNT_STATUS_ACTIVE = "active";
     private static final String ACCOUNT_STATUS_REJECTED = "rejected";
     private static final String ACCOUNT_STATUS_DISABLED = "disabled";
+    private static final Map<String, String> ROLE_LABELS = Map.of(
+        "ADMIN", "治理管理员",
+        "EXECUTIVE", "管理层",
+        "SECOPS", "安全运维",
+        "DATA_ADMIN", "数据管理员",
+        "AI_BUILDER", "AI应用开发者",
+        "BUSINESS_OWNER", "业务负责人",
+        "EMPLOYEE", "普通员工"
+    );
 
     @Autowired private UserService userService;
     @Autowired private PasswordEncoder passwordEncoder;
@@ -59,10 +66,12 @@ public class AuthController {
 
     @PostMapping("/login")
     public R<?> login(@Valid @RequestBody LoginReq req) {
-        ensureDemoUserByUsername(req.getUsername());
         User user = findUserByUsername(req.getUsername());
         log.info("login pick user id={}", user != null ? user.getId() : null);
         assertLoginAllowed(user, "用户不存在");
+        if (user == null) {
+            throw new BizException(40100, "用户不存在");
+        }
         if (!passwordEncoder.matches(req.getPassword(), user.getPassword())) {
             throw new BizException(40100, "用户名或密码错误");
         }
@@ -75,7 +84,6 @@ public class AuthController {
     @PostMapping("/login-phone")
     public R<?> loginByPhone(@Valid @RequestBody PhoneLoginReq req) {
         authVerificationService.verifyPhoneCode(req.getPhone(), req.getCode());
-        ensureDemoUserByPhone(req.getPhone());
         User user = findUserByPhone(req.getPhone());
         assertLoginAllowed(user, "手机号未注册");
         user.setLoginType("phone");
@@ -87,7 +95,6 @@ public class AuthController {
     @PostMapping("/login-wechat")
     public R<?> loginByWechat(@Valid @RequestBody WechatLoginReq req) {
         String openId = normalizeWechatOpenId(req.getWechatOpenId(), req.getNickname());
-        ensureDemoUserByWechat(openId);
         User user = findUserByWechat(openId);
         if (user == null) {
             throw new BizException(40100, "微信身份未注册，请先完成账号注册");
@@ -122,7 +129,7 @@ public class AuthController {
 
     @GetMapping("/registration-options")
     public R<?> registrationOptions() {
-        List<Map<String, String>> identities = DemoAccountCatalog.roleLabels().entrySet().stream()
+        List<Map<String, String>> identities = ROLE_LABELS.entrySet().stream()
             .map(entry -> option(entry.getKey(), entry.getValue()))
             .toList();
         List<Map<String, String>> organizations = List.of(
@@ -186,76 +193,6 @@ public class AuthController {
         return user;
     }
 
-    private void ensureDemoUserByUsername(String username) {
-        ensureDemoUser(DemoAccountCatalog.demoAccountSeeds().stream()
-            .filter(seed -> seed.username().equals(username))
-            .findFirst()
-            .orElse(null));
-    }
-
-    private void ensureDemoUserByPhone(String phone) {
-        ensureDemoUser(DemoAccountCatalog.demoAccountSeeds().stream()
-            .filter(seed -> seed.phone().equals(phone))
-            .findFirst()
-            .orElse(null));
-    }
-
-    private void ensureDemoUserByWechat(String wechatOpenId) {
-        ensureDemoUser(DemoAccountCatalog.demoAccountSeeds().stream()
-            .filter(seed -> seed.wechatOpenId().equals(wechatOpenId))
-            .findFirst()
-            .orElse(null));
-    }
-
-    private void ensureDemoUser(DemoAccountCatalog.DemoAccountSeed seed) {
-        if (seed == null) {
-            return;
-        }
-        Role role = resolveOrCreateRoleForCompany(seed.roleCode(), DemoAccountCatalog.DEMO_COMPANY_ID);
-        if (role == null) {
-            return;
-        }
-
-        User user = findUserByUsername(seed.username());
-        boolean isNew = user == null;
-        if (isNew) {
-            user = new User();
-            user.setUsername(seed.username());
-            user.setCreateTime(new Date());
-        }
-
-        user.setUsername(seed.username());
-        user.setRealName(seed.realName());
-        user.setNickname(seed.realName());
-        user.setRoleId(role.getId());
-        if (user.getCompanyId() == null) {
-            user.setCompanyId(DemoAccountCatalog.DEMO_COMPANY_ID);
-        }
-        user.setDeviceId(seed.username() + "-device");
-        user.setOrganizationType(seed.organizationType());
-        user.setDepartment(seed.department());
-        user.setPhone(seed.phone());
-        user.setEmail(seed.email());
-        user.setLoginType("password");
-        user.setWechatOpenId(seed.wechatOpenId());
-        user.setAccountType(ACCOUNT_TYPE_DEMO);
-        user.setAccountStatus(ACCOUNT_STATUS_ACTIVE);
-        user.setApprovedBy(1L);
-        user.setApprovedAt(new Date());
-        user.setRejectReason(null);
-        user.setStatus(1);
-        user.setUpdateTime(new Date());
-        if (isNew || !isBcryptHash(user.getPassword()) || !passwordMatches(user.getPassword(), seed.password())) {
-            user.setPassword(passwordEncoder.encode(seed.password()));
-        }
-
-        if (isNew) {
-            userService.save(user);
-        } else {
-            userService.updateById(user);
-        }
-    }
-
     private Role resolveOrCreateRoleForCompany(String roleCode, Long companyId) {
         Role role = roleService.lambdaQuery()
             .eq(Role::getCode, roleCode)
@@ -267,7 +204,7 @@ public class AuthController {
         if (role != null) {
             return role;
         }
-        String roleName = DemoAccountCatalog.roleLabels().get(roleCode);
+        String roleName = ROLE_LABELS.get(roleCode);
         if (!StringUtils.hasText(roleName)) {
             return null;
         }
@@ -280,18 +217,6 @@ public class AuthController {
         created.setUpdateTime(new Date());
         roleService.save(created);
         return created;
-    }
-
-    private boolean isBcryptHash(String value) {
-        return StringUtils.hasText(value) && value.startsWith("$2");
-    }
-
-    private boolean passwordMatches(String encodedPassword, String rawPassword) {
-        try {
-            return StringUtils.hasText(encodedPassword) && passwordEncoder.matches(rawPassword, encodedPassword);
-        } catch (Exception ex) {
-            return false;
-        }
     }
 
     private User createUser(RegisterReq req, String loginType) {
@@ -355,16 +280,13 @@ public class AuthController {
             return ACCOUNT_TYPE_REAL;
         }
         String normalized = req.getAccountType().trim().toLowerCase();
-        if (!ACCOUNT_TYPE_DEMO.equals(normalized) && !ACCOUNT_TYPE_REAL.equals(normalized)) {
-            throw new BizException(40000, "不支持的账号类型");
+        if (!ACCOUNT_TYPE_REAL.equals(normalized)) {
+            throw new BizException(40000, "仅支持真实账号注册");
         }
         return normalized;
     }
 
     private Long resolveCompanyId(RegisterReq req, String accountType) {
-        if (ACCOUNT_TYPE_DEMO.equals(accountType)) {
-            return 1L;
-        }
         if (!StringUtils.hasText(req.getCompanyName())) {
             throw new BizException(40000, "真实账号注册必须填写公司名称");
         }

@@ -6,6 +6,7 @@ import com.trustai.entity.User;
 import com.trustai.exception.BizException;
 import com.trustai.service.CompanyScopeService;
 import com.trustai.service.CurrentUserService;
+import com.trustai.service.KeyTaskMetricService;
 import com.trustai.service.RiskEventService;
 import com.trustai.utils.R;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,10 +21,12 @@ public class RiskEventController {
     @Autowired private RiskEventService riskEventService;
     @Autowired private CurrentUserService currentUserService;
     @Autowired private CompanyScopeService companyScopeService;
+    @Autowired private KeyTaskMetricService keyTaskMetricService;
 
     @GetMapping("/list")
     @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
     public R<List<RiskEvent>> list(@RequestParam(required = false) String type) {
+        currentUserService.requireAnyRole("ADMIN", "SECOPS");
         QueryWrapper<RiskEvent> qw = new QueryWrapper<>();
         companyScopeService.withCompany(qw);
         if (type != null && !type.isEmpty()) qw.like("type", type);
@@ -33,31 +36,43 @@ public class RiskEventController {
     @PostMapping("/add")
     @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
     public R<?> add(@RequestBody RiskEvent event) {
-        currentUserService.requireAnyRole("ADMIN", "SECOPS");
-        User currentUser = currentUserService.requireCurrentUser();
-        event.setId(null);
-        event.setCompanyId(companyScopeService.requireCompanyId());
-        event.setHandlerId(currentUser.getId());
-        event.setCreateTime(new Date());
-        event.setUpdateTime(new Date());
-        riskEventService.save(event);
-        return R.okMsg("添加成功");
+        try {
+            currentUserService.requireAnyRole("ADMIN", "SECOPS");
+            User currentUser = currentUserService.requireCurrentUser();
+            event.setId(null);
+            event.setCompanyId(companyScopeService.requireCompanyId());
+            event.setHandlerId(currentUser.getId());
+            event.setCreateTime(new Date());
+            event.setUpdateTime(new Date());
+            riskEventService.save(event);
+            keyTaskMetricService.record("risk.dispose", true);
+            return R.okMsg("添加成功");
+        } catch (RuntimeException ex) {
+            keyTaskMetricService.record("risk.dispose", false);
+            throw ex;
+        }
     }
 
     @PostMapping("/update")
     @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
     public R<?> update(@RequestBody RiskEvent event) {
-        currentUserService.requireAnyRole("ADMIN", "SECOPS");
-        RiskEvent scoped = riskEventService.getOne(companyScopeService.withCompany(new QueryWrapper<RiskEvent>()).eq("id", event.getId()));
-        if (scoped == null) {
-            throw new BizException(40400, "风险事件不存在或不在当前公司");
+        try {
+            currentUserService.requireAnyRole("ADMIN", "SECOPS");
+            RiskEvent scoped = riskEventService.getOne(companyScopeService.withCompany(new QueryWrapper<RiskEvent>()).eq("id", event.getId()));
+            if (scoped == null) {
+                throw new BizException(40400, "风险事件不存在或不在当前公司");
+            }
+            User currentUser = currentUserService.requireCurrentUser();
+            event.setCompanyId(scoped.getCompanyId());
+            event.setHandlerId(currentUser.getId());
+            event.setUpdateTime(new Date());
+            riskEventService.updateById(event);
+            keyTaskMetricService.record("risk.dispose", true);
+            return R.okMsg("更新成功");
+        } catch (RuntimeException ex) {
+            keyTaskMetricService.record("risk.dispose", false);
+            throw ex;
         }
-        User currentUser = currentUserService.requireCurrentUser();
-        event.setCompanyId(scoped.getCompanyId());
-        event.setHandlerId(currentUser.getId());
-        event.setUpdateTime(new Date());
-        riskEventService.updateById(event);
-        return R.okMsg("更新成功");
     }
 
     @PostMapping("/delete")

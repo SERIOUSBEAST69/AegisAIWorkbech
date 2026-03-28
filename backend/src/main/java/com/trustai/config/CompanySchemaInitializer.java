@@ -6,7 +6,6 @@ import org.springframework.boot.CommandLineRunner;
 import org.springframework.core.annotation.Order;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
-import java.util.stream.Collectors;
 
 @Component
 @Order(0)
@@ -26,8 +25,20 @@ public class CompanySchemaInitializer implements CommandLineRunner {
                 ensureUnifiedEventTables();
         ensureCompanyColumns();
         ensurePerformanceIndexes();
+        ensureTenantForeignKeys();
         seedDefaultCompanies();
         bindLegacyUsersToDefaultCompany();
+    }
+
+    private void ensureTenantForeignKeys() {
+        ensureForeignKey("sys_user", "fk_user_company", "company_id", "company", "id");
+        ensureForeignKey("role", "fk_role_company", "company_id", "company", "id");
+        ensureForeignKey("risk_event", "fk_risk_company", "company_id", "company", "id");
+        ensureForeignKey("approval_request", "fk_approval_company", "company_id", "company", "id");
+        ensureForeignKey("data_asset", "fk_asset_company", "company_id", "company", "id");
+        ensureForeignKey("governance_event", "fk_governance_company", "company_id", "company", "id");
+        ensureForeignKey("privacy_event", "fk_privacy_company", "company_id", "company", "id");
+        ensureForeignKey("security_event", "fk_security_company", "company_id", "company", "id");
     }
 
     private void ensurePerformanceIndexes() {
@@ -41,59 +52,59 @@ public class CompanySchemaInitializer implements CommandLineRunner {
         ensureIndex("client_report", "idx_client_report_company_scan", "company_id, scan_time");
         ensureIndex("client_report", "idx_client_report_company_client_scan", "company_id, client_id, scan_time");
         ensureIndex("client_scan_queue", "idx_client_queue_company_download", "company_id, download_time");
+        ensureIndex("governance_event", "idx_governance_company", "company_id");
+        ensureIndex("governance_event", "idx_governance_user", "user_id");
+        ensureIndex("governance_event", "idx_governance_type", "event_type");
+        ensureIndex("governance_event", "idx_governance_status", "status");
+        ensureIndex("governance_event", "idx_governance_time", "event_time");
+        ensureIndex("adversarial_record", "idx_adversarial_company", "company_id");
+        ensureIndex("adversarial_record", "idx_adversarial_user", "user_id");
+        ensureIndex("adversarial_record", "idx_adversarial_event", "governance_event_id");
     }
 
-        private void ensureUnifiedEventTables() {
-                jdbcTemplate.execute("""
-                        CREATE TABLE IF NOT EXISTS governance_event (
-                            id BIGINT AUTO_INCREMENT PRIMARY KEY,
-                            company_id BIGINT,
-                            user_id BIGINT,
-                            username VARCHAR(128),
-                            event_type VARCHAR(64) NOT NULL,
-                            source_module VARCHAR(64) NOT NULL,
-                            severity VARCHAR(20) DEFAULT 'medium',
-                            status VARCHAR(20) DEFAULT 'pending',
-                            title VARCHAR(255),
-                            description TEXT,
-                            source_event_id VARCHAR(64),
-                            attack_type VARCHAR(64),
-                            policy_version BIGINT,
-                            payload_json LONGTEXT,
-                            handler_id BIGINT,
-                            dispose_note VARCHAR(500),
-                            event_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                            disposed_at TIMESTAMP NULL,
-                            create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                            update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                            INDEX idx_governance_company (company_id),
-                            INDEX idx_governance_user (user_id),
-                            INDEX idx_governance_type (event_type),
-                            INDEX idx_governance_status (status),
-                            INDEX idx_governance_time (event_time)
-                        )
-                        """);
+    private void ensureUnifiedEventTables() {
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS governance_event (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    company_id BIGINT,
+                    user_id BIGINT,
+                    username VARCHAR(128),
+                    event_type VARCHAR(64) NOT NULL,
+                    source_module VARCHAR(64) NOT NULL,
+                    severity VARCHAR(20) DEFAULT 'medium',
+                    status VARCHAR(20) DEFAULT 'pending',
+                    title VARCHAR(255),
+                    description TEXT,
+                    source_event_id VARCHAR(64),
+                    attack_type VARCHAR(64),
+                    policy_version BIGINT,
+                    payload_json LONGTEXT,
+                    handler_id BIGINT,
+                    dispose_note VARCHAR(500),
+                    event_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    disposed_at TIMESTAMP NULL,
+                    create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """);
 
-                jdbcTemplate.execute("""
-                        CREATE TABLE IF NOT EXISTS adversarial_record (
-                            id BIGINT AUTO_INCREMENT PRIMARY KEY,
-                            company_id BIGINT,
-                            user_id BIGINT,
-                            username VARCHAR(128),
-                            governance_event_id BIGINT,
-                            scenario VARCHAR(64),
-                            policy_version BIGINT,
-                            result_json LONGTEXT,
-                            effectiveness_analysis LONGTEXT,
-                            suggestions_json LONGTEXT,
-                            create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                            update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                            INDEX idx_adversarial_company (company_id),
-                            INDEX idx_adversarial_user (user_id),
-                            INDEX idx_adversarial_event (governance_event_id)
-                        )
-                        """);
-        }
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS adversarial_record (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    company_id BIGINT,
+                    user_id BIGINT,
+                    username VARCHAR(128),
+                    governance_event_id BIGINT,
+                    scenario VARCHAR(64),
+                    policy_version BIGINT,
+                    result_json LONGTEXT,
+                    effectiveness_analysis LONGTEXT,
+                    suggestions_json LONGTEXT,
+                    create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """);
+    }
 
     private void ensureCompanyTable() {
         jdbcTemplate.execute("""
@@ -176,6 +187,25 @@ public class CompanySchemaInitializer implements CommandLineRunner {
         }
     }
 
+    private void ensureForeignKey(String table, String keyName, String column, String refTable, String refColumn) {
+        try {
+            Integer exists = jdbcTemplate.queryForObject(
+                "SELECT COUNT(1) FROM information_schema.table_constraints " +
+                    "WHERE table_schema = DATABASE() AND table_name = ? AND constraint_name = ? AND constraint_type = 'FOREIGN KEY'",
+                Integer.class,
+                table,
+                keyName
+            );
+            if (exists != null && exists > 0) {
+                return;
+            }
+            jdbcTemplate.execute("ALTER TABLE " + table + " ADD CONSTRAINT " + keyName +
+                " FOREIGN KEY (" + column + ") REFERENCES " + refTable + "(" + refColumn + ")");
+        } catch (Exception ex) {
+            log.debug("Skip FK migration for {}.{}: {}", table, keyName, ex.getMessage());
+        }
+    }
+
     private void seedDefaultCompanies() {
         Integer count = jdbcTemplate.queryForObject("SELECT COUNT(1) FROM company", Integer.class);
         if (count != null && count > 0) {
@@ -192,7 +222,7 @@ public class CompanySchemaInitializer implements CommandLineRunner {
     private void bindLegacyUsersToDefaultCompany() {
         try {
             jdbcTemplate.update("UPDATE sys_user SET company_id = 1 WHERE company_id IS NULL");
-            jdbcTemplate.update("UPDATE sys_user SET account_type = 'demo' WHERE account_type IS NULL OR account_type = ''");
+            jdbcTemplate.update("UPDATE sys_user SET account_type = 'real' WHERE account_type IS NULL OR account_type = ''");
             jdbcTemplate.update("UPDATE sys_user SET account_status = CASE WHEN status = 0 THEN 'disabled' ELSE 'active' END WHERE account_status IS NULL OR account_status = ''");
             jdbcTemplate.update("UPDATE role SET company_id = 1 WHERE company_id IS NULL");
             jdbcTemplate.update("UPDATE approval_request SET company_id = 1 WHERE company_id IS NULL");
@@ -203,12 +233,6 @@ public class CompanySchemaInitializer implements CommandLineRunner {
             jdbcTemplate.update("UPDATE privacy_event SET company_id = 1 WHERE company_id IS NULL");
             jdbcTemplate.update("UPDATE security_event SET policy_version = 1 WHERE policy_version IS NULL");
             jdbcTemplate.update("UPDATE privacy_event SET policy_version = 1 WHERE policy_version IS NULL");
-            String usernames = DemoAccountCatalog.demoAccountSeeds().stream()
-                .map(seed -> "'" + seed.username() + "'")
-                .collect(Collectors.joining(","));
-            if (!usernames.isBlank()) {
-                jdbcTemplate.update("UPDATE sys_user SET company_id = 1 WHERE username IN (" + usernames + ")");
-            }
         } catch (Exception ex) {
             log.debug("Skip binding legacy users to default company: {}", ex.getMessage());
         }

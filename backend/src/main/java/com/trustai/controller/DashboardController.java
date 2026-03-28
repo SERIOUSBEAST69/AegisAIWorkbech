@@ -52,10 +52,7 @@ public class DashboardController {
 
     @GetMapping("/stats")
     public R<Map<String, Object>> stats() {
-        User currentUser = currentUserService.requireCurrentUser();
-        if (isDemoAccount(currentUser)) {
-            return R.ok(buildDemoStats());
-        }
+        currentUserService.requireCurrentUser();
         Long companyId = companyScopeService.requireCompanyId();
         Map<String, Object> map = new HashMap<>();
         map.put("dataAsset", dataAssetService.count(new QueryWrapper<DataAsset>().eq("company_id", companyId)));
@@ -73,9 +70,6 @@ public class DashboardController {
     @GetMapping("/workbench")
     public R<WorkbenchOverviewDTO> workbench() {
         User currentUser = currentUserService.requireCurrentUser();
-        if (isDemoAccount(currentUser)) {
-            return R.ok(buildDemoWorkbench(currentUser));
-        }
         Role currentRole = currentUserService.getCurrentRole(currentUser);
         Long companyId = companyScopeService.requireCompanyId();
         List<Long> companyUserIds = companyScopeService.companyUserIds();
@@ -205,10 +199,7 @@ public class DashboardController {
 
         @GetMapping("/insights")
         public R<GovernanceInsightDTO> insights() {
-        User currentUser = currentUserService.requireCurrentUser();
-        if (isDemoAccount(currentUser)) {
-            return R.ok(buildDemoInsights());
-        }
+        currentUserService.requireCurrentUser();
         long highSensitivityAssets = dataAssetService.count(
             new QueryWrapper<DataAsset>()
                 .eq("company_id", companyScopeService.requireCompanyId())
@@ -266,9 +257,6 @@ public class DashboardController {
         @GetMapping("/trust-pulse")
         public R<TrustPulseDTO> trustPulse() {
         User currentUser = currentUserService.requireCurrentUser();
-        if (isDemoAccount(currentUser)) {
-            return R.ok(buildDemoTrustPulse(currentUser));
-        }
         Role currentRole = currentUserService.getCurrentRole(currentUser);
             Long companyId = companyScopeService.requireCompanyId();
             List<Long> companyUserIds = companyScopeService.companyUserIds();
@@ -631,101 +619,6 @@ public class DashboardController {
             .sorted(Comparator.comparing(WorkbenchOverviewDTO.ActivityFeed::getTimeLabel).reversed())
             .limit(6)
             .collect(Collectors.toList());
-        }
-
-        private boolean isDemoAccount(User user) {
-        return user != null && "demo".equalsIgnoreCase(user.getAccountType());
-        }
-
-        private Map<String, Object> buildDemoStats() {
-        Map<String, Object> map = new HashMap<>();
-        map.put("dataAsset", 5L);
-        map.put("aiModel", 9L);
-        map.put("user", 14L);
-        map.put("riskEvent", 3L);
-        return map;
-        }
-
-        private WorkbenchOverviewDTO buildDemoWorkbench(User user) {
-        WorkbenchOverviewDTO dto = new WorkbenchOverviewDTO();
-        Role role = currentUserService.getCurrentRole(user);
-        dto.setOperator(new WorkbenchOverviewDTO.Operator(
-            safeUserName(user),
-            role == null ? "演示身份" : role.getName(),
-            user.getDepartment() == null ? "演示组织" : user.getDepartment(),
-            user.getAvatar()
-        ));
-        dto.setHeadline("可信AI数据治理与隐私合规工作台（演示数据）");
-        dto.setSubheadline("当前账号为演示账号，展示的是 Faker 模拟指标，不会影响真实企业数据。");
-        dto.setSceneTags(Arrays.asList("演示态势", "模拟风险", "模拟工单", "模拟成本"));
-        dto.setMetrics(Arrays.asList(
-            new WorkbenchOverviewDTO.Metric("assets", "高敏资产纳管", 12L, "项", 18, "演示数据：近7日新增2项"),
-            new WorkbenchOverviewDTO.Metric("alerts", "待闭环告警", 4L, "条", -22, "演示数据：告警持续下降"),
-            new WorkbenchOverviewDTO.Metric("aiCalls", "7日AI调用", 1386L, "次", 35, "演示数据：业务接入增长"),
-            new WorkbenchOverviewDTO.Metric("audits", "今日审计留痕", 87L, "条", 12, "演示数据：证据链正常")
-        ));
-        WorkbenchOverviewDTO.Trend trend = new WorkbenchOverviewDTO.Trend();
-        trend.setLabels(Arrays.asList("03/11", "03/12", "03/13", "03/14", "03/15", "03/16", "03/17"));
-        trend.setRiskSeries(Arrays.asList(7L, 6L, 6L, 5L, 4L, 4L, 3L));
-        trend.setAuditSeries(Arrays.asList(60L, 72L, 70L, 79L, 82L, 85L, 87L));
-        trend.setAiCallSeries(Arrays.asList(160L, 180L, 192L, 205L, 220L, 210L, 219L));
-        trend.setCostSeries(Arrays.asList(1220L, 1300L, 1420L, 1480L, 1550L, 1520L, 1588L));
-        trend.setForecastNextDay(3L);
-        dto.setTrend(trend);
-        dto.setRiskDistribution(Arrays.asList(
-            new WorkbenchOverviewDTO.RiskBucket("高危", 1L),
-            new WorkbenchOverviewDTO.RiskBucket("中危", 2L),
-            new WorkbenchOverviewDTO.RiskBucket("低危", 6L),
-            new WorkbenchOverviewDTO.RiskBucket("待研判", 1L)
-        ));
-        dto.setTodos(Arrays.asList(
-            new WorkbenchOverviewDTO.TodoItem("P0", "回放高危外发演练", "验证阻断链路是否可复现", "/threat-monitor", "1 条模拟事件"),
-            new WorkbenchOverviewDTO.TodoItem("P1", "复核脱敏策略命中", "检查手机号和邮箱规则命中率", "/desense-preview", "命中率 93%"),
-            new WorkbenchOverviewDTO.TodoItem("P1", "处理模拟审批工单", "演示共享申请流程闭环", "/approval-manage", "2 个待处理工单")
-        ));
-        dto.setFeeds(Arrays.asList(
-            new WorkbenchOverviewDTO.ActivityFeed("warning", "模拟风险事件 · 非法外传尝试", "系统已阻断并生成审计证据", "/threat-monitor", "03-17 10:26"),
-            new WorkbenchOverviewDTO.ActivityFeed("safe", "模拟主体请求 · access", "工单已进入处理队列", "/subject-request", "03-17 09:48")
-        ));
-        dto.set_dataSource("mock");
-        return dto;
-        }
-
-        private GovernanceInsightDTO buildDemoInsights() {
-        GovernanceInsightDTO dto = new GovernanceInsightDTO();
-        dto.setPostureScore(86);
-        dto.setSummary(new GovernanceInsightDTO.Summary(12L, 3L, 1L, 2L, 2L, 87L, 1386L, 15880L));
-        dto.setHighlights(Arrays.asList(
-            new GovernanceInsightDTO.Highlight("高敏资产纳管", "12 项", "演示资产覆盖客户、订单、员工和营销线索场景"),
-            new GovernanceInsightDTO.Highlight("今日审计留痕", "87 条", "演示环境持续写入审计记录，便于讲解追溯链路"),
-            new GovernanceInsightDTO.Highlight("AI 调用成本", "¥158.80", "演示成本曲线用于展示配额和预算治理")
-        ));
-        dto.setRecommendations(Arrays.asList(
-            new GovernanceInsightDTO.Recommendation("demo-risk", "P0", "演示高危事件闭环", "建议演示一次事件签收与处置全过程", "/risk-event-manage", "1 条高危事件"),
-            new GovernanceInsightDTO.Recommendation("demo-desense", "P1", "演示一键脱敏", "展示预览与执行接口联动，强化合规可视化", "/desense-preview", "建议演示手机号/邮箱样例")
-        ));
-        return dto;
-        }
-
-        private TrustPulseDTO buildDemoTrustPulse(User user) {
-        Role role = currentUserService.getCurrentRole(user);
-        TrustPulseDTO dto = new TrustPulseDTO();
-        dto.setScore(84);
-        dto.setPulseLevel("可控推进");
-        dto.setMission((role == null ? "演示角色" : role.getCode()) + " 当前处于演示治理脉冲，适合展示跨模块闭环能力。");
-        dto.setInnovationLabel("治理脉冲引擎 · Demo Mode");
-        dto.setDimensions(Arrays.asList(
-            new TrustPulseDTO.Dimension("data", "数据边界", 82, "演示资产和脱敏策略形成可观察闭环"),
-            new TrustPulseDTO.Dimension("model", "模型可信", 86, "演示模型风险等级与配额控制正常"),
-            new TrustPulseDTO.Dimension("process", "流程闭环", 80, "演示审批和主体工单可完整流转"),
-            new TrustPulseDTO.Dimension("audit", "审计准备度", 88, "演示审计链路持续写入，支持回放")
-        ));
-        dto.setSignals(Arrays.asList(
-            new TrustPulseDTO.Signal("演示高危风险", "1", "warning", "进入风险事件页执行闭环"),
-            new TrustPulseDTO.Signal("演示审批积压", "2", "warning", "在审批管理中完成处理"),
-            new TrustPulseDTO.Signal("审计留痕", "87", "safe", "可导出并复盘证据链")
-        ));
-        return dto;
         }
 
         private int calcDelta(long current, long previous) {

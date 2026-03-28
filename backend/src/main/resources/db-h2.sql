@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS client_scan_queue (
 CREATE TABLE IF NOT EXISTS sys_user (
   id BIGINT AUTO_INCREMENT PRIMARY KEY,
   company_id BIGINT,
-  account_type VARCHAR(20) DEFAULT 'demo',
+  account_type VARCHAR(20) DEFAULT 'real',
   account_status VARCHAR(20) DEFAULT 'active',
   username VARCHAR(50) NOT NULL UNIQUE,
   password VARCHAR(100) NOT NULL,
@@ -326,7 +326,7 @@ INSERT INTO sensitive_scan_task (source_type, source_path, status, sensitive_rat
 -- Default approval requests
 INSERT INTO approval_request (company_id, applicant_id, asset_id, reason, status, approver_id, process_instance_id, task_id, create_time, update_time) VALUES
 (1, 1, 1, '需要导出客户数据进行营销活动', 'pending', null, null, null, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-(1, 1, 2, '申请访问订单数据用于财务分析', 'approved', 1, 'PI_DEMO_001', null, CURRENT_TIMESTAMP - INTERVAL '1' DAY, CURRENT_TIMESTAMP - INTERVAL '12' HOUR);
+(1, 1, 2, '申请访问订单数据用于财务分析', 'approved', 1, 'PI_REAL_001', null, CURRENT_TIMESTAMP - INTERVAL '1' DAY, CURRENT_TIMESTAMP - INTERVAL '12' HOUR);
 
 -- Default subject requests
 INSERT INTO subject_request (company_id, user_id, type, comment, status, handler_id, result, create_time, update_time) VALUES

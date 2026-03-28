@@ -29,6 +29,8 @@ import java.util.UUID;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -49,6 +51,7 @@ import org.springframework.web.multipart.MultipartFile;
 @RequestMapping("/api/user")
 @Validated
 public class UserController {
+    private static final Logger log = LoggerFactory.getLogger(UserController.class);
     private static final String ACCOUNT_STATUS_PENDING = "pending";
     private static final String ACCOUNT_STATUS_ACTIVE = "active";
     private static final String ACCOUNT_STATUS_REJECTED = "rejected";
@@ -287,17 +290,21 @@ public class UserController {
     }
 
     private void writeApprovalAudit(User admin, User target, String action, String detail) {
-        AuditLog log = new AuditLog();
-        log.setUserId(admin.getId());
-        log.setOperation("user_registration_" + action);
-        log.setOperationTime(new Date());
-        log.setDevice(admin.getDeviceId());
-        log.setInputOverview("targetUser=" + target.getUsername());
-        log.setOutputOverview(detail);
-        log.setResult("success");
-        log.setRiskLevel("NORMAL");
-        log.setCreateTime(new Date());
-        auditLogService.saveAudit(log);
+        try {
+            AuditLog auditLog = new AuditLog();
+            auditLog.setUserId(admin.getId());
+            auditLog.setOperation("user_registration_" + action);
+            auditLog.setOperationTime(new Date());
+            auditLog.setDevice(admin.getDeviceId());
+            auditLog.setInputOverview("targetUser=" + target.getUsername());
+            auditLog.setOutputOverview(detail);
+            auditLog.setResult("success");
+            auditLog.setRiskLevel("NORMAL");
+            auditLog.setCreateTime(new Date());
+            auditLogService.saveAudit(auditLog);
+        } catch (Exception ex) {
+            log.warn("Skip approval audit due to non-blocking error: {}", ex.getMessage());
+        }
     }
 
     private void ensureRoleInCompany(Long roleId, Long companyId) {

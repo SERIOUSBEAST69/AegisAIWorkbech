@@ -6,7 +6,12 @@
     "dev": "vite",
     "build": "vite build",
     "serve": "vite preview",
-    "lint": "eslint . --ext .js,.vue,.ts"
+    "lint": "eslint . --ext .js,.vue,.ts",
+    "security:scan": "node scripts/check-sensitive-logs.mjs",
+    "test:e2e": "playwright test",
+    "test:e2e:install": "playwright install chromium",
+    "test:backend:integration": "cd backend && mvn -q \"-Dtest=AccountApprovalIntegrationTest,DashboardSecurityIntegrationTest,ValidationGuardIntegrationTest,PermissionMatrixIntegrationTest\" test",
+    "verify:ci": "npm run security:scan && npm run build && npm run test:backend:integration && npm run test:e2e"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.1",
@@ -20,6 +25,7 @@
     "vue-router": "^4.2.0"
   },
   "devDependencies": {
+    "@playwright/test": "1.53.0",
     "@vitejs/plugin-vue": "^4.5.0",
     "@vue/eslint-config-prettier": "^8.0.0",
     "electron": "^28.2.8",

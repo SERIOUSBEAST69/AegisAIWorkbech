@@ -176,7 +176,7 @@ const tabs = [
   { key: 'users', label: '用户' }
 ];
 
-const mockResults = [
+const searchableItems = [
   { id: 1, type: '页面', title: '数据资产概览', description: '查看组织数据资产分布情况', icon: DataLine, path: '/data-asset', category: 'pages' },
   { id: 2, type: '页面', title: '威胁监测中心', description: '实时监测和阻拦安全威胁', icon: Monitor, path: '/threat-monitor', category: 'pages' },
   { id: 3, type: '功能', title: '脱敏策略校验', description: '测试和验证数据脱敏效果', icon: View, path: '/desense-preview', category: 'functions' },
@@ -195,7 +195,7 @@ const filteredResults = computed(() => {
   if (!searchQuery.value.trim()) return [];
   
   const query = searchQuery.value.toLowerCase();
-  let results = mockResults.filter(item => 
+  let results = searchableItems.filter(item => 
     item.title.toLowerCase().includes(query) ||
     item.description.toLowerCase().includes(query)
   );
@@ -208,8 +208,8 @@ const filteredResults = computed(() => {
 });
 
 function getTabCount(tabKey) {
-  if (tabKey === 'all') return mockResults.length;
-  return mockResults.filter(item => item.category === tabKey).length;
+  if (tabKey === 'all') return searchableItems.length;
+  return searchableItems.filter(item => item.category === tabKey).length;
 }
 
 function openSearch() {

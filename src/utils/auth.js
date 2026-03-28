@@ -11,7 +11,7 @@ function safeJsonParse(value) {
 }
 
 function normalizeMode(mode) {
-  return mode === 'mock' ? 'mock' : 'real';
+  return 'real';
 }
 
 function decodeJwtPayload(token) {
@@ -27,7 +27,6 @@ function decodeJwtPayload(token) {
 
 function deriveExpiresAt(token, mode) {
   if (!token) return null;
-  if (mode === 'mock') return Date.now() + 8 * 60 * 60 * 1000;
   const payload = decodeJwtPayload(token);
   return payload?.exp ? payload.exp * 1000 : null;
 }
@@ -45,7 +44,7 @@ function persistSession(session) {
 function migrateLegacyToken() {
   const token = localStorage.getItem(LEGACY_TOKEN_KEY);
   if (!token) return null;
-  const mode = token.startsWith('mock-jwt-token-') ? 'mock' : 'real';
+  const mode = 'real';
   const session = {
     token,
     user: null,
@@ -95,13 +94,9 @@ export function hasActiveSession() {
   return true;
 }
 
-export function isMockSession() {
-  return getSession()?.mode === 'mock';
-}
-
 export function getAuthHeaderToken() {
   const session = getSession();
-  if (!session?.token || session.mode === 'mock' || isSessionExpired(session)) {
+  if (!session?.token || isSessionExpired(session)) {
     return null;
   }
   return session.token;

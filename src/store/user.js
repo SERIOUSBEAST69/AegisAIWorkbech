@@ -1,27 +1,7 @@
 import { defineStore } from 'pinia';
 import { authApi } from '../api/auth';
 import { userApi } from '../api/user';
-import { clearSession, getSession, isMockSession, setSession } from '../utils/auth';
-
-function buildMockUser(session) {
-  return {
-    id: session.user?.id || 1,
-    companyId: session.user?.companyId || 1,
-    username: session.user?.username || 'demo-admin',
-    nickname: session.user?.nickname || '演示管理员',
-    realName: session.user?.realName || '演示管理员',
-    email: session.user?.email || 'demo@aegis.workbench',
-    phone: session.user?.phone || '13800138000',
-    department: session.user?.department || '创新实验室',
-    companyName: session.user?.companyName || 'Aegis 默认公司',
-    roleName: session.user?.roleName || '演示管理员',
-    roleCode: session.user?.roleCode || 'ADMIN',
-    accountType: session.user?.accountType || 'demo',
-    accountStatus: session.user?.accountStatus || 'active',
-    lastActiveAt: new Date().toISOString(),
-    avatar: session.user?.avatar || ''
-  };
-}
+import { clearSession, getSession, setSession } from '../utils/auth';
 
 function mergeUser(...segments) {
   return segments.reduce((result, segment) => {
@@ -40,7 +20,7 @@ export const useUserStore = defineStore('user', {
   }),
   getters: {
     isAuthenticated: state => Boolean(state.token),
-    isMockMode: state => state.sessionMode === 'mock',
+    isMockMode: () => false,
     displayName: state => state.userInfo?.nickname || state.userInfo?.realName || state.userInfo?.username || '访客',
     avatar: state => state.userInfo?.avatar || '',
     roleName: state => state.userInfo?.roleName || state.userInfo?.roleCode || '未分配身份',
@@ -96,12 +76,6 @@ export const useUserStore = defineStore('user', {
       this.loading = true;
       try {
         const session = this.applySession(sessionLike);
-        if (session.mode === 'mock') {
-          this.userInfo = buildMockUser(session);
-          this.persistSessionState();
-          return this.userInfo;
-        }
-
         const current = await authApi.getCurrentUser();
         this.userInfo = mergeUser(this.userInfo, current?.user);
         this.persistSessionState();
@@ -123,12 +97,6 @@ export const useUserStore = defineStore('user', {
           this.reset();
           return null;
         }
-        if (isMockSession()) {
-          this.userInfo = buildMockUser(session);
-          this.persistSessionState();
-          return this.userInfo;
-        }
-
         const current = await authApi.getCurrentUser();
         this.token = session.token;
         this.sessionMode = 'real';
@@ -145,9 +113,6 @@ export const useUserStore = defineStore('user', {
       }
     },
     async fetchProfile() {
-      if (this.isMockMode) {
-        return this.userInfo;
-      }
       const profile = await userApi.getProfile();
       this.userInfo = mergeUser(this.userInfo, profile);
       this.persistSessionState();
@@ -161,7 +126,7 @@ export const useUserStore = defineStore('user', {
     },
     async logout() {
       try {
-        if (!this.isMockMode && this.token) {
+        if (this.token) {
           await authApi.logout();
         }
       } catch {

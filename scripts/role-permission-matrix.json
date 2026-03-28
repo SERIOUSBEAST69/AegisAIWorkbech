@@ -1,12 +1,12 @@
 {
   "accounts": [
     { "role": "ADMIN", "username": "admin", "password": "admin" },
-    { "role": "EXECUTIVE", "username": "exec.demo", "password": "demo1234" },
-    { "role": "SECOPS", "username": "secops.demo", "password": "demo1234" },
-    { "role": "DATA_ADMIN", "username": "data.demo", "password": "demo1234" },
-    { "role": "AI_BUILDER", "username": "builder.demo", "password": "demo1234" },
-    { "role": "BUSINESS_OWNER", "username": "biz.demo", "password": "demo1234" },
-    { "role": "EMPLOYEE", "username": "employee.demo", "password": "demo1234" }
+    { "role": "EXECUTIVE", "username": "executive", "password": "Passw0rd!" },
+    { "role": "SECOPS", "username": "secops", "password": "Passw0rd!" },
+    { "role": "DATA_ADMIN", "username": "dataadmin", "password": "Passw0rd!" },
+    { "role": "AI_BUILDER", "username": "aibuilder", "password": "Passw0rd!" },
+    { "role": "BUSINESS_OWNER", "username": "bizowner", "password": "Passw0rd!" },
+    { "role": "EMPLOYEE", "username": "employee", "password": "Passw0rd!" }
   ],
   "tests": [
     {

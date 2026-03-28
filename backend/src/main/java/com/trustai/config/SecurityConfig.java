@@ -28,7 +28,13 @@ public class SecurityConfig {
     private JwtAuthFilter jwtAuthFilter;
 
     @Autowired
+    private ThreatInputFilter threatInputFilter;
+
+    @Autowired
     private CrossSiteRequestFilter crossSiteRequestFilter;
+
+    @Autowired
+    private ApiMetricsFilter apiMetricsFilter;
 
     @Autowired
     private CrossSiteGuardService crossSiteGuardService;
@@ -54,6 +60,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                     .requestMatchers(HttpMethod.POST, "/api/privacy/events").permitAll()
+                    .requestMatchers(HttpMethod.POST, "/api/ops-metrics/web-vitals").permitAll()
                     .requestMatchers(HttpMethod.GET, "/api/privacy/config/public").permitAll()
                     .requestMatchers(
                         "/api/auth/login",
@@ -80,8 +87,10 @@ public class SecurityConfig {
                         "/h2-console/**"
                     ).permitAll()
                         .anyRequest().authenticated());
+        http.addFilterBefore(threatInputFilter, UsernamePasswordAuthenticationFilter.class);
         http.addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
         http.addFilterBefore(crossSiteRequestFilter, JwtAuthFilter.class);
+        http.addFilterAfter(apiMetricsFilter, CrossSiteRequestFilter.class);
         return http.build();
     }
 

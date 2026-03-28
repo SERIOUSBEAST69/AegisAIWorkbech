@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS role (
 CREATE TABLE IF NOT EXISTS sys_user (
   id BIGINT AUTO_INCREMENT PRIMARY KEY,
   company_id BIGINT,
-  account_type VARCHAR(20) DEFAULT 'demo',
+  account_type VARCHAR(20) DEFAULT 'real',
   account_status VARCHAR(20) DEFAULT 'active',
   username VARCHAR(50) NOT NULL UNIQUE,
   password VARCHAR(100) NOT NULL,
@@ -87,6 +87,89 @@ CREATE TABLE IF NOT EXISTS system_config (
   description VARCHAR(255),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS data_asset (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  company_id BIGINT,
+  name VARCHAR(100),
+  type VARCHAR(50),
+  sensitivity_level VARCHAR(50),
+  location VARCHAR(255),
+  discovery_time TIMESTAMP,
+  owner_id BIGINT,
+  lineage VARCHAR(500),
+  description VARCHAR(500),
+  create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS risk_event (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  company_id BIGINT,
+  type VARCHAR(100),
+  level VARCHAR(20),
+  related_log_id BIGINT,
+  audit_log_ids VARCHAR(500),
+  status VARCHAR(20),
+  handler_id BIGINT,
+  process_log VARCHAR(1000),
+  create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS approval_request (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  company_id BIGINT,
+  applicant_id BIGINT,
+  asset_id BIGINT,
+  reason VARCHAR(500),
+  status VARCHAR(20),
+  approver_id BIGINT,
+  process_instance_id VARCHAR(64),
+  task_id VARCHAR(64),
+  create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS subject_request (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  company_id BIGINT,
+  user_id BIGINT,
+  type VARCHAR(20),
+  status VARCHAR(20),
+  comment VARCHAR(500),
+  handler_id BIGINT,
+  result VARCHAR(1000),
+  create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS model_call_stat (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  model_id BIGINT,
+  user_id BIGINT,
+  date TIMESTAMP,
+  call_count INT DEFAULT 0,
+  total_latency_ms BIGINT DEFAULT 0,
+  cost_cents INT DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS ai_model (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  model_name VARCHAR(100),
+  model_code VARCHAR(100),
+  provider VARCHAR(100),
+  api_url VARCHAR(255),
+  api_key VARCHAR(500),
+  model_type VARCHAR(50),
+  risk_level VARCHAR(20),
+  status VARCHAR(20),
+  call_limit INT,
+  current_calls INT,
+  description VARCHAR(500),
+  create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 INSERT INTO company (id, company_code, company_name, status, create_time, update_time)

@@ -52,6 +52,19 @@
             </button>
           </div>
 
+          <div v-if="recentItems.length" class="palette-recent">
+            <button
+              v-for="item in recentItems"
+              :key="`recent-${item.id}`"
+              type="button"
+              class="recent-chip"
+              @click="execute(item)"
+            >
+              <el-icon><component :is="item.icon" /></el-icon>
+              <span>{{ item.title }}</span>
+            </button>
+          </div>
+
           <div class="palette-list">
             <button
               v-for="(item, index) in filteredItems"
@@ -86,7 +99,11 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
+import { useUserStore } from '../store/user';
+import { getVisibleMenuSections } from '../utils/persona';
 import {
+  HomeFilled,
+  Grid,
   Search,
   Close,
   Monitor,
@@ -100,20 +117,73 @@ import {
   DocumentChecked,
   View,
   Aim,
+  AlarmClock,
+  Timer,
+  Document,
+  Finished,
+  Key,
+  Avatar,
 } from '@element-plus/icons-vue';
 
 const router = useRouter();
+const userStore = useUserStore();
 const isOpen = ref(false);
 const query = ref('');
 const activeTab = ref('all');
 const inputRef = ref(null);
 const selectedIndex = ref(0);
+const recentRoutes = ref([]);
 
-const quickActions = [
-  { id: 'risk', title: '风险编排', route: '/risk-event-manage', icon: Warning },
-  { id: 'approval', title: '审批处理', route: '/approval-manage', icon: DocumentChecked },
-  { id: 'threat', title: '威胁监测', route: '/threat-monitor', icon: Monitor },
-  { id: 'audit', title: '审计日志', route: '/audit-log', icon: Histogram },
+const RECENT_KEY = 'aegis.commandDeck.recent.v1';
+
+const iconByName = {
+  HomeFilled,
+  Grid,
+  DataAnalysis: DataLine,
+  Lock,
+  View,
+  AlarmClock,
+  Histogram,
+  Timer,
+  Document,
+  Search,
+  Finished,
+  Warning,
+  UserFilled,
+  Avatar,
+  Key,
+};
+
+const routeMeta = {
+  '/': { description: '回到首页总控视图', icon: HomeFilled },
+  '/operations-command': { description: '查看运营治理动作入口', icon: Operation },
+  '/data-asset': { description: '查看资产敏感级别与分布', icon: DataLine },
+  '/desense-preview': { description: '验证当前脱敏规则命中', icon: View },
+  '/shadow-ai': { description: '快速进入影子AI治理页面', icon: Aim },
+  '/threat-monitor': { description: '实时监测并处置安全威胁', icon: Monitor },
+  '/ai/risk-rating': { description: '查看模型风险分级', icon: Warning },
+  '/ai/anomaly': { description: '查看员工AI行为异常事件', icon: AlarmClock },
+  '/audit-log': { description: '追踪关键审计证据链', icon: Histogram },
+  '/audit-report': { description: '查看和导出审计报告', icon: Document },
+  '/sensitive-scan': { description: '排查敏感信息暴露风险', icon: Search },
+  '/approval-manage': { description: '处理共享与审批流卡点', icon: DocumentChecked },
+  '/risk-event-manage': { description: '优先处理高风险告警事件', icon: Warning },
+  '/subject-request': { description: '处理主体权利履约工单', icon: UserFilled },
+  '/policy-manage': { description: '配置平台策略与门禁', icon: Document },
+  '/user-manage': { description: '管理组织成员与账号', icon: UserFilled },
+  '/role-manage': { description: '配置角色和权限边界', icon: Avatar },
+  '/permission-manage': { description: '维护细粒度权限点', icon: Key },
+  '/profile': { description: '查看个人资料', icon: UserFilled },
+  '/settings': { description: '更新平台参数与策略', icon: Tools },
+};
+
+const actionTemplates = [
+  { id: 'action-risk', title: '进入风险编排', route: '/risk-event-manage', icon: Warning, description: '优先处理高风险告警事件' },
+  { id: 'action-approval', title: '处理审批积压', route: '/approval-manage', icon: DocumentChecked, description: '进入审批流待办列表' },
+  { id: 'action-threat', title: '打开威胁监测', route: '/threat-monitor', icon: Monitor, description: '关注实时威胁变化' },
+  { id: 'action-audit', title: '查看审计证据链', route: '/audit-log', icon: Histogram, description: '进入审计日志快速回放' },
+  { id: 'action-desense', title: '执行脱敏预览', route: '/desense-preview', icon: View, description: '核验最新脱敏策略效果' },
+  { id: 'action-shadow-ai', title: '启动影子AI排查', route: '/shadow-ai', icon: Aim, description: '定位未授权AI工具接入' },
 ];
 
 const tabs = [
@@ -122,22 +192,72 @@ const tabs = [
   { key: 'action', label: '动作' },
 ];
 
-const items = [
-  { id: 'p1', type: '页面', category: 'page', title: '数据资产概览', description: '查看资产敏感级别与分布', route: '/data-asset', icon: DataLine },
-  { id: 'p2', type: '页面', category: 'page', title: '威胁监测中心', description: '实时监测并处置安全威胁', route: '/threat-monitor', icon: Monitor },
-  { id: 'p3', type: '页面', category: 'page', title: '用户管理', description: '管理成员账号与状态', route: '/user-manage', icon: UserFilled },
-  { id: 'p4', type: '页面', category: 'page', title: '角色管理', description: '配置角色和权限边界', route: '/role-manage', icon: Lock },
-  { id: 'p5', type: '页面', category: 'page', title: '系统设置', description: '更新平台参数与策略', route: '/settings', icon: Tools },
-  { id: 'a1', type: '动作', category: 'action', title: '启动影子AI排查', description: '快速进入影子AI治理页面', route: '/shadow-ai', icon: Aim },
-  { id: 'a2', type: '动作', category: 'action', title: '执行脱敏预览', description: '验证当前脱敏规则命中', route: '/desense-preview', icon: View },
-  { id: 'a3', type: '动作', category: 'action', title: '进入风险编排', description: '优先处理高风险告警事件', route: '/risk-event-manage', icon: Warning },
-  { id: 'a4', type: '动作', category: 'action', title: '打开运营指挥台', description: '查看全链路治理操作入口', route: '/operations-command', icon: Operation },
-];
+const visibleSections = computed(() => getVisibleMenuSections(userStore.userInfo));
+
+const pageItems = computed(() => (
+  visibleSections.value.flatMap(section =>
+    section.items.map(item => {
+      const route = item.path;
+      const meta = routeMeta[route] || {};
+      return {
+        id: `page-${route}`,
+        type: '页面',
+        category: 'page',
+        title: item.label,
+        description: meta.description || `进入${item.label}`,
+        route,
+        icon: meta.icon || iconByName[item.icon] || Search,
+      };
+    })
+  )
+));
+
+const allowedRoutes = computed(() => new Set(pageItems.value.map(item => item.route)));
+
+const actionItems = computed(() => (
+  actionTemplates
+    .filter(item => allowedRoutes.value.has(item.route))
+    .map(item => ({
+      id: item.id,
+      type: '动作',
+      category: 'action',
+      title: item.title,
+      description: item.description,
+      route: item.route,
+      icon: item.icon,
+    }))
+));
+
+const items = computed(() => [...pageItems.value, ...actionItems.value]);
+
+const quickActions = computed(() => {
+  const pool = [...actionItems.value];
+  pool.sort((left, right) => {
+    const leftIndex = recentRoutes.value.indexOf(left.route);
+    const rightIndex = recentRoutes.value.indexOf(right.route);
+    const a = leftIndex === -1 ? Number.MAX_SAFE_INTEGER : leftIndex;
+    const b = rightIndex === -1 ? Number.MAX_SAFE_INTEGER : rightIndex;
+    return a - b;
+  });
+  return pool.slice(0, 4).map(item => ({
+    id: item.id,
+    title: item.title,
+    route: item.route,
+    icon: item.icon,
+  }));
+});
+
+const recentItems = computed(() => (
+  recentRoutes.value
+    .map(route => items.value.find(item => item.route === route))
+    .filter(Boolean)
+    .slice(0, 5)
+));
 
 const normalizedQuery = computed(() => query.value.trim().toLowerCase());
 
 const filteredItems = computed(() => {
-  let candidates = items;
+  let candidates = items.value;
   if (activeTab.value !== 'all') {
     candidates = candidates.filter(item => item.category === activeTab.value);
   }
@@ -151,8 +271,33 @@ const filteredItems = computed(() => {
 });
 
 function tabCount(tab) {
-  if (tab === 'all') return items.length;
-  return items.filter(item => item.category === tab).length;
+  if (tab === 'all') return items.value.length;
+  return items.value.filter(item => item.category === tab).length;
+}
+
+function loadRecentRoutes() {
+  try {
+    const raw = window.localStorage.getItem(RECENT_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    recentRoutes.value = Array.isArray(parsed) ? parsed.filter(item => typeof item === 'string') : [];
+  } catch {
+    recentRoutes.value = [];
+  }
+}
+
+function persistRecentRoutes() {
+  try {
+    window.localStorage.setItem(RECENT_KEY, JSON.stringify(recentRoutes.value.slice(0, 8)));
+  } catch {
+    // Ignore storage failures in restricted environments.
+  }
+}
+
+function recordRecentRoute(route) {
+  if (!route) return;
+  const next = [route, ...recentRoutes.value.filter(item => item !== route)].slice(0, 8);
+  recentRoutes.value = next;
+  persistRecentRoutes();
 }
 
 function openPalette() {
@@ -170,10 +315,12 @@ function closePalette() {
 
 function execute(item) {
   closePalette();
+  recordRecentRoute(item.route);
   router.push(item.route);
 }
 
 function runAction(action) {
+  recordRecentRoute(action.route);
   router.push(action.route);
 }
 
@@ -212,7 +359,10 @@ function onGlobalKeydown(event) {
   }
 }
 
-onMounted(() => window.addEventListener('keydown', onGlobalKeydown));
+onMounted(() => {
+  loadRecentRoutes();
+  window.addEventListener('keydown', onGlobalKeydown);
+});
 onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKeydown));
 </script>
 
@@ -348,6 +498,31 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKeydown));
   display: flex;
   gap: 8px;
   padding: 12px 16px;
+}
+
+.palette-recent {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 0 16px 12px;
+}
+
+.recent-chip {
+  border: 1px solid rgba(134, 165, 194, 0.28);
+  background: rgba(10, 20, 33, 0.68);
+  color: rgba(220, 236, 254, 0.9);
+  border-radius: 999px;
+  padding: 5px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.recent-chip:hover {
+  border-color: rgba(146, 198, 248, 0.62);
+  background: rgba(14, 30, 49, 0.88);
 }
 
 .palette-tab {

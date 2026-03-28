@@ -18,7 +18,7 @@ mysql -h"${MYSQL_HOST}" -P"${MYSQL_PORT}" -u"${MYSQL_USER}" -p"${MYSQL_PASSWORD}
 echo "[mysql-bootstrap] applying compatibility migration..."
 mysql -h"${MYSQL_HOST}" -P"${MYSQL_PORT}" -u"${MYSQL_USER}" -p"${MYSQL_PASSWORD}" "${MYSQL_DATABASE}" < /bootstrap/001-latest-compat.sql
 
-echo "[mysql-bootstrap] applying themed seed data..."
-mysql -h"${MYSQL_HOST}" -P"${MYSQL_PORT}" -u"${MYSQL_USER}" -p"${MYSQL_PASSWORD}" "${MYSQL_DATABASE}" < /bootstrap/002-themed-seed.sql
+echo "[mysql-bootstrap] applying baseline initialization..."
+mysql -h"${MYSQL_HOST}" -P"${MYSQL_PORT}" -u"${MYSQL_USER}" -p"${MYSQL_PASSWORD}" "${MYSQL_DATABASE}" < /bootstrap/002-baseline-init.sql
 
 echo "[mysql-bootstrap] completed successfully."

@@ -61,12 +61,30 @@ public class PrivacyShieldSchemaInitializer implements CommandLineRunner {
               matched_types VARCHAR(255),
               event_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
               create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-              update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-              INDEX idx_privacy_user(user_id),
-              INDEX idx_privacy_source(source),
-              INDEX idx_privacy_time(event_time)
+              update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
             """);
+        ensureIndex("privacy_event", "idx_privacy_user", "user_id");
+        ensureIndex("privacy_event", "idx_privacy_source", "source");
+        ensureIndex("privacy_event", "idx_privacy_time", "event_time");
         log.info("Schema check complete: privacy_event");
+    }
+
+    private void ensureIndex(String table, String indexName, String columns) {
+        try {
+            Integer exists = jdbcTemplate.queryForObject(
+                "SELECT COUNT(1) FROM information_schema.statistics " +
+                    "WHERE table_schema = DATABASE() AND table_name = ? AND index_name = ?",
+                Integer.class,
+                table,
+                indexName
+            );
+            if (exists != null && exists > 0) {
+                return;
+            }
+            jdbcTemplate.execute("CREATE INDEX " + indexName + " ON " + table + " (" + columns + ")");
+        } catch (Exception ex) {
+            log.debug("Skip index migration for {}.{}: {}", table, indexName, ex.getMessage());
+        }
     }
 }
