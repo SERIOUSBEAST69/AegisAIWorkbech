@@ -27,6 +27,18 @@
         </template>
       </el-table-column>
     </el-table>
+    <div style="display: flex; justify-content: flex-end; margin-top: 16px">
+      <el-pagination
+        background
+        layout="total, sizes, prev, pager, next"
+        :total="pagination.total"
+        :current-page="pagination.current"
+        :page-size="pagination.pageSize"
+        :page-sizes="[10, 20, 50]"
+        @current-change="onPageChange"
+        @size-change="onPageSizeChange"
+      />
+    </div>
     <el-dialog v-model="showAdd" title="新增权限">
       <el-form :model="addForm" :rules="rules" ref="addFormRef">
         <el-form-item label="权限名称" prop="name"><el-input v-model="addForm.name" /></el-form-item>
@@ -65,6 +77,7 @@ const saving = ref(false);
 const addForm = ref({ name: '', code: '', type: '', parentId: '' });
 const editForm = ref({});
 const query = ref({ name: '' });
+const pagination = ref({ current: 1, pageSize: 10, total: 0 });
 const addFormRef = ref();
 const editFormRef = ref();
 const rules = {
@@ -75,13 +88,31 @@ const rules = {
 async function fetchPermissions() {
   loading.value = true;
   try {
-    const res = await request.get('/permission/list', { params: query.value });
-    permissions.value = res || [];
+    const res = await request.get('/permission/page', {
+      params: {
+        ...query.value,
+        page: pagination.value.current,
+        pageSize: pagination.value.pageSize,
+      }
+    });
+    permissions.value = res?.list || [];
+    pagination.value.total = Number(res?.total || 0);
   } catch (err) {
     ElMessage.error(err?.message || '加载失败');
   } finally {
     loading.value = false;
   }
+}
+
+function onPageChange(page) {
+  pagination.value.current = page;
+  fetchPermissions();
+}
+
+function onPageSizeChange(size) {
+  pagination.value.pageSize = size;
+  pagination.value.current = 1;
+  fetchPermissions();
 }
 function openAdd() {
   addForm.value = { name: '', code: '', type: '', parentId: '' };
@@ -96,6 +127,7 @@ async function addPermission() {
       await request.post('/permission/add', addForm.value);
       ElMessage.success('保存成功');
       showAdd.value = false;
+      pagination.value.current = 1;
       fetchPermissions();
     } catch (err) {
       ElMessage.error(err?.message || '保存失败');
@@ -128,8 +160,16 @@ async function updatePermission() {
 async function deletePermission(id) {
   try {
     await ElMessageBox.confirm('确认删除该权限吗？', '提示', { type: 'warning' });
-    await request.post('/permission/delete', { id });
+    const { value: confirmPassword } = await ElMessageBox.prompt('请输入当前治理管理员密码以确认删除权限', '敏感操作二次校验', {
+      inputType: 'password',
+      inputPlaceholder: '请输入密码',
+      inputValidator: value => (!!value && value.trim().length > 0) || '密码不能为空',
+      confirmButtonText: '确认删除',
+      cancelButtonText: '取消',
+    });
+    await request.post('/permission/delete', { id, confirmPassword });
     ElMessage.success('删除成功');
+    pagination.value.current = 1;
     fetchPermissions();
   } catch (err) {
     if (err !== 'cancel') ElMessage.error(err?.message || '删除失败');

@@ -29,16 +29,23 @@ public class CurrentUserService {
             throw new BizException(40100, "未登录");
         }
         User user = null;
+        String jwtUsername = null;
         Object principal = auth.getPrincipal();
         if (principal instanceof JwtPrincipal jwtPrincipal && jwtPrincipal.userId() != null) {
+            jwtUsername = jwtPrincipal.username();
             user = userService.getById(jwtPrincipal.userId());
             if (user != null && StringUtils.hasText(jwtPrincipal.username())
                 && !jwtPrincipal.username().equalsIgnoreCase(user.getUsername())) {
                 throw new BizException(40100, "令牌用户信息不一致");
             }
+        } else if (principal instanceof JwtPrincipal jwtPrincipal) {
+            jwtUsername = jwtPrincipal.username();
         }
         if (user == null) {
-            user = userService.lambdaQuery().eq(User::getUsername, auth.getName()).one();
+            String fallbackUsername = StringUtils.hasText(jwtUsername) ? jwtUsername : auth.getName();
+            if (StringUtils.hasText(fallbackUsername)) {
+                user = userService.lambdaQuery().eq(User::getUsername, fallbackUsername).one();
+            }
         }
         if (user == null) {
             throw new BizException(40100, "用户不存在");

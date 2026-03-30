@@ -7,6 +7,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
+import org.springframework.core.env.Environment;
 import org.springframework.validation.BindException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -18,6 +19,12 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+    private final Environment environment;
+
+    public GlobalExceptionHandler(Environment environment) {
+        this.environment = environment;
+    }
 
     @ExceptionHandler(BizException.class)
     public R<?> handleBiz(BizException e) {
@@ -87,6 +94,26 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(Exception.class)
     public R<?> handle(Exception e) {
         log.error("Unhandled exception", e);
+        if (isTestProfile()) {
+            Throwable root = e;
+            while (root.getCause() != null && root.getCause() != root) {
+                root = root.getCause();
+            }
+            String detail = e.getClass().getSimpleName() + ": " + e.getMessage();
+            if (root != e) {
+                detail = detail + " | root=" + root.getClass().getSimpleName() + ": " + root.getMessage();
+            }
+            return R.error(50000, "系统异常，请稍后重试 | " + detail);
+        }
         return R.error(50000, "系统异常，请稍后重试");
+    }
+
+    private boolean isTestProfile() {
+        for (String profile : environment.getActiveProfiles()) {
+            if ("test".equalsIgnoreCase(profile)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

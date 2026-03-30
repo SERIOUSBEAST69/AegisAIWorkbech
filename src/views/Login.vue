@@ -157,6 +157,29 @@
                         </label>
                         <button type="button" class="link-button clickable" @click="onForgot">忘记密码?</button>
                       </div>
+
+                      <div class="identity-support" aria-label="supported-identities">
+                        <span class="identity-support-label">演示账号快速选择</span>
+                        <div class="identity-select-row">
+                          <select v-model="selectedDemoRole" class="field-input field-select" @change="onDemoRoleChange">
+                            <option value="">选择身份</option>
+                            <option v-for="item in demoRoleOptions" :key="`demo-role-${item.roleCode}`" :value="item.roleCode">
+                              {{ item.roleLabel }}
+                            </option>
+                          </select>
+                          <select
+                            v-model="selectedDemoUsername"
+                            class="field-input field-select"
+                            :disabled="!selectedDemoRole || demoAccountsForSelectedRole.length === 0"
+                            @change="onDemoAccountChange"
+                          >
+                            <option value="">选择账号</option>
+                            <option v-for="account in demoAccountsForSelectedRole" :key="`demo-user-${account.username}`" :value="account.username">
+                              {{ account.label }} · {{ account.username }}
+                            </option>
+                          </select>
+                        </div>
+                      </div>
                     </template>
 
 
@@ -340,23 +363,77 @@ const registerForm = reactive({
   wechatOpenId: '',
 });
 
+const DEFAULT_IDENTITIES = [
+  { code: 'ADMIN', label: '治理管理员' },
+  { code: 'EXECUTIVE', label: '管理层' },
+  { code: 'SECOPS', label: '安全运维' },
+  { code: 'DATA_ADMIN', label: '数据管理员' },
+  { code: 'AI_BUILDER', label: 'AI应用开发者' },
+  { code: 'BUSINESS_OWNER', label: '业务负责人' },
+  { code: 'EMPLOYEE', label: '普通员工' },
+];
+
+const DEFAULT_ORGANIZATIONS = [
+  { code: 'enterprise', label: '企业' },
+  { code: 'school', label: '学校' },
+  { code: 'ai-team', label: 'AI应用团队' },
+  { code: 'public-sector', label: '政企/公共机构' },
+];
+
+function normalizeOptions(options, fallback) {
+  if (!Array.isArray(options) || options.length === 0) {
+    return [...fallback];
+  }
+  const normalized = options
+    .map(item => ({
+      code: String(item?.code || '').trim(),
+      label: String(item?.label || '').trim(),
+    }))
+    .filter(item => item.code && item.label);
+  return normalized.length > 0 ? normalized : [...fallback];
+}
+
 const registrationOptions = reactive({
-  identities: [
-    { code: 'ADMIN', label: '治理管理员' },
-    { code: 'EXECUTIVE', label: '管理层' },
-    { code: 'SECOPS', label: '安全运维' },
-    { code: 'DATA_ADMIN', label: '数据管理员' },
-    { code: 'AI_BUILDER', label: 'AI应用开发者' },
-    { code: 'BUSINESS_OWNER', label: '业务负责人' },
-    { code: 'EMPLOYEE', label: '普通员工' },
-  ],
-  organizations: [
-    { code: 'enterprise', label: '企业' },
-    { code: 'school', label: '学校' },
-    { code: 'ai-team', label: 'AI应用团队' },
-    { code: 'public-sector', label: '政企/公共机构' },
-  ],
+  identities: [...DEFAULT_IDENTITIES],
+  organizations: [...DEFAULT_ORGANIZATIONS],
+  demoAccounts: [],
 });
+
+const FALLBACK_DEMO_ACCOUNTS = [
+  { roleCode: 'ADMIN', roleLabel: '治理管理员', accounts: [{ label: '主治理管理员', username: 'admin', password: 'admin' }] },
+  { roleCode: 'EXECUTIVE', roleLabel: '管理层', accounts: [{ label: '管理层账号A', username: 'executive', password: 'Passw0rd!' }] },
+  { roleCode: 'SECOPS', roleLabel: '安全运维', accounts: [{ label: '安全运维A', username: 'secops', password: 'Passw0rd!' }] },
+  { roleCode: 'DATA_ADMIN', roleLabel: '数据管理员', accounts: [{ label: '数据管理员A', username: 'dataadmin', password: 'Passw0rd!' }] },
+  { roleCode: 'AI_BUILDER', roleLabel: 'AI应用开发者', accounts: [{ label: 'AI开发者A', username: 'aibuilder', password: 'Passw0rd!' }] },
+  { roleCode: 'BUSINESS_OWNER', roleLabel: '业务负责人', accounts: [{ label: '业务负责人A', username: 'bizowner', password: 'Passw0rd!' }] },
+  { roleCode: 'EMPLOYEE', roleLabel: '普通员工', accounts: [{ label: '员工账号A', username: 'employee', password: 'Passw0rd!' }] },
+];
+
+const selectedDemoRole = ref('');
+const selectedDemoUsername = ref('');
+
+const demoRoleOptions = computed(() => registrationOptions.demoAccounts || []);
+const demoAccountsForSelectedRole = computed(() => {
+  const role = demoRoleOptions.value.find(item => item.roleCode === selectedDemoRole.value);
+  return role?.accounts || [];
+});
+
+function onDemoRoleChange() {
+  selectedDemoUsername.value = '';
+  const first = demoAccountsForSelectedRole.value[0];
+  if (first) {
+    selectedDemoUsername.value = first.username;
+    onDemoAccountChange();
+  }
+}
+
+function onDemoAccountChange() {
+  const account = demoAccountsForSelectedRole.value.find(item => item.username === selectedDemoUsername.value);
+  if (!account) return;
+  passwordForm.username = account.username;
+  passwordForm.password = account.password;
+  globalError.value = '';
+}
 
 const currentFlowMeta = computed(() => accessFlows.find(item => item.value === flowType.value) || accessFlows[0]);
 const currentModeMeta = computed(() => accessModes.find(item => item.value === activeMode.value) || accessModes[0]);
@@ -985,9 +1062,15 @@ onMounted(async () => {
 
   try {
     const result = await authApi.getRegistrationOptions();
-    registrationOptions.identities = result?.identities?.length ? result.identities : registrationOptions.identities;
-    registrationOptions.organizations = result?.organizations?.length ? result.organizations : registrationOptions.organizations;
+    registrationOptions.identities = normalizeOptions(result?.identities, DEFAULT_IDENTITIES);
+    registrationOptions.organizations = normalizeOptions(result?.organizations, DEFAULT_ORGANIZATIONS);
+    registrationOptions.demoAccounts = Array.isArray(result?.demoAccounts) && result.demoAccounts.length > 0
+      ? result.demoAccounts
+      : [...FALLBACK_DEMO_ACCOUNTS];
   } catch {
+    registrationOptions.identities = [...DEFAULT_IDENTITIES];
+    registrationOptions.organizations = [...DEFAULT_ORGANIZATIONS];
+    registrationOptions.demoAccounts = [...FALLBACK_DEMO_ACCOUNTS];
   }
 
   const initialPose = getPortalPose(false);
@@ -1696,6 +1779,33 @@ onBeforeUnmount(() => {
   max-width: 480px;
   margin-top: 8px;
   margin-bottom: 8px;
+}
+
+.identity-support {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+}
+
+.identity-support-label {
+  color: #8ea3c8;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.identity-select-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  width: 100%;
+}
+
+@media (max-width: 820px) {
+  .identity-select-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 .remember-row {

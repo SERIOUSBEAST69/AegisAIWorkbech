@@ -37,6 +37,12 @@ class ValidationGuardIntegrationTest {
     @MockBean(name = "privacyShieldSchemaInitializer")
     private CommandLineRunner privacyShieldSchemaInitializerRunner;
 
+    @MockBean(name = "companySchemaInitializer")
+    private CommandLineRunner companySchemaInitializerRunner;
+
+    @MockBean(name = "awardSchemaInitializer")
+    private CommandLineRunner awardSchemaInitializerRunner;
+
     @Test
     void loginMissingRequiredFieldsReturnsBusinessValidationCode() throws Exception {
         JsonNode resp = postJson("/api/auth/login", null, Map.of("username", "", "password", ""));

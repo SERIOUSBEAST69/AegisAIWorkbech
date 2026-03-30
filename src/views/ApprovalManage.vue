@@ -33,6 +33,18 @@
         </template>
       </el-table-column>
     </el-table>
+    <div style="display: flex; justify-content: flex-end; margin-top: 16px">
+      <el-pagination
+        background
+        layout="total, sizes, prev, pager, next"
+        :total="pagination.total"
+        :current-page="pagination.current"
+        :page-size="pagination.pageSize"
+        :page-sizes="[10, 20, 50]"
+        @current-change="onPageChange"
+        @size-change="onPageSizeChange"
+      />
+    </div>
     <el-dialog v-model="showAdd" title="新建审批申请">
       <el-form :model="addForm" :rules="rules" ref="addFormRef">
         <el-alert title="申请人将自动绑定为当前登录账号" type="info" :closable="false" show-icon style="margin-bottom: 16px;" />
@@ -55,7 +67,8 @@ const loading = ref(false);
 const showAdd = ref(false);
 const saving = ref(false);
 const addForm = ref({ assetId: '', reason: '' });
-const query = ref({ applicantId: '', assetId: '' });
+const query = ref({ applicantId: '', assetId: '', status: '', keyword: '' });
+const pagination = ref({ current: 1, pageSize: 10, total: 0 });
 const addFormRef = ref();
 const rules = {
   assetId: [{ required: true, message: '资产ID不能为空', trigger: 'blur' }],
@@ -64,8 +77,14 @@ const rules = {
 async function fetchApprovals() {
   loading.value = true;
   try {
-    const res = await request.get('/approval/list', { params: query.value });
-    approvals.value = res || [];
+    const params = {
+      ...query.value,
+      page: pagination.value.current,
+      pageSize: pagination.value.pageSize,
+    };
+    const res = await request.get('/approval/page', { params });
+    approvals.value = res?.list || [];
+    pagination.value.total = Number(res?.total || 0);
   } catch (err) {
     ElMessage.error(err?.message || '加载失败');
   } finally {
@@ -73,10 +92,22 @@ async function fetchApprovals() {
   }
 }
 
+function onPageChange(page) {
+  pagination.value.current = page;
+  fetchApprovals();
+}
+
+function onPageSizeChange(size) {
+  pagination.value.pageSize = size;
+  pagination.value.current = 1;
+  fetchApprovals();
+}
+
 async function fetchTodo() {
   loading.value = true;
   try {
     approvals.value = await request.get('/approval/todo');
+    pagination.value.total = approvals.value.length;
   } catch (err) {
     ElMessage.error(err?.message || '加载待办失败');
   } finally {
@@ -96,6 +127,7 @@ async function addApproval() {
       await request.post('/approval/apply', addForm.value);
       ElMessage.success('提交成功');
       showAdd.value = false;
+      pagination.value.current = 1;
       fetchApprovals();
     } catch (err) {
       ElMessage.error(err?.message || '提交失败');

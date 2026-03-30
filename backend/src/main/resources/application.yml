@@ -28,6 +28,10 @@ spring:
     date-format: yyyy-MM-dd HH:mm:ss
     time-zone: Asia/Shanghai
 
+  # 关闭 Open Session In View，避免请求渲染阶段隐式访问数据库
+  jpa:
+    open-in-view: false
+
   # RabbitMQ 配置
   rabbitmq:
     host: ${SPRING_RABBITMQ_HOST:localhost}
@@ -105,6 +109,12 @@ ai:
     default-system-prompt: "你是一个安全合规的企业助手，回答需脱敏且遵守中国法律。"
   inference:
     base-url: ${AI_INFERENCE_URL:http://localhost:5000}
+
+award:
+  anchor:
+    enabled: ${AWARD_ANCHOR_ENABLED:true}
+    key-dir: ${AWARD_ANCHOR_KEY_DIR:./target/anchor-keys}
+    time-source-url: ${AWARD_TIME_SOURCE_URL:https://worldtimeapi.org/api/timezone/Etc/UTC}
 
 # 风险规则配置
 risk:

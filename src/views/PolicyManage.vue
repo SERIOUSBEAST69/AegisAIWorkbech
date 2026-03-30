@@ -113,9 +113,22 @@ async function addPolicy() {
   if (!addFormRef.value) return;
   addFormRef.value.validate(async valid => {
     if (!valid) return;
+    let confirmPassword = '';
+    try {
+      const prompt = await ElMessageBox.prompt('请输入当前账号密码确认保存策略', '敏感操作二次校验', {
+        inputType: 'password',
+        inputPlaceholder: '请输入密码',
+        inputValidator: value => (!!value && value.trim().length > 0) || '密码不能为空',
+        confirmButtonText: '确认',
+        cancelButtonText: '取消'
+      });
+      confirmPassword = prompt.value;
+    } catch {
+      return;
+    }
     saving.value = true;
     try {
-      await request.post('/policy/save', addForm.value);
+      await request.post('/policy/save', { ...addForm.value, confirmPassword });
       ElMessage.success('保存成功');
       showAdd.value = false;
       fetchPolicies();
@@ -134,9 +147,22 @@ async function updatePolicy() {
   if (!editFormRef.value) return;
   editFormRef.value.validate(async valid => {
     if (!valid) return;
+    let confirmPassword = '';
+    try {
+      const prompt = await ElMessageBox.prompt('请输入当前账号密码确认更新策略', '敏感操作二次校验', {
+        inputType: 'password',
+        inputPlaceholder: '请输入密码',
+        inputValidator: value => (!!value && value.trim().length > 0) || '密码不能为空',
+        confirmButtonText: '确认',
+        cancelButtonText: '取消'
+      });
+      confirmPassword = prompt.value;
+    } catch {
+      return;
+    }
     saving.value = true;
     try {
-      await request.post('/policy/save', editForm.value);
+      await request.post('/policy/save', { ...editForm.value, confirmPassword });
       ElMessage.success('更新成功');
       showEdit.value = false;
       fetchPolicies();
@@ -150,7 +176,14 @@ async function updatePolicy() {
 async function deletePolicy(id) {
   try {
     await ElMessageBox.confirm('确认删除该策略吗？', '提示', { type: 'warning' });
-    await request.post('/policy/delete', { id });
+    const prompt = await ElMessageBox.prompt('请输入当前账号密码确认删除策略', '敏感操作二次校验', {
+      inputType: 'password',
+      inputPlaceholder: '请输入密码',
+      inputValidator: value => (!!value && value.trim().length > 0) || '密码不能为空',
+      confirmButtonText: '确认',
+      cancelButtonText: '取消'
+    });
+    await request.post('/policy/delete', { id, confirmPassword: prompt.value });
     ElMessage.success('删除成功');
     fetchPolicies();
   } catch (err) {

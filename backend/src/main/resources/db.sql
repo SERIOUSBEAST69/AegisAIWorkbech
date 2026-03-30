@@ -27,6 +27,57 @@ CREATE TABLE `sys_user` (
   INDEX idx_role(`role_id`)
 ) COMMENT='系统用户表';
 
+CREATE TABLE `user_recycle_bin` (
+  `id` BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '回收记录ID',
+  `company_id` BIGINT COMMENT '公司ID',
+  `user_id` BIGINT COMMENT '原用户ID',
+  `username` VARCHAR(50) COMMENT '用户名快照',
+  `snapshot_json` LONGTEXT COMMENT '用户快照',
+  `deleted_by` BIGINT COMMENT '删除操作者',
+  `delete_reason` VARCHAR(200) COMMENT '删除原因',
+  `deleted_at` DATETIME COMMENT '删除时间',
+  `restore_status` VARCHAR(20) DEFAULT 'deleted' COMMENT 'deleted/restored',
+  `restored_by` BIGINT COMMENT '恢复操作者',
+  `restored_at` DATETIME COMMENT '恢复时间',
+  `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `update_time` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  INDEX idx_user_recycle_company_time(`company_id`,`deleted_at`),
+  INDEX idx_user_recycle_user(`user_id`)
+) COMMENT='用户回收站';
+
+CREATE TABLE `governance_change_request` (
+  `id` BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '变更申请ID',
+  `company_id` BIGINT COMMENT '公司ID',
+  `module` VARCHAR(32) NOT NULL COMMENT '模块 ROLE/PERMISSION',
+  `action` VARCHAR(20) NOT NULL COMMENT '动作 ADD/UPDATE/DELETE',
+  `target_id` BIGINT COMMENT '目标对象ID',
+  `payload_json` LONGTEXT COMMENT '变更载荷',
+  `status` VARCHAR(20) DEFAULT 'pending' COMMENT 'pending/approved/rejected',
+  `risk_level` VARCHAR(20) DEFAULT 'HIGH' COMMENT '风险等级',
+  `requester_id` BIGINT COMMENT '申请人',
+  `requester_role_code` VARCHAR(50) COMMENT '申请人角色',
+  `approver_id` BIGINT COMMENT '复核人',
+  `approver_role_code` VARCHAR(50) COMMENT '复核人角色',
+  `approve_note` VARCHAR(500) COMMENT '审批备注',
+  `approved_at` DATETIME COMMENT '审批时间',
+  `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `update_time` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  INDEX idx_gov_change_company_status(`company_id`,`status`,`create_time`)
+) COMMENT='治理高敏变更双人复核申请';
+
+CREATE TABLE `sod_conflict_rule` (
+  `id` BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT 'SoD规则ID',
+  `company_id` BIGINT COMMENT '公司ID',
+  `scenario` VARCHAR(64) NOT NULL COMMENT '冲突场景',
+  `role_code_a` VARCHAR(50) NOT NULL COMMENT '角色A',
+  `role_code_b` VARCHAR(50) NOT NULL COMMENT '角色B',
+  `enabled` TINYINT DEFAULT 1 COMMENT '是否启用',
+  `description` VARCHAR(255) COMMENT '说明',
+  `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `update_time` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  INDEX idx_sod_company_scene(`company_id`,`scenario`,`enabled`)
+) COMMENT='职责分离冲突规则';
+
 CREATE TABLE `company` (
   `id` BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '公司ID',
   `company_code` VARCHAR(64) NOT NULL COMMENT '公司编码',
@@ -51,12 +102,14 @@ CREATE TABLE `role` (
 
 CREATE TABLE `permission` (
   `id` BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '权限ID',
+  `company_id` BIGINT COMMENT '公司ID',
   `name` VARCHAR(50) NOT NULL COMMENT '权限名称',
   `code` VARCHAR(50) NOT NULL COMMENT '权限编码',
   `type` VARCHAR(20) COMMENT '类型（菜单/按钮/数据）',
   `parent_id` BIGINT DEFAULT NULL COMMENT '父权限ID',
   `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-  `update_time` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间'
+  `update_time` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  INDEX idx_permission_company_code(`company_id`,`code`)
 ) COMMENT='权限表';
 
 CREATE TABLE `role_permission` (

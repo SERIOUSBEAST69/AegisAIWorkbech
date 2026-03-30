@@ -8,6 +8,9 @@ import UserManage from '../views/UserManage.vue';
 import RoleManage from '../views/RoleManage.vue';
 import PermissionManage from '../views/PermissionManage.vue';
 import OperationsCommand from '../views/OperationsCommand.vue';
+import ApprovalManage from '../views/ApprovalManage.vue';
+import GovernanceChangeManage from '../views/GovernanceChangeManage.vue';
+import SodRuleManage from '../views/SodRuleManage.vue';
 import PolicyManage from '../views/PolicyManage.vue';
 import SensitiveScan from '../views/SensitiveScan.vue';
 import SubjectRequest from '../views/SubjectRequest.vue';
@@ -33,7 +36,9 @@ const routes = [
   { path: '/role-manage', name: 'RoleManage', component: RoleManage, meta: { depth: 3 } },
   { path: '/permission-manage', name: 'PermissionManage', component: PermissionManage, meta: { depth: 3 } },
   { path: '/operations-command', name: 'OperationsCommand', component: OperationsCommand, meta: { depth: 3 } },
-  { path: '/approval-manage', name: 'ApprovalManage', component: OperationsCommand, meta: { depth: 3, lane: 'approval' } },
+  { path: '/approval-manage', name: 'ApprovalManage', component: ApprovalManage, meta: { depth: 3 } },
+  { path: '/governance-change-manage', name: 'GovernanceChangeManage', component: GovernanceChangeManage, meta: { depth: 3 } },
+  { path: '/sod-rule-manage', name: 'SodRuleManage', component: SodRuleManage, meta: { depth: 3 } },
   { path: '/policy-manage', name: 'PolicyManage', component: PolicyManage, meta: { depth: 3 } },
   { path: '/risk-event-manage', name: 'RiskEventManage', component: OperationsCommand, meta: { depth: 3, lane: 'risk' } },
   { path: '/sensitive-scan', name: 'SensitiveScan', component: SensitiveScan, meta: { depth: 2 } },

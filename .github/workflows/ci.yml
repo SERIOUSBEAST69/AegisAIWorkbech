@@ -28,11 +28,72 @@ jobs:
       - name: Build Frontend
         run: npm run build
 
+      - name: Run Pact Contract Tests
+        run: npm run test:contract
+
       - name: Install Playwright Browser
         run: npm run test:e2e:install
 
       - name: Run Frontend E2E
         run: npm run test:e2e
+
+  load-and-gate:
+    runs-on: ubuntu-latest
+    needs: [frontend, backend]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install k6
+        uses: grafana/setup-k6-action@v1
+
+      - name: Start backend dependencies
+        run: docker compose up -d mysql redis ai-inference
+
+      - name: Start backend app
+        run: |
+          cd backend
+          nohup mvn -q -DskipTests spring-boot:run > ../backend-ci.log 2>&1 &
+          cd ..
+
+      - name: Wait for backend readiness
+        run: |
+          for i in {1..60}; do
+            if curl -fsS http://localhost:8080/api/auth/registration-options > /dev/null; then
+              echo "Backend is ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Backend failed to start" && cat backend-ci.log && exit 1
+
+      - name: Run k6 Load Test
+        run: npm run test:load
+
+      - name: Enforce Quality Gate
+        run: npm run quality:gate
+
+      - name: Upload k6 report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-summary
+          path: e2e-report.json
 
   backend:
     runs-on: ubuntu-latest

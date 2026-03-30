@@ -43,6 +43,12 @@ class AccountApprovalIntegrationTest {
     @MockBean(name = "privacyShieldSchemaInitializer")
     private CommandLineRunner privacyShieldSchemaInitializerRunner;
 
+    @MockBean(name = "companySchemaInitializer")
+    private CommandLineRunner companySchemaInitializerRunner;
+
+    @MockBean(name = "awardSchemaInitializer")
+    private CommandLineRunner awardSchemaInitializerRunner;
+
     @Test
     void realAccountMustBeApprovedOrRejectedBeforeLogin() throws Exception {
         String approvableUsername = uniqueUsername("approve");

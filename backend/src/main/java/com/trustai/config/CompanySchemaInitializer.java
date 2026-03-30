@@ -22,12 +22,15 @@ public class CompanySchemaInitializer implements CommandLineRunner {
     @Override
     public void run(String... args) {
         ensureCompanyTable();
-                ensureUnifiedEventTables();
+        ensureUnifiedEventTables();
+        ensureUserRecycleBinTable();
+        ensureGovernanceChangeTables();
         ensureCompanyColumns();
         ensurePerformanceIndexes();
         ensureTenantForeignKeys();
         seedDefaultCompanies();
         bindLegacyUsersToDefaultCompany();
+        seedDefaultSodRules();
     }
 
     private void ensureTenantForeignKeys() {
@@ -52,6 +55,7 @@ public class CompanySchemaInitializer implements CommandLineRunner {
         ensureIndex("client_report", "idx_client_report_company_scan", "company_id, scan_time");
         ensureIndex("client_report", "idx_client_report_company_client_scan", "company_id, client_id, scan_time");
         ensureIndex("client_scan_queue", "idx_client_queue_company_download", "company_id, download_time");
+        ensureIndex("permission", "idx_permission_company_code", "company_id, code");
         ensureIndex("governance_event", "idx_governance_company", "company_id");
         ensureIndex("governance_event", "idx_governance_user", "user_id");
         ensureIndex("governance_event", "idx_governance_type", "event_type");
@@ -60,6 +64,90 @@ public class CompanySchemaInitializer implements CommandLineRunner {
         ensureIndex("adversarial_record", "idx_adversarial_company", "company_id");
         ensureIndex("adversarial_record", "idx_adversarial_user", "user_id");
         ensureIndex("adversarial_record", "idx_adversarial_event", "governance_event_id");
+        ensureIndex("user_recycle_bin", "idx_user_recycle_company_time", "company_id, deleted_at");
+        ensureIndex("user_recycle_bin", "idx_user_recycle_user", "user_id");
+        ensureIndex("governance_change_request", "idx_gov_change_company_status", "company_id, status, create_time");
+        ensureIndex("sod_conflict_rule", "idx_sod_company_scene", "company_id, scenario, enabled");
+    }
+
+    private void ensureUserRecycleBinTable() {
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS user_recycle_bin (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    company_id BIGINT,
+                    user_id BIGINT,
+                    username VARCHAR(50),
+                    snapshot_json LONGTEXT,
+                    deleted_by BIGINT,
+                    delete_reason VARCHAR(200),
+                    deleted_at TIMESTAMP NULL,
+                    restore_status VARCHAR(20) DEFAULT 'deleted',
+                    restored_by BIGINT,
+                    restored_at TIMESTAMP NULL,
+                    create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """);
+    }
+
+    private void ensureGovernanceChangeTables() {
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS governance_change_request (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    company_id BIGINT,
+                    module VARCHAR(32) NOT NULL,
+                    action VARCHAR(20) NOT NULL,
+                    target_id BIGINT,
+                    payload_json LONGTEXT,
+                    status VARCHAR(20) DEFAULT 'pending',
+                    risk_level VARCHAR(20) DEFAULT 'HIGH',
+                    requester_id BIGINT,
+                    requester_role_code VARCHAR(50),
+                    approver_id BIGINT,
+                    approver_role_code VARCHAR(50),
+                    approve_note VARCHAR(500),
+                    approved_at TIMESTAMP NULL,
+                    create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """);
+
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS sod_conflict_rule (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    company_id BIGINT,
+                    scenario VARCHAR(64) NOT NULL,
+                    role_code_a VARCHAR(50) NOT NULL,
+                    role_code_b VARCHAR(50) NOT NULL,
+                    enabled TINYINT DEFAULT 1,
+                    description VARCHAR(255),
+                    create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """);
+    }
+
+    private void seedDefaultSodRules() {
+        try {
+            Integer exists = jdbcTemplate.queryForObject(
+                "SELECT COUNT(1) FROM sod_conflict_rule WHERE company_id = 1 AND scenario = 'PRIVILEGE_CHANGE_REVIEW' AND role_code_a = 'ADMIN' AND role_code_b = 'ADMIN'",
+                Integer.class
+            );
+            if (exists != null && exists > 0) {
+                return;
+            }
+            jdbcTemplate.update(
+                "INSERT INTO sod_conflict_rule(company_id, scenario, role_code_a, role_code_b, enabled, description, create_time, update_time) VALUES(?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+                1L,
+                "PRIVILEGE_CHANGE_REVIEW",
+                "ADMIN",
+                "ADMIN",
+                1,
+                "高敏权限变更禁止ADMIN同角色互审，需跨角色复核"
+            );
+        } catch (Exception ex) {
+            log.debug("Skip SoD default rule seed: {}", ex.getMessage());
+        }
     }
 
     private void ensureUnifiedEventTables() {
@@ -135,6 +223,7 @@ public class CompanySchemaInitializer implements CommandLineRunner {
         ensureColumn("sys_user", "approved_at", "TIMESTAMP");
         ensureColumn("sys_user", "last_policy_pull_time", "TIMESTAMP");
         ensureColumn("role", "company_id", "BIGINT");
+        ensureColumn("permission", "company_id", "BIGINT");
         ensureColumn("data_asset", "company_id", "BIGINT");
         ensureColumn("risk_event", "company_id", "BIGINT");
         ensureColumn("security_event", "company_id", "BIGINT");
@@ -225,6 +314,7 @@ public class CompanySchemaInitializer implements CommandLineRunner {
             jdbcTemplate.update("UPDATE sys_user SET account_type = 'real' WHERE account_type IS NULL OR account_type = ''");
             jdbcTemplate.update("UPDATE sys_user SET account_status = CASE WHEN status = 0 THEN 'disabled' ELSE 'active' END WHERE account_status IS NULL OR account_status = ''");
             jdbcTemplate.update("UPDATE role SET company_id = 1 WHERE company_id IS NULL");
+            jdbcTemplate.update("UPDATE permission SET company_id = 1 WHERE company_id IS NULL");
             jdbcTemplate.update("UPDATE approval_request SET company_id = 1 WHERE company_id IS NULL");
             jdbcTemplate.update("UPDATE subject_request SET company_id = 1 WHERE company_id IS NULL");
             jdbcTemplate.update("UPDATE compliance_policy SET company_id = 1 WHERE company_id IS NULL");

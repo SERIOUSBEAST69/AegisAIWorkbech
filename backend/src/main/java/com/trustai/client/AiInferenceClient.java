@@ -28,6 +28,9 @@ public interface AiInferenceClient {
     @GetMapping("/metrics")
     Map<String, Object> metrics();
 
+    @GetMapping("/innovation/report")
+    Map<String, Object> innovationReport();
+
     // ── AI 服务风险评级 API ────────────────────────────────────────────────────
 
     /** 获取所有已收录 AI 服务的风险评级摘要列表。 */

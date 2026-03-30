@@ -53,8 +53,6 @@ logger = logging.getLogger("aegisai")
 if not os.environ.get("HF_ENDPOINT"):
     os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 
-# Set BERT_MOCK=true to skip loading the heavy BERT model (dev / CI / testing).
-MOCK_MODE: bool = os.environ.get("BERT_MOCK", "false").lower() in ("true", "1", "yes")
 MODEL_NAME: str = os.environ.get("BERT_MODEL", "bert-base-chinese")
 MODEL_DIR: str = os.environ.get("MODEL_DIR", "./models")
 os.makedirs(MODEL_DIR, exist_ok=True)
@@ -360,7 +358,7 @@ class _MLClassifier:
 _ml_clf = _MLClassifier()
 
 
-# ── BERT model loader: fine-tuned first, then zero-shot, then mock ────────────
+# ── BERT model loader: fine-tuned first, then zero-shot fallback ─────────────
 _FINETUNED_DIR: str = os.path.join(MODEL_DIR, "bert_finetuned")
 _BERT_IS_FINETUNED: bool = False
 # Tracks whether BERT (zero-shot or fine-tuned) was loaded successfully.
@@ -455,8 +453,7 @@ def _load_bert_models() -> None:
         _BERT_LOAD_ERROR = str(_bert_load_err)
         print(
             f"[BERT] WARNING: Failed to load BERT model ({_bert_load_err}). "
-            "Falling back to ML-only classification. "
-            "Set BERT_MOCK=true to suppress this message."
+            "Falling back to ML-only classification."
         )
         _BERT_AVAILABLE = False
         _BERT_IS_FINETUNED = False
@@ -464,9 +461,8 @@ def _load_bert_models() -> None:
         _BERT_LOADING = False
 
 
-if not MOCK_MODE:
-    # Async loading prevents service startup from being blocked by model download.
-    threading.Thread(target=_load_bert_models, name="bert-loader", daemon=True).start()
+# Async loading prevents service startup from being blocked by model download.
+threading.Thread(target=_load_bert_models, name="bert-loader", daemon=True).start()
 
 
 def classify_text(text: str) -> Dict:
@@ -476,9 +472,9 @@ def classify_text(text: str) -> Dict:
     Priority order:
     1. Ensemble: ML + BERT fine-tuned (if fine-tuned model loaded)
     2. Ensemble: ML + BERT zero-shot  (if zero-shot model loaded)
-    3. ML classifier only            (if BERT unavailable / MOCK_MODE=true)
+    3. ML classifier only            (if BERT unavailable)
     """
-    if not _BERT_AVAILABLE or MOCK_MODE:
+    if not _BERT_AVAILABLE:
         return _ml_clf.predict(text)
 
     ml_result = _ml_clf.predict(text)
@@ -511,9 +507,37 @@ class SimpleLSTM(nn.Module):
         return self.head(out[:, -1, :])
 
 
+class AdaptiveAttentionLSTM(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.lstm = nn.LSTM(input_size=1, hidden_size=LSTM_HIDDEN,
+                            num_layers=LSTM_LAYERS, batch_first=True, dropout=LSTM_DROPOUT)
+        self.attn = nn.Sequential(
+            nn.Linear(LSTM_HIDDEN, LSTM_HIDDEN),
+            nn.Tanh(),
+            nn.Linear(LSTM_HIDDEN, 1),
+        )
+        self.gate = nn.Sequential(
+            nn.Linear(LSTM_HIDDEN, LSTM_HIDDEN),
+            nn.Sigmoid(),
+        )
+        self.head = nn.Linear(LSTM_HIDDEN, 1)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        out, _ = self.lstm(x)
+        weights = torch.softmax(self.attn(out), dim=1)
+        context = torch.sum(weights * out, dim=1)
+        gated = context * self.gate(context)
+        return self.head(gated)
+
+
 # Cache trained models keyed by series fingerprint (FIFO eviction, Python 3.7+ dict order).
 _lstm_cache: collections.OrderedDict = collections.OrderedDict()
 _LSTM_CACHE_MAX = 32
+_last_lstm_innovation: Dict[str, Any] = {
+    "available": False,
+    "message": "No training run yet",
+}
 
 
 def _series_key(series: List[float]) -> str:
@@ -580,26 +604,32 @@ def forecast_risk(series: List[float], horizon: int = 7) -> Dict:
     y_train = torch.tensor(ys[:n_train], dtype=torch.float32).unsqueeze(-1)
     x_val   = torch.tensor(xs[n_train:], dtype=torch.float32).unsqueeze(-1)
 
-    model   = SimpleLSTM().to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=LSTM_LR)
-    loss_fn = nn.MSELoss()
+    def _train_and_eval(model: nn.Module) -> Tuple[nn.Module, float, float, List[float]]:
+        optimizer = torch.optim.Adam(model.parameters(), lr=LSTM_LR)
+        loss_fn = nn.MSELoss()
+        model.train()
+        for _ in range(LSTM_EPOCHS):
+            optimizer.zero_grad()
+            loss = loss_fn(model(x_train), y_train)
+            loss.backward()
+            optimizer.step()
+        model.eval()
+        with torch.no_grad():
+            preds_norm = model(x_val).squeeze(-1).tolist()
+        preds = np.array([v * std.item() + mean.item() for v in preds_norm])
+        truth = np.array([v * std.item() + mean.item() for v in ys[n_train:]])
+        mae_v = float(np.mean(np.abs(preds - truth)))
+        rmse_v = float(np.sqrt(np.mean((preds - truth) ** 2)))
+        return model, mae_v, rmse_v, preds_norm
 
-    model.train()
-    for _ in range(LSTM_EPOCHS):
-        optimizer.zero_grad()
-        loss = loss_fn(model(x_train), y_train)
-        loss.backward()
-        optimizer.step()
+    baseline_model, baseline_mae, baseline_rmse, _ = _train_and_eval(SimpleLSTM().to(device))
+    adaptive_model, adaptive_mae, adaptive_rmse, _ = _train_and_eval(AdaptiveAttentionLSTM().to(device))
 
-    model.eval()
-    with torch.no_grad():
-        val_preds_norm = model(x_val).squeeze(-1).tolist()
+    model = adaptive_model if adaptive_rmse <= baseline_rmse else baseline_model
 
     std_v, mean_v = std.item(), mean.item()
-    val_preds = np.array([v * std_v + mean_v for v in val_preds_norm])
-    val_truth = np.array([v * std_v + mean_v for v in ys[n_train:]])
-    mae  = float(np.mean(np.abs(val_preds - val_truth)))
-    rmse = float(np.sqrt(np.mean((val_preds - val_truth) ** 2)))
+    mae = adaptive_mae if model is adaptive_model else baseline_mae
+    rmse = adaptive_rmse if model is adaptive_model else baseline_rmse
 
     # Autoregressive forecast
     history = list(normalized)
@@ -612,17 +642,36 @@ def forecast_risk(series: List[float], horizon: int = 7) -> Dict:
     forecast = [max(0.0, round(v * std_v + mean_v, 2)) for v in history[-horizon:]]
     result = {
         "forecast": forecast,
-        "method": "lstm",
+        "method": "adaptive_lstm" if model is adaptive_model else "simple_lstm",
         "look_back": look_back,
         "train_samples": n_train,
         "val_samples": n_val,
         "mae": round(mae, 4),
         "rmse": round(rmse, 4),
+        "innovation_comparison": {
+            "baseline_model": "simple_lstm",
+            "baseline_rmse": round(baseline_rmse, 4),
+            "adaptive_model": "adaptive_attention_lstm",
+            "adaptive_rmse": round(adaptive_rmse, 4),
+            "rmse_improvement_pct": round(((baseline_rmse - adaptive_rmse) / baseline_rmse * 100.0), 4) if baseline_rmse > 0 else 0.0,
+            "selected": "adaptive_attention_lstm" if model is adaptive_model else "simple_lstm",
+        },
         "note": (
             f"LSTM 在 {n_train} 个训练样本上拟合，"
             f"验证集 MAE={mae:.2f}，RMSE={rmse:.2f}。"
             "接入真实历史数据可显著降低误差（参见 TRAINING.md）。"
         ),
+    }
+
+    global _last_lstm_innovation
+    _last_lstm_innovation = {
+        "available": True,
+        "train_samples": n_train,
+        "val_samples": n_val,
+        "baseline_rmse": round(baseline_rmse, 4),
+        "adaptive_rmse": round(adaptive_rmse, 4),
+        "selected": result["innovation_comparison"]["selected"],
+        "rmse_improvement_pct": result["innovation_comparison"]["rmse_improvement_pct"],
     }
 
     # Evict oldest cache entry if full
@@ -800,17 +849,27 @@ def metrics():
                     "优点：无需标注数据，能处理语义模糊的文本。"
                     "缺点：结构化字段精度低于正则；置信度分数意义有限。"
                     "运行 python finetune_bert.py --mode seed 可一键升级到微调模型（需 GPU 环境）。"
-                ) if _BERT_AVAILABLE else "BERT 模型未加载（网络不可用或 BERT_MOCK=true），使用纯 ML 分类器。",
+                ) if _BERT_AVAILABLE else "BERT 模型未加载（网络不可用），使用纯 ML 分类器。",
             },
         ],
         "lstm_forecaster": {
             "description": (
-                "每次请求在输入序列上从零训练 2 层 SimpleLSTM（hidden=32，200 epochs）。"
+                "每次请求在输入序列上训练 SimpleLSTM 与 AdaptiveAttentionLSTM，并选择验证 RMSE 更优模型。"
                 "相同序列结果被缓存。每次返回验证集 MAE/RMSE 评估指标。"
             ),
             "cached_series_count": len(_lstm_cache),
+            "last_innovation": _last_lstm_innovation,
         },
         "benchmark": bench,
+    })
+
+
+@app.route("/innovation/report", methods=["GET"])
+def innovation_report():
+    return jsonify({
+        "available": _last_lstm_innovation.get("available", False),
+        "lstm": _last_lstm_innovation,
+        "adaptive_rule_hint": "Backend adaptive rule engine report is exposed by /api/award/innovation-report",
     })
 
 
@@ -819,7 +878,6 @@ def health():
     return jsonify({
         "status": "ok",
         "model": MODEL_NAME,
-        "mock": MOCK_MODE,
         "bert_loading": _BERT_LOADING,
         "bert_available": _BERT_AVAILABLE,
         "bert_fine_tuned": _BERT_IS_FINETUNED,

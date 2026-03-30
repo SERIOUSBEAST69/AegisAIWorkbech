@@ -16,7 +16,7 @@ test_classifier.py — 分类器功能成熟度测试套件
 用法：
     # 启动服务
     cd python-service
-    BERT_MOCK=true python app.py
+    python app.py
 
     # 新开终端运行测试
     python test_classifier.py
@@ -266,7 +266,7 @@ def main():
             pass
     except Exception:
         print(f"\n❌ 无法连接到服务 {args.url}")
-        print("   请先启动服务：BERT_MOCK=true python app.py\n")
+        print("   请先启动服务：python app.py\n")
         sys.exit(1)
 
     success = run_tests(args.url, do_train=args.train, samples_path=args.samples)

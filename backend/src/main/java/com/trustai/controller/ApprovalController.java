@@ -1,10 +1,13 @@
 package com.trustai.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.trustai.entity.AuditLog;
 import com.trustai.entity.ApprovalRequest;
 import com.trustai.entity.Role;
 import com.trustai.entity.User;
 import com.trustai.exception.BizException;
+import com.trustai.service.AuditLogService;
 import com.trustai.service.ApprovalRequestService;
 import com.trustai.service.CompanyScopeService;
 import com.trustai.service.CurrentUserService;
@@ -15,10 +18,14 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.Date;
 import org.springframework.validation.annotation.Validated;
 import jakarta.validation.constraints.NotNull;
+import org.springframework.util.StringUtils;
 
 @RestController
 @RequestMapping("/api/approval")
@@ -28,6 +35,7 @@ public class ApprovalController {
     @Autowired private CurrentUserService currentUserService;
     @Autowired private CompanyScopeService companyScopeService;
     @Autowired private KeyTaskMetricService keyTaskMetricService;
+    @Autowired private AuditLogService auditLogService;
 
     private static final Set<String> APPROVE_STATUS = new HashSet<>(Arrays.asList("通过", "拒绝"));
     private static final String ROLE_ADMIN = "ADMIN";
@@ -56,6 +64,46 @@ public class ApprovalController {
         return R.ok(filterByOperatorScope(list, roleCode, currentUser));
     }
 
+    @GetMapping("/page")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN','BUSINESS_OWNER','EMPLOYEE')")
+    public R<Map<String, Object>> page(@RequestParam(defaultValue = "1") int page,
+                                       @RequestParam(defaultValue = "10") int pageSize,
+                                       @RequestParam(required = false) Long applicantId,
+                                       @RequestParam(required = false) Long assetId,
+                                       @RequestParam(required = false) String status,
+                                       @RequestParam(required = false) String keyword) {
+        currentUserService.requireAnyRole("ADMIN", "DATA_ADMIN", "BUSINESS_OWNER", "EMPLOYEE");
+        User currentUser = currentUserService.requireCurrentUser();
+        String roleCode = currentUserService.currentRoleCode();
+        QueryWrapper<ApprovalRequest> qw = companyScopeService.withCompany(new QueryWrapper<>());
+        if (isApprovalOperator(currentUser)) {
+            if (applicantId != null) {
+                qw.eq("applicant_id", applicantId);
+            }
+        } else {
+            qw.eq("applicant_id", currentUser.getId());
+        }
+        if (assetId != null) {
+            qw.eq("asset_id", assetId);
+        }
+        if (StringUtils.hasText(status)) {
+            qw.like("status", status.trim());
+        }
+        if (StringUtils.hasText(keyword)) {
+            qw.and(w -> w.like("reason", keyword).or().like("status", keyword));
+        }
+        qw.orderByDesc("update_time");
+
+        Page<ApprovalRequest> result = approvalRequestService.page(new Page<>(Math.max(1, page), Math.max(1, pageSize)), qw);
+        List<ApprovalRequest> scoped = filterByOperatorScope(result.getRecords(), roleCode, currentUser);
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("current", result.getCurrent());
+        payload.put("pages", result.getPages());
+        payload.put("total", result.getTotal());
+        payload.put("list", scoped);
+        return R.ok(payload);
+    }
+
     @PostMapping("/apply")
     @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN','BUSINESS_OWNER','EMPLOYEE')")
     public R<?> apply(@RequestBody ApprovalRequest req) {
@@ -69,7 +117,8 @@ public class ApprovalController {
             req.setStatus(null);
             req.setTaskId(null);
             req.setProcessInstanceId(null);
-            approvalRequestService.startApproval(req);
+            ApprovalRequest created = approvalRequestService.startApproval(req);
+            writeApprovalAudit(currentUser, "approval_apply", "requestId=" + created.getId() + ", applicantId=" + currentUser.getId());
             keyTaskMetricService.record("approval.flow", true);
             return R.okMsg("提交成功");
         } catch (RuntimeException ex) {
@@ -100,6 +149,7 @@ public class ApprovalController {
             detail.put("currentStatus", after == null ? "驳回" : after.getStatus());
             detail.put("approverId", currentUser.getId());
             detail.put("message", "审批已驳回，状态已从「" + prevStatus + "」回退至「驳回」。");
+            writeApprovalAudit(currentUser, "approval_reject", "requestId=" + req.getRequestId() + ", from=" + prevStatus + ", to=驳回");
             keyTaskMetricService.record("approval.flow", true);
             return R.ok(detail);
         } catch (RuntimeException ex) {
@@ -122,7 +172,8 @@ public class ApprovalController {
             if (!canOperateRequest(roleCode, request, currentUser)) {
                 throw new BizException(40300, "当前身份无权审批该类型申请");
             }
-            approvalRequestService.approve(req.getRequestId(), currentUser.getId(), req.getStatus());
+            ApprovalRequest after = approvalRequestService.approve(req.getRequestId(), currentUser.getId(), req.getStatus());
+            writeApprovalAudit(currentUser, "approval_approve", "requestId=" + req.getRequestId() + ", to=" + (after == null ? req.getStatus() : after.getStatus()));
             keyTaskMetricService.record("approval.flow", true);
             return R.okMsg("审批完成");
         } catch (RuntimeException ex) {
@@ -160,7 +211,25 @@ public class ApprovalController {
             throw new BizException(40300, "仅可删除本人申请");
         }
         approvalRequestService.removeById(req.getId());
+        writeApprovalAudit(currentUser, "approval_delete", "requestId=" + approval.getId());
         return R.okMsg("删除成功");
+    }
+
+    private void writeApprovalAudit(User operator, String operation, String detail) {
+        try {
+            AuditLog log = new AuditLog();
+            log.setUserId(operator.getId());
+            log.setOperation(operation);
+            log.setOperationTime(new Date());
+            log.setInputOverview(detail);
+            log.setOutputOverview("approval_flow");
+            log.setResult("success");
+            log.setRiskLevel("MEDIUM");
+            log.setCreateTime(new Date());
+            auditLogService.saveAudit(log);
+        } catch (Exception ignored) {
+            // Non-blocking audit write.
+        }
     }
 
     private boolean isApprovalOperator(User user) {

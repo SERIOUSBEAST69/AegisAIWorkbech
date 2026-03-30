@@ -28,4 +28,32 @@ export const dashboardApi = {
   async getForecast() {
     return request.get('/risk/forecast');
   },
+
+  async getAwardSummary() {
+    return request.get('/award/summary');
+  },
+
+  async getExperimentReport(params) {
+    return request.get('/award/experiment-report', { params });
+  },
+
+  async generateComplianceEvidence(payload) {
+    return request.post('/award/compliance-evidence/generate', payload || {});
+  },
+
+  async runReliabilityDrill(payload) {
+    return request.post('/award/reliability/drill/run', payload || {});
+  },
+
+  async getWebVitalSummary(days = 7) {
+    return request.get('/ops-metrics/web-vitals/summary', { params: { days } });
+  },
+
+  async getHttpHistory(days = 7, api = '') {
+    return request.get('/ops-metrics/http-history', { params: { days, api } });
+  },
+
+  async getInnovationReport(params) {
+    return request.get('/award/innovation-report', { params });
+  },
 };

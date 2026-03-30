@@ -18,6 +18,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.ArrayList;
 import java.util.UUID;
 import lombok.Data;
 import org.slf4j.Logger;
@@ -55,6 +56,43 @@ public class AuthController {
         "BUSINESS_OWNER", "业务负责人",
         "EMPLOYEE", "普通员工"
     );
+    private static final Map<String, List<Map<String, String>>> DEMO_ACCOUNTS = Map.of(
+        "ADMIN", List.of(
+            demoAccount("主治理管理员", "admin", "admin"),
+            demoAccount("治理复核员A", "admin_reviewer", "admin"),
+            demoAccount("治理复核员B", "admin_ops", "admin")
+        ),
+        "EXECUTIVE", List.of(
+            demoAccount("管理层账号A", "executive", "Passw0rd!"),
+            demoAccount("管理层账号B", "executive_2", "Passw0rd!"),
+            demoAccount("管理层账号C", "executive_3", "Passw0rd!")
+        ),
+        "SECOPS", List.of(
+            demoAccount("安全运维A", "secops", "Passw0rd!"),
+            demoAccount("安全运维B", "secops_2", "Passw0rd!"),
+            demoAccount("安全运维C", "secops_3", "Passw0rd!")
+        ),
+        "DATA_ADMIN", List.of(
+            demoAccount("数据管理员A", "dataadmin", "Passw0rd!"),
+            demoAccount("数据管理员B", "dataadmin_2", "Passw0rd!"),
+            demoAccount("数据管理员C", "dataadmin_3", "Passw0rd!")
+        ),
+        "AI_BUILDER", List.of(
+            demoAccount("AI开发者A", "aibuilder", "Passw0rd!"),
+            demoAccount("AI开发者B", "aibuilder_2", "Passw0rd!"),
+            demoAccount("AI开发者C", "aibuilder_3", "Passw0rd!")
+        ),
+        "BUSINESS_OWNER", List.of(
+            demoAccount("业务负责人A", "bizowner", "Passw0rd!"),
+            demoAccount("业务负责人B", "bizowner_2", "Passw0rd!"),
+            demoAccount("业务负责人C", "bizowner_3", "Passw0rd!")
+        ),
+        "EMPLOYEE", List.of(
+            demoAccount("员工账号A", "employee", "Passw0rd!"),
+            demoAccount("员工账号B", "employee_2", "Passw0rd!"),
+            demoAccount("员工账号C", "employee_3", "Passw0rd!")
+        )
+    );
 
     @Autowired private UserService userService;
     @Autowired private PasswordEncoder passwordEncoder;
@@ -72,7 +110,7 @@ public class AuthController {
         if (user == null) {
             throw new BizException(40100, "用户不存在");
         }
-        if (!passwordEncoder.matches(req.getPassword(), user.getPassword())) {
+        if (!verifyPasswordAndUpgradeIfNeeded(user, req.getPassword())) {
             throw new BizException(40100, "用户名或密码错误");
         }
         user.setLoginType("password");
@@ -138,9 +176,18 @@ public class AuthController {
             option("ai-team", "AI应用团队"),
             option("public-sector", "政企/公共机构")
         );
+        List<Map<String, Object>> demoAccounts = new ArrayList<>();
+        for (Map.Entry<String, String> role : ROLE_LABELS.entrySet()) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("roleCode", role.getKey());
+            row.put("roleLabel", role.getValue());
+            row.put("accounts", DEMO_ACCOUNTS.getOrDefault(role.getKey(), List.of()));
+            demoAccounts.add(row);
+        }
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("identities", identities);
         result.put("organizations", organizations);
+        result.put("demoAccounts", demoAccounts);
         return R.ok(result);
     }
 
@@ -191,6 +238,33 @@ public class AuthController {
             return null;
         }
         return user;
+    }
+
+    private boolean verifyPasswordAndUpgradeIfNeeded(User user, String rawPassword) {
+        String storedPassword = user.getPassword();
+        if (!StringUtils.hasText(storedPassword) || !StringUtils.hasText(rawPassword)) {
+            return false;
+        }
+
+        if (isBcryptPassword(storedPassword)) {
+            try {
+                return passwordEncoder.matches(rawPassword, storedPassword);
+            } catch (IllegalArgumentException ex) {
+                log.warn("invalid bcrypt hash for user id={}, fallback to plain comparison", user.getId());
+                return rawPassword.equals(storedPassword);
+            }
+        }
+
+        if (!rawPassword.equals(storedPassword)) {
+            return false;
+        }
+
+        user.setPassword(passwordEncoder.encode(rawPassword));
+        return true;
+    }
+
+    private boolean isBcryptPassword(String password) {
+        return password.startsWith("$2a$") || password.startsWith("$2b$") || password.startsWith("$2y$");
     }
 
     private Role resolveOrCreateRoleForCompany(String roleCode, Long companyId) {
@@ -385,6 +459,14 @@ public class AuthController {
         return item;
     }
 
+    private static Map<String, String> demoAccount(String label, String username, String password) {
+        Map<String, String> item = new LinkedHashMap<>();
+        item.put("label", label);
+        item.put("username", username);
+        item.put("password", password);
+        return item;
+    }
+
     private void assertLoginAllowed(User user, String notFoundMessage) {
         if (user == null) {
             throw new BizException(40100, notFoundMessage);
@@ -425,6 +507,12 @@ public class AuthController {
 
     private UserProfileDTO toProfile(User user) {
         Role role = currentUserService.getCurrentRole(user);
+        String resolvedRoleCode = role == null ? null : role.getCode();
+        String resolvedRoleName = role == null ? null : role.getName();
+        if (!StringUtils.hasText(resolvedRoleCode) && "admin".equalsIgnoreCase(user.getUsername())) {
+            resolvedRoleCode = "ADMIN";
+            resolvedRoleName = ROLE_LABELS.get("ADMIN");
+        }
         return UserProfileDTO.builder()
             .id(user.getId())
             .companyId(user.getCompanyId())
@@ -440,8 +528,8 @@ public class AuthController {
             .department(user.getDepartment())
             .organizationType(user.getOrganizationType())
             .loginType(user.getLoginType())
-            .roleName(role == null ? null : role.getName())
-            .roleCode(role == null ? null : role.getCode())
+            .roleName(resolvedRoleName)
+            .roleCode(resolvedRoleCode)
             .deviceId(user.getDeviceId())
             .lastActiveAt(user.getUpdateTime() == null ? null : user.getUpdateTime().toInstant().atZone(java.time.ZoneId.systemDefault()).toLocalDateTime())
             .build();

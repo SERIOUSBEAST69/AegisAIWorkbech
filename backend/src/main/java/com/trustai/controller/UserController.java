@@ -1,6 +1,8 @@
 package com.trustai.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.trustai.dto.ChangePasswordDTO;
 import com.trustai.dto.UserProfileDTO;
 import com.trustai.dto.UserUpdateDTO;
@@ -8,12 +10,15 @@ import com.trustai.entity.AuditLog;
 import com.trustai.entity.Company;
 import com.trustai.entity.Role;
 import com.trustai.entity.User;
+import com.trustai.entity.UserRecycleBin;
 import com.trustai.exception.BizException;
 import com.trustai.service.AuditLogService;
 import com.trustai.service.CompanyService;
 import com.trustai.service.CurrentUserService;
 import com.trustai.service.RoleService;
+import com.trustai.service.SensitiveOperationGuardService;
 import com.trustai.service.UserService;
+import com.trustai.service.UserRecycleBinService;
 import com.trustai.utils.R;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -26,7 +31,10 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import org.slf4j.Logger;
@@ -65,6 +73,10 @@ public class UserController {
     @Autowired private CompanyService companyService;
     @Autowired private AuditLogService auditLogService;
     @Autowired private RoleService roleService;
+    @Autowired private UserRecycleBinService userRecycleBinService;
+    @Autowired private SensitiveOperationGuardService sensitiveOperationGuardService;
+
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     @GetMapping("/list")
     @PreAuthorize("@currentUserService.hasRole('ADMIN')")
@@ -83,6 +95,40 @@ public class UserController {
         List<User> list = userService.list(qw);
         list.forEach(u -> u.setPassword(null));
         return R.ok(list);
+    }
+
+    @GetMapping("/page")
+    @PreAuthorize("@currentUserService.hasRole('ADMIN')")
+    public R<Map<String, Object>> page(@RequestParam(defaultValue = "1") int page,
+                                       @RequestParam(defaultValue = "10") int pageSize,
+                                       @RequestParam(required = false) String username,
+                                       @RequestParam(required = false) String accountStatus,
+                                       @RequestParam(required = false) String accountType) {
+        currentUserService.requireAdmin();
+        Long companyId = currentUserService.requireCurrentUser().getCompanyId();
+        QueryWrapper<User> qw = new QueryWrapper<>();
+        if (companyId != null) {
+            qw.eq("company_id", companyId);
+        }
+        if (StringUtils.hasText(username)) {
+            qw.like("username", username);
+        }
+        if (StringUtils.hasText(accountStatus)) {
+            qw.eq("account_status", accountStatus);
+        }
+        if (StringUtils.hasText(accountType)) {
+            qw.eq("account_type", accountType);
+        }
+        qw.orderByDesc("update_time");
+
+        Page<User> result = userService.page(new Page<>(Math.max(1, page), Math.max(1, pageSize)), qw);
+        result.getRecords().forEach(item -> item.setPassword(null));
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("current", result.getCurrent());
+        payload.put("pages", result.getPages());
+        payload.put("total", result.getTotal());
+        payload.put("list", result.getRecords());
+        return R.ok(payload);
     }
 
     @GetMapping("/pending")
@@ -139,6 +185,17 @@ public class UserController {
     public R<?> register(@Valid @RequestBody User user) {
         currentUserService.requireAdmin();
         User currentUser = currentUserService.requireCurrentUser();
+        if (!StringUtils.hasText(user.getUsername())) {
+            throw new BizException(40000, "用户名不能为空");
+        }
+        String normalizedUsername = user.getUsername().trim();
+        boolean usernameExists = userService.lambdaQuery()
+            .eq(User::getUsername, normalizedUsername)
+            .count() > 0;
+        if (usernameExists) {
+            throw new BizException(40000, "用户名已存在");
+        }
+        user.setUsername(normalizedUsername);
         user.setCompanyId(currentUser.getCompanyId());
         ensureRoleInCompany(user.getRoleId(), currentUser.getCompanyId());
         user.setPassword(passwordEncoder.encode(user.getPassword()));
@@ -154,6 +211,7 @@ public class UserController {
         user.setCreateTime(new Date());
         user.setUpdateTime(new Date());
         userService.save(user);
+        writeApprovalAudit(currentUser, user, "create", "管理员创建账号");
         return R.okMsg("注册成功");
     }
 
@@ -174,26 +232,108 @@ public class UserController {
         user.setCompanyId(existing.getCompanyId());
         user.setUpdateTime(new Date());
         userService.updateById(user);
+        writeApprovalAudit(currentUserService.requireCurrentUser(), existing, "update", "管理员更新账号");
         return R.okMsg("更新成功");
     }
 
     @PostMapping("/delete")
     @PreAuthorize("@currentUserService.hasRole('ADMIN')")
     public R<?> delete(@Valid @RequestBody IdReq req) {
-        currentUserService.requireAdmin();
+        User operator = sensitiveOperationGuardService.requireConfirmedAdmin(req.getConfirmPassword(), "user_delete", "userId=" + req.getId());
         User existing = userService.getById(req.getId());
-        if (existing == null || !java.util.Objects.equals(existing.getCompanyId(), currentUserService.requireCurrentUser().getCompanyId())) {
+        if (existing == null || !java.util.Objects.equals(existing.getCompanyId(), operator.getCompanyId())) {
             throw new BizException(40400, "用户不存在或不在当前公司");
         }
+        if (Objects.equals(existing.getId(), operator.getId())) {
+            throw new BizException(40000, "不允许删除当前登录账号");
+        }
+        archiveDeletedUser(existing, operator, req.getDeleteReason());
         userService.removeById(req.getId());
+        writeApprovalAudit(operator, existing, "delete", "管理员删除账号");
         return R.okMsg("删除成功");
+    }
+
+    @GetMapping("/recycle-bin/page")
+    @PreAuthorize("@currentUserService.hasRole('ADMIN')")
+    public R<Map<String, Object>> recycleBinPage(@RequestParam(defaultValue = "1") int page,
+                                                 @RequestParam(defaultValue = "10") int pageSize,
+                                                 @RequestParam(required = false) String username) {
+        currentUserService.requireAdmin();
+        User currentUser = currentUserService.requireCurrentUser();
+        QueryWrapper<UserRecycleBin> qw = new QueryWrapper<UserRecycleBin>()
+            .eq("company_id", currentUser.getCompanyId())
+            .orderByDesc("deleted_at");
+        if (StringUtils.hasText(username)) {
+            qw.like("username", username.trim());
+        }
+        Page<UserRecycleBin> result = userRecycleBinService.page(new Page<>(Math.max(1, page), Math.max(1, pageSize)), qw);
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("current", result.getCurrent());
+        payload.put("pages", result.getPages());
+        payload.put("total", result.getTotal());
+        payload.put("list", result.getRecords());
+        return R.ok(payload);
+    }
+
+    @PostMapping("/recycle-bin/restore")
+    @PreAuthorize("@currentUserService.hasRole('ADMIN')")
+    public R<?> restoreFromRecycleBin(@Valid @RequestBody RestoreReq req) {
+        User operator = sensitiveOperationGuardService.requireConfirmedAdmin(req.getConfirmPassword(), "user_restore", "recycleId=" + req.getRecycleId());
+        UserRecycleBin recycle = userRecycleBinService.getById(req.getRecycleId());
+        if (recycle == null || !Objects.equals(recycle.getCompanyId(), operator.getCompanyId())) {
+            throw new BizException(40400, "回收记录不存在或不在当前公司");
+        }
+        if ("restored".equalsIgnoreCase(recycle.getRestoreStatus())) {
+            throw new BizException(40000, "该记录已恢复");
+        }
+        User snapshot = parseSnapshot(recycle.getSnapshotJson());
+        if (snapshot == null || !StringUtils.hasText(snapshot.getUsername())) {
+            throw new BizException(40000, "回收记录快照损坏，无法恢复");
+        }
+        boolean usernameExists = userService.lambdaQuery().eq(User::getUsername, snapshot.getUsername()).count() > 0;
+        if (usernameExists) {
+            throw new BizException(40000, "恢复失败：用户名已被占用");
+        }
+        snapshot.setId(null);
+        snapshot.setCompanyId(operator.getCompanyId());
+        snapshot.setCreateTime(new Date());
+        snapshot.setUpdateTime(new Date());
+        userService.save(snapshot);
+
+        recycle.setRestoreStatus("restored");
+        recycle.setRestoredBy(operator.getId());
+        recycle.setRestoredAt(new Date());
+        recycle.setUpdateTime(new Date());
+        userRecycleBinService.updateById(recycle);
+
+        writeApprovalAudit(operator, snapshot, "restore", "管理员恢复回收站账号");
+        return R.okMsg("恢复成功");
     }
 
     public static class IdReq {
         @NotNull(message = "用户ID不能为空")
         private Long id;
+        @NotBlank(message = "敏感操作需要二次密码")
+        private String confirmPassword;
+        @Size(max = 200, message = "删除原因不能超过200字符")
+        private String deleteReason;
         public Long getId(){return id;}
         public void setId(Long id){this.id=id;}
+        public String getConfirmPassword() { return confirmPassword; }
+        public void setConfirmPassword(String confirmPassword) { this.confirmPassword = confirmPassword; }
+        public String getDeleteReason() { return deleteReason; }
+        public void setDeleteReason(String deleteReason) { this.deleteReason = deleteReason; }
+    }
+
+    public static class RestoreReq {
+        @NotNull(message = "回收记录ID不能为空")
+        private Long recycleId;
+        @NotBlank(message = "敏感操作需要二次密码")
+        private String confirmPassword;
+        public Long getRecycleId() { return recycleId; }
+        public void setRecycleId(Long recycleId) { this.recycleId = recycleId; }
+        public String getConfirmPassword() { return confirmPassword; }
+        public void setConfirmPassword(String confirmPassword) { this.confirmPassword = confirmPassword; }
     }
 
     public static class ApproveReq {
@@ -314,6 +454,36 @@ public class UserController {
         Role role = roleService.getById(roleId);
         if (role == null || !Objects.equals(role.getCompanyId(), companyId)) {
             throw new BizException(40000, "角色不存在或不属于当前公司");
+        }
+    }
+
+    private void archiveDeletedUser(User target, User operator, String reason) {
+        try {
+            UserRecycleBin recycleBin = new UserRecycleBin();
+            recycleBin.setCompanyId(operator.getCompanyId());
+            recycleBin.setUserId(target.getId());
+            recycleBin.setUsername(target.getUsername());
+            recycleBin.setSnapshotJson(MAPPER.writeValueAsString(target));
+            recycleBin.setDeletedBy(operator.getId());
+            recycleBin.setDeleteReason(StringUtils.hasText(reason) ? reason.trim() : "治理管理员删除账号");
+            recycleBin.setDeletedAt(new Date());
+            recycleBin.setRestoreStatus("deleted");
+            recycleBin.setCreateTime(new Date());
+            recycleBin.setUpdateTime(new Date());
+            userRecycleBinService.save(recycleBin);
+        } catch (Exception ex) {
+            throw new BizException(50000, "删除失败：无法写入回收站");
+        }
+    }
+
+    private User parseSnapshot(String snapshotJson) {
+        try {
+            if (!StringUtils.hasText(snapshotJson)) {
+                return null;
+            }
+            return MAPPER.readValue(snapshotJson, User.class);
+        } catch (Exception ex) {
+            return null;
         }
     }
 

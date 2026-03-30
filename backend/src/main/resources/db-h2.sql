@@ -57,6 +57,59 @@ CREATE TABLE IF NOT EXISTS sys_user (
   update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS user_recycle_bin (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  company_id BIGINT,
+  user_id BIGINT,
+  username VARCHAR(50),
+  snapshot_json CLOB,
+  deleted_by BIGINT,
+  delete_reason VARCHAR(200),
+  deleted_at TIMESTAMP,
+  restore_status VARCHAR(20) DEFAULT 'deleted',
+  restored_by BIGINT,
+  restored_at TIMESTAMP,
+  create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_recycle_company_time ON user_recycle_bin(company_id, deleted_at);
+
+CREATE TABLE IF NOT EXISTS governance_change_request (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  company_id BIGINT,
+  module VARCHAR(32) NOT NULL,
+  action VARCHAR(20) NOT NULL,
+  target_id BIGINT,
+  payload_json CLOB,
+  status VARCHAR(20) DEFAULT 'pending',
+  risk_level VARCHAR(20) DEFAULT 'HIGH',
+  requester_id BIGINT,
+  requester_role_code VARCHAR(50),
+  approver_id BIGINT,
+  approver_role_code VARCHAR(50),
+  approve_note VARCHAR(500),
+  approved_at TIMESTAMP,
+  create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_gov_change_company_status ON governance_change_request(company_id, status, create_time);
+
+CREATE TABLE IF NOT EXISTS sod_conflict_rule (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  company_id BIGINT,
+  scenario VARCHAR(64) NOT NULL,
+  role_code_a VARCHAR(50) NOT NULL,
+  role_code_b VARCHAR(50) NOT NULL,
+  enabled INT DEFAULT 1,
+  description VARCHAR(255),
+  create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_sod_company_scene ON sod_conflict_rule(company_id, scenario, enabled);
+
 CREATE TABLE IF NOT EXISTS company (
   id BIGINT AUTO_INCREMENT PRIMARY KEY,
   company_code VARCHAR(64) NOT NULL,
@@ -78,6 +131,7 @@ CREATE TABLE IF NOT EXISTS role (
 
 CREATE TABLE IF NOT EXISTS permission (
   id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  company_id BIGINT,
   name VARCHAR(50) NOT NULL,
   code VARCHAR(50) NOT NULL,
   type VARCHAR(20),
@@ -85,6 +139,8 @@ CREATE TABLE IF NOT EXISTS permission (
   create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE INDEX IF NOT EXISTS idx_permission_company_code ON permission(company_id, code);
 
 CREATE TABLE IF NOT EXISTS role_permission (
   id BIGINT AUTO_INCREMENT PRIMARY KEY,

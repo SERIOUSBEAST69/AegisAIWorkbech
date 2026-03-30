@@ -227,6 +227,7 @@ const MENU_SECTIONS = [
     title: '流转与履约',
     items: [
       { path: '/approval-manage', label: '审批管理', icon: 'Finished', audiences: ['governanceAdmin', 'dataAdmin', 'businessOwner', 'employee'] },
+      { path: '/governance-change-manage', label: '治理变更复核', icon: 'Stamp', audiences: ['governanceAdmin', 'secops'] },
       { path: '/risk-event-manage', label: '风险事件', icon: 'Warning', audiences: ['governanceAdmin', 'secops'] },
       { path: '/subject-request', label: '主体权利', icon: 'UserFilled', audiences: ['governanceAdmin'] },
       { path: '/policy-manage', label: '策略管理', icon: 'Document', audiences: ['governanceAdmin', 'secops', 'dataAdmin', 'aiBuilder'] },
@@ -239,6 +240,7 @@ const MENU_SECTIONS = [
       { path: '/user-manage', label: '用户管理', icon: 'UserFilled', audiences: ['governanceAdmin'] },
       { path: '/role-manage', label: '角色管理', icon: 'Avatar', audiences: ['governanceAdmin'] },
       { path: '/permission-manage', label: '权限管理', icon: 'Key', audiences: ['governanceAdmin'] },
+      { path: '/sod-rule-manage', label: 'SoD 规则管理', icon: 'SwitchButton', audiences: ['governanceAdmin', 'secops'] },
     ],
   },
 ];
@@ -248,6 +250,8 @@ const EXTRA_ROUTE_AUDIENCES = {
   '/settings': [ALL],
   '/operations-command': ['governanceAdmin', 'executive'],
   '/approval-manage': ['governanceAdmin', 'dataAdmin', 'businessOwner', 'employee'],
+  '/governance-change-manage': ['governanceAdmin', 'secops'],
+  '/sod-rule-manage': ['governanceAdmin', 'secops'],
   '/risk-event-manage': ['governanceAdmin', 'secops'],
   '/ai/risk-rating': ['governanceAdmin', 'secops', 'aiBuilder'],
   '/ai/anomaly': ['governanceAdmin', 'secops', 'executive', 'dataAdmin', 'aiBuilder', 'businessOwner', 'employee'],

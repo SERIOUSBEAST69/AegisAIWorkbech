@@ -37,6 +37,12 @@ class DashboardSecurityIntegrationTest {
     @MockBean(name = "privacyShieldSchemaInitializer")
     private CommandLineRunner privacyShieldSchemaInitializerRunner;
 
+    @MockBean(name = "companySchemaInitializer")
+    private CommandLineRunner companySchemaInitializerRunner;
+
+    @MockBean(name = "awardSchemaInitializer")
+    private CommandLineRunner awardSchemaInitializerRunner;
+
     @Test
     void dashboardRequiresAuthentication() throws Exception {
         MvcResult result = mockMvc.perform(get("/api/dashboard/workbench"))

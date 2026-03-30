@@ -1,6 +1,7 @@
 package com.trustai.utils;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.util.Collection;
 import java.util.IdentityHashMap;
 import java.util.Map;
@@ -32,6 +33,10 @@ public final class InputSanitizer {
         if (body == null) {
             return;
         }
+        Class<?> bodyClass = body.getClass();
+        if (isTerminalType(bodyClass)) {
+            return;
+        }
         if (body instanceof String str) {
             // String is immutable, so caller must sanitize before assigning.
             return;
@@ -58,9 +63,12 @@ public final class InputSanitizer {
             return;
         }
 
-        Class<?> cls = body.getClass();
+        Class<?> cls = bodyClass;
         while (cls != null && cls != Object.class) {
             for (Field field : cls.getDeclaredFields()) {
+                if (Modifier.isStatic(field.getModifiers())) {
+                    continue;
+                }
                 field.setAccessible(true);
                 try {
                     Object value = field.get(body);
@@ -75,5 +83,21 @@ public final class InputSanitizer {
             }
             cls = cls.getSuperclass();
         }
+    }
+
+    private static boolean isTerminalType(Class<?> cls) {
+        if (cls.isPrimitive()
+            || cls.isEnum()
+            || Number.class.isAssignableFrom(cls)
+            || Boolean.class == cls
+            || Character.class == cls
+            || Class.class == cls) {
+            return true;
+        }
+        String className = cls.getName();
+        return className.startsWith("java.time.")
+            || className.startsWith("java.math.")
+            || className.startsWith("java.net.")
+            || className.startsWith("java.nio.");
     }
 }

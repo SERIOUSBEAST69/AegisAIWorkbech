@@ -72,7 +72,6 @@ services:
     container_name: ai-inference
     restart: always
     environment:
-      BERT_MOCK: "false"
       HF_ENDPOINT: https://hf-mirror.com
     ports:
       - "5000:5000"
@@ -107,7 +106,7 @@ services:
       retries: 5
 
   # 6. 数据库兼容性迁移
-  mysql-bootstrap:
+  aegisai-mysql-bootstrap:
     image: mysql:8.0
     container_name: aegisai-mysql-bootstrap
     restart: "no"
@@ -119,7 +118,7 @@ services:
       MYSQL_DATABASE: aegisai
     volumes:
       - ./docker/mysql/bootstrap:/bootstrap
-    entrypoint: ["/bootstrap/bootstrap.sh"]
+    entrypoint: ["/bin/sh", "/bootstrap/bootstrap.sh"]
     depends_on:
       mysql:
         condition: service_healthy
@@ -156,7 +155,7 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
-      mysql-bootstrap:
+      aegisai-mysql-bootstrap:
         condition: service_completed_successfully
       redis:
         condition: service_healthy

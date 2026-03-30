@@ -8,10 +8,13 @@
     "serve": "vite preview",
     "lint": "eslint . --ext .js,.vue,.ts",
     "security:scan": "node scripts/check-sensitive-logs.mjs",
+    "test:contract": "node contract/ops-metrics.pact.test.js",
+    "test:load": "k6 run e2e/k6-core-load.js --summary-export=e2e-report.json",
+    "quality:gate": "node scripts/quality-gate.mjs e2e-report.json",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install chromium",
     "test:backend:integration": "cd backend && mvn -q \"-Dtest=AccountApprovalIntegrationTest,DashboardSecurityIntegrationTest,ValidationGuardIntegrationTest,PermissionMatrixIntegrationTest\" test",
-    "verify:ci": "npm run security:scan && npm run build && npm run test:backend:integration && npm run test:e2e"
+    "verify:ci": "npm run security:scan && npm run build && npm run test:contract && npm run test:backend:integration && npm run test:e2e"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.1",
@@ -25,6 +28,7 @@
     "vue-router": "^4.2.0"
   },
   "devDependencies": {
+    "@pact-foundation/pact": "^13.2.0",
     "@playwright/test": "1.53.0",
     "@vitejs/plugin-vue": "^4.5.0",
     "@vue/eslint-config-prettier": "^8.0.0",

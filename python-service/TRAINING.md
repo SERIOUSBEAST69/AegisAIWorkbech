@@ -149,8 +149,8 @@ LSTM 才具备真正的实用价值。如果误差更大，可尝试增加历史
 ## 四、快速验证（无需真实数据）
 
 ```bash
-# 启动服务（mock 模式，不需要 BERT）
-BERT_MOCK=true python app.py
+# 启动服务
+python app.py
 
 # 查看模型信息和基准测试
 curl http://localhost:5000/metrics
