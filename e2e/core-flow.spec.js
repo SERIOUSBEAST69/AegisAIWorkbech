@@ -33,16 +33,16 @@ test('home and command deck should be reachable after login', async ({ page }) =
   await page.keyboard.press('Control+KeyK');
   const paletteInput = page.getByPlaceholder(/搜索页面与动作\.\.\.|输入关键字快速跳转/);
   await expect(paletteInput).toBeVisible();
-  await paletteInput.fill('运营指挥台');
-  await page.getByRole('button', { name: /运营指挥台/ }).first().click();
+  await paletteInput.fill('安全指挥台');
+  await page.getByRole('button', { name: /安全指挥台|运营指挥台/ }).first().click();
 
   await expect(page).toHaveURL(/operations-command/);
-  await expect(page.getByRole('heading', { name: '运营指挥台' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /安全指挥台|运营指挥台/ })).toBeVisible();
 });
 
 test('operations command can switch lanes', async ({ page }) => {
   await page.goto('/operations-command');
-  await expect(page.getByRole('heading', { name: '运营指挥台' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /安全指挥台|运营指挥台/ })).toBeVisible();
 
   await page.locator('.lane-switch .lane-button', { hasText: '风险事件' }).first().click();
   await expect(page.locator('.dispatch-card .card-header').first()).toHaveText('风险闭环队列');

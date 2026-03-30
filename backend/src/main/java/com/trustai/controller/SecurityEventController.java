@@ -82,7 +82,7 @@ public class SecurityEventController {
      * @param keyword  关键字（匹配 filePath / hostname / employeeId）
      */
     @GetMapping("/events")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
+    @PreAuthorize("@currentUserService.hasAnyPermission('security:event:view','security:event:handle')")
     public R<Map<String, Object>> events(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int pageSize,
@@ -90,7 +90,7 @@ public class SecurityEventController {
             @RequestParam(required = false) String severity,
             @RequestParam(required = false) String keyword) {
 
-        currentUserService.requireAnyRole("ADMIN", "SECOPS");
+        currentUserService.requireAnyPermission("security:event:view", "security:event:handle");
 
         String normalizedStatus = status == null ? null : status.trim().toLowerCase();
         String normalizedSeverity = severity == null ? null : severity.trim().toLowerCase();
@@ -126,24 +126,13 @@ public class SecurityEventController {
         }
         qw.orderByDesc("event_time");
 
-        try {
-            Page<SecurityEvent> result = securityEventService.page(new Page<>(page, pageSize), qw);
-
-            Map<String, Object> data = new LinkedHashMap<>();
-            data.put("total", result.getTotal());
-            data.put("pages", result.getPages());
-            data.put("current", result.getCurrent());
-            data.put("list", result.getRecords());
-            return R.ok(data);
-        } catch (Exception ex) {
-            Map<String, Object> empty = new LinkedHashMap<>();
-            empty.put("total", 0);
-            empty.put("pages", 0);
-            empty.put("current", page);
-            empty.put("list", List.of());
-            empty.put("degraded", true);
-            return R.ok(empty);
-        }
+        Page<SecurityEvent> result = securityEventService.page(new Page<>(page, pageSize), qw);
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("total", result.getTotal());
+        data.put("pages", result.getPages());
+        data.put("current", result.getCurrent());
+        data.put("list", result.getRecords());
+        return R.ok(data);
     }
 
     // ── 阻拦事件 ────────────────────────────────────────────────────────────────
@@ -154,9 +143,9 @@ public class SecurityEventController {
      * <p>将指定事件状态改为 "blocked"。
      */
     @PostMapping("/block")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
+    @PreAuthorize("@currentUserService.hasPermission('security:event:handle')")
     public R<?> block(@RequestBody IdReq req) {
-        currentUserService.requireAnyRole("ADMIN", "SECOPS");
+        currentUserService.requirePermission("security:event:handle");
         SecurityEvent event = securityEventService.getOne(companyScopeService.withCompany(new QueryWrapper<SecurityEvent>()).eq("id", req.getId()));
         if (event == null) {
             return R.error(40400, "事件不存在");
@@ -178,9 +167,9 @@ public class SecurityEventController {
      * <p>将指定事件状态改为 "ignored"。
      */
     @PostMapping("/ignore")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
+    @PreAuthorize("@currentUserService.hasPermission('security:event:handle')")
     public R<?> ignore(@RequestBody IdReq req) {
-        currentUserService.requireAnyRole("ADMIN", "SECOPS");
+        currentUserService.requirePermission("security:event:handle");
         SecurityEvent event = securityEventService.getOne(companyScopeService.withCompany(new QueryWrapper<SecurityEvent>()).eq("id", req.getId()));
         if (event == null) {
             return R.error(40400, "事件不存在");
@@ -225,7 +214,7 @@ public class SecurityEventController {
             companyId = headerCompanyId;
         }
         if (companyId == null) {
-            companyId = clientIngressAuthService.getDefaultCompanyId();
+            return R.error(40100, "缺少合法 companyId");
         }
         event.setCompanyId(companyId);
         if (event.getEventTime() == null) {
@@ -264,17 +253,17 @@ public class SecurityEventController {
 
     /** GET /api/security/rules — 查询所有检测规则 */
     @GetMapping("/rules")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
+    @PreAuthorize("@currentUserService.hasAnyPermission('security:event:view','security:rule:manage')")
     public R<List<SecurityDetectionRule>> rules() {
-        currentUserService.requireAnyRole("ADMIN", "SECOPS");
+        currentUserService.requireAnyPermission("security:event:view", "security:rule:manage");
         return R.ok(ruleService.list(new QueryWrapper<SecurityDetectionRule>().orderByAsc("id")));
     }
 
     /** POST /api/security/rules — 新增或更新检测规则 */
     @PostMapping("/rules")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
+    @PreAuthorize("@currentUserService.hasPermission('security:rule:manage')")
     public R<?> saveRule(@RequestBody SecurityDetectionRule rule) {
-        currentUserService.requireAnyRole("ADMIN", "SECOPS");
+        currentUserService.requirePermission("security:rule:manage");
         if (rule.getCreateTime() == null) rule.setCreateTime(new Date());
         rule.setUpdateTime(new Date());
         ruleService.saveOrUpdate(rule);
@@ -283,9 +272,9 @@ public class SecurityEventController {
 
     /** DELETE /api/security/rules/{id} — 删除检测规则 */
     @DeleteMapping("/rules/{id}")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
+    @PreAuthorize("@currentUserService.hasPermission('security:rule:manage')")
     public R<?> deleteRule(@PathVariable Long id) {
-        currentUserService.requireAnyRole("ADMIN", "SECOPS");
+        currentUserService.requirePermission("security:rule:manage");
         ruleService.removeById(id);
         return R.okMsg("删除成功");
     }
@@ -294,9 +283,9 @@ public class SecurityEventController {
 
     /** GET /api/security/stats — 事件统计摘要 */
     @GetMapping("/stats")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
+    @PreAuthorize("@currentUserService.hasAnyPermission('security:event:view','security:event:handle')")
     public R<Map<String, Object>> stats() {
-        currentUserService.requireAnyRole("ADMIN", "SECOPS");
+        currentUserService.requireAnyPermission("security:event:view", "security:event:handle");
         User currentUser = currentUserService.requireCurrentUser();
         boolean employeeOnly = currentUserService.isEmployeeUser();
 

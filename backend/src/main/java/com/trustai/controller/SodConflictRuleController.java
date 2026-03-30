@@ -46,7 +46,7 @@ public class SodConflictRuleController {
     }
 
     @GetMapping("/page")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
+    @PreAuthorize("@currentUserService.hasPermission('sod:rule:view')")
     public R<Map<String, Object>> page(@RequestParam(defaultValue = "1") int page,
                                        @RequestParam(defaultValue = "10") int pageSize,
                                        @RequestParam(required = false) String scenario,
@@ -70,9 +70,9 @@ public class SodConflictRuleController {
     }
 
     @PostMapping("/save")
-    @PreAuthorize("@currentUserService.hasRole('ADMIN')")
+    @PreAuthorize("@currentUserService.hasPermission('sod:rule:edit')")
     public R<?> save(@Valid @RequestBody SaveReq req) {
-        currentUserService.requireAdmin();
+        currentUserService.requirePermission("sod:rule:edit");
         Long companyId = companyScopeService.requireCompanyId();
 
         SodConflictRule entity;
@@ -98,7 +98,7 @@ public class SodConflictRuleController {
     }
 
     @PostMapping("/delete")
-    @PreAuthorize("@currentUserService.hasRole('ADMIN')")
+    @PreAuthorize("@currentUserService.hasPermission('sod:rule:edit')")
     public R<?> delete(@Valid @RequestBody DeleteReq req) {
         User operator = sensitiveOperationGuardService.requireConfirmedAdmin(req.getConfirmPassword(), "sod_rule_delete", "ruleId=" + req.getId());
         SodConflictRule existing = sodConflictRuleService.getById(req.getId());

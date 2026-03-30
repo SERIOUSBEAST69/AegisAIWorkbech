@@ -17,7 +17,7 @@
       </el-form-item>
       <el-form-item>
         <el-button type="primary" :loading="loading" @click="fetchRequests">查询</el-button>
-        <el-button v-if="isAdmin" @click="openSubmit">发起治理变更</el-button>
+        <el-button v-if="canSubmit" @click="openSubmit">发起治理变更</el-button>
       </el-form-item>
     </el-form>
 
@@ -35,13 +35,13 @@
           <el-button
             size="small"
             type="success"
-            :disabled="scope.row.status !== 'pending'"
+            :disabled="!canReview || scope.row.status !== 'pending'"
             @click="review(scope.row, true)"
           >通过</el-button>
           <el-button
             size="small"
             type="danger"
-            :disabled="scope.row.status !== 'pending'"
+            :disabled="!canReview || scope.row.status !== 'pending'"
             @click="review(scope.row, false)"
           >拒绝</el-button>
         </template>
@@ -101,6 +101,7 @@ import { computed, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import request from '../api/request';
 import { getSession } from '../utils/auth';
+import { canReviewGovernanceChange, canSubmitGovernanceChange } from '../utils/roleBoundary';
 
 const requests = ref([]);
 const loading = ref(false);
@@ -111,7 +112,8 @@ const pagination = ref({ current: 1, pageSize: 10, total: 0 });
 const submitFormRef = ref();
 const submitForm = ref({ module: 'ROLE', action: 'ADD', targetId: null, payloadJson: '' });
 
-const isAdmin = computed(() => String(getSession()?.user?.roleCode || '').toUpperCase() === 'ADMIN');
+const canSubmit = computed(() => canSubmitGovernanceChange(getSession()?.user));
+const canReview = computed(() => canReviewGovernanceChange(getSession()?.user));
 
 const rules = {
   module: [{ required: true, message: '模块不能为空', trigger: 'change' }],
@@ -131,6 +133,10 @@ function onPageSizeChange(size) {
 }
 
 function openSubmit() {
+  if (!canSubmit.value) {
+    ElMessage.error('当前身份无发起治理变更权限');
+    return;
+  }
   submitForm.value = { module: 'ROLE', action: 'ADD', targetId: null, payloadJson: '' };
   showSubmit.value = true;
 }
@@ -155,6 +161,10 @@ async function fetchRequests() {
 }
 
 async function submitRequest() {
+  if (!canSubmit.value) {
+    ElMessage.error('当前身份无发起治理变更权限');
+    return;
+  }
   if (!submitFormRef.value) return;
   submitFormRef.value.validate(async valid => {
     if (!valid) return;
@@ -193,6 +203,10 @@ async function submitRequest() {
 }
 
 async function review(row, approve) {
+  if (!canReview.value) {
+    ElMessage.error('当前身份无治理变更复核权限');
+    return;
+  }
   let note = '';
   try {
     const notePrompt = await ElMessageBox.prompt(`请输入${approve ? '通过' : '拒绝'}备注`, '复核备注', {

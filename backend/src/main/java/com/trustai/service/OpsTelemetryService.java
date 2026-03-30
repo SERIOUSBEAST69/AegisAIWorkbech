@@ -2,6 +2,7 @@ package com.trustai.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.trustai.exception.BizException;
 import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -26,7 +27,7 @@ public class OpsTelemetryService {
 
     public void persistApiMetricSnapshot(Long companyId, Map<String, Object> snapshot) {
         ensureOpsTables();
-        Long scopedCompanyId = companyId == null ? 1L : companyId;
+        Long scopedCompanyId = requireCompanyId(companyId);
         Object apis = snapshot == null ? null : snapshot.get("apis");
         if (!(apis instanceof List<?> list) || list.isEmpty()) {
             return;
@@ -64,7 +65,7 @@ public class OpsTelemetryService {
 
     public Map<String, Object> saveWebVital(Map<String, Object> payload, Long companyId) {
         ensureOpsTables();
-        Long scopedCompanyId = companyId == null ? 1L : companyId;
+        Long scopedCompanyId = requireCompanyId(companyId);
         Map<String, Object> safePayload = payload == null ? Map.of() : payload;
         String metricName = String.valueOf(safePayload.getOrDefault("name", "unknown")).toUpperCase();
         double metricValue = toDouble(safePayload.get("value"));
@@ -101,7 +102,7 @@ public class OpsTelemetryService {
 
     public Map<String, Object> webVitalSummary(Long companyId, int days) {
         ensureOpsTables();
-        Long scopedCompanyId = companyId == null ? 1L : companyId;
+        Long scopedCompanyId = requireCompanyId(companyId);
         int safeDays = Math.max(1, Math.min(30, days));
         LocalDate start = LocalDate.now().minusDays(safeDays - 1L);
         Date startDate = Date.from(start.atStartOfDay(ZoneId.systemDefault()).toInstant());
@@ -164,7 +165,7 @@ public class OpsTelemetryService {
 
     public Map<String, Object> httpHistory(Long companyId, int days, String apiKeyword) {
         ensureOpsTables();
-        Long scopedCompanyId = companyId == null ? 1L : companyId;
+        Long scopedCompanyId = requireCompanyId(companyId);
         int safeDays = Math.max(1, Math.min(30, days));
         LocalDate start = LocalDate.now().minusDays(safeDays - 1L);
         Date startDate = Date.from(start.atStartOfDay(ZoneId.systemDefault()).toInstant());
@@ -259,7 +260,7 @@ public class OpsTelemetryService {
     }
 
     public Map<String, Object> slowQuerySummary(Long companyId, int days) {
-        Long scopedCompanyId = companyId == null ? 1L : companyId;
+        Long scopedCompanyId = requireCompanyId(companyId);
         int safeDays = Math.max(1, Math.min(30, days));
         LocalDate start = LocalDate.now().minusDays(safeDays - 1L);
         Date startDate = Date.from(start.atStartOfDay(ZoneId.systemDefault()).toInstant());
@@ -337,5 +338,12 @@ public class OpsTelemetryService {
 
     private double round2(double value) {
         return Math.round(value * 100.0) / 100.0;
+    }
+
+    private Long requireCompanyId(Long companyId) {
+        if (companyId == null || companyId <= 0) {
+            throw new BizException(40100, "缺少合法租户标识");
+        }
+        return companyId;
     }
 }

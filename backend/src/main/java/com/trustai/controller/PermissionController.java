@@ -4,11 +4,15 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.trustai.entity.AuditLog;
 import com.trustai.entity.Permission;
+import com.trustai.entity.Role;
+import com.trustai.entity.RolePermission;
 import com.trustai.entity.User;
 import com.trustai.exception.BizException;
 import com.trustai.service.AuditLogService;
 import com.trustai.service.CurrentUserService;
 import com.trustai.service.PermissionService;
+import com.trustai.service.RolePermissionService;
+import com.trustai.service.RoleService;
 import com.trustai.service.SensitiveOperationGuardService;
 import com.trustai.utils.R;
 import jakarta.validation.constraints.NotBlank;
@@ -37,11 +41,15 @@ public class PermissionController {
     private SensitiveOperationGuardService sensitiveOperationGuardService;
     @Autowired
     private JdbcTemplate jdbcTemplate;
+    @Autowired
+    private RoleService roleService;
+    @Autowired
+    private RolePermissionService rolePermissionService;
 
     @GetMapping("/list")
-    @PreAuthorize("@currentUserService.hasRole('ADMIN')")
+    @PreAuthorize("@currentUserService.hasPermission('permission:manage')")
     public R<List<Permission>> list(@RequestParam(required = false) String name) {
-        currentUserService.requireAdmin();
+        currentUserService.requirePermission("permission:manage");
         if (!permissionTableReady()) {
             return R.ok(java.util.Collections.emptyList());
         }
@@ -58,12 +66,12 @@ public class PermissionController {
     }
 
     @GetMapping("/page")
-    @PreAuthorize("@currentUserService.hasRole('ADMIN')")
+    @PreAuthorize("@currentUserService.hasPermission('permission:manage')")
     public R<Map<String, Object>> page(@RequestParam(defaultValue = "1") int page,
                                        @RequestParam(defaultValue = "10") int pageSize,
                                        @RequestParam(required = false) String name,
                                        @RequestParam(required = false) String code) {
-        currentUserService.requireAdmin();
+        currentUserService.requirePermission("permission:manage");
         if (!permissionTableReady()) {
             Map<String, Object> payload = new LinkedHashMap<>();
             payload.put("current", Math.max(1, page));
@@ -95,9 +103,9 @@ public class PermissionController {
     }
 
     @PostMapping("/add")
-    @PreAuthorize("@currentUserService.hasRole('ADMIN')")
+    @PreAuthorize("@currentUserService.hasPermission('permission:manage')")
     public R<?> add(@RequestBody Permission permission) {
-        currentUserService.requireAdmin();
+        currentUserService.requirePermission("permission:manage");
         assertPermissionTablesReady();
         User currentUser = currentUserService.requireCurrentUser();
         String code = permission.getCode() == null ? "" : permission.getCode().trim().toUpperCase();
@@ -121,9 +129,9 @@ public class PermissionController {
     }
 
     @PostMapping("/update")
-    @PreAuthorize("@currentUserService.hasRole('ADMIN')")
+    @PreAuthorize("@currentUserService.hasPermission('permission:manage')")
     public R<?> update(@RequestBody Permission permission) {
-        currentUserService.requireAdmin();
+        currentUserService.requirePermission("permission:manage");
         assertPermissionTablesReady();
         User currentUser = currentUserService.requireCurrentUser();
         Permission existing = permissionService.getById(permission.getId());
@@ -150,7 +158,7 @@ public class PermissionController {
     }
 
     @PostMapping("/delete")
-    @PreAuthorize("@currentUserService.hasRole('ADMIN')")
+    @PreAuthorize("@currentUserService.hasPermission('permission:manage')")
     public R<?> delete(@jakarta.validation.Valid @RequestBody IdReq req) {
         User currentUser = sensitiveOperationGuardService.requireConfirmedAdmin(req.getConfirmPassword(), "permission_delete", "permissionId=" + req.getId());
         currentUserService.requireAdmin();
@@ -162,6 +170,46 @@ public class PermissionController {
         permissionService.removeById(req.getId());
         writePermissionAudit(currentUser, "permission_delete", "permissionId=" + existing.getId() + ", code=" + existing.getCode());
         return R.okMsg("删除成功");
+    }
+
+    @GetMapping("/matrix")
+    @PreAuthorize("@currentUserService.hasPermission('permission:matrix:view')")
+    public R<Map<String, Object>> matrix() {
+        User currentUser = currentUserService.requireCurrentUser();
+        List<Role> roles = roleService.lambdaQuery()
+            .eq(Role::getCompanyId, currentUser.getCompanyId())
+            .orderByAsc(Role::getId)
+            .list();
+        List<Permission> permissions = permissionService.lambdaQuery()
+            .eq(Permission::getCompanyId, currentUser.getCompanyId())
+            .orderByAsc(Permission::getId)
+            .list();
+
+        Map<Long, java.util.Set<Long>> rolePermMap = new java.util.LinkedHashMap<>();
+        List<Long> roleIds = roles.stream().map(Role::getId).filter(java.util.Objects::nonNull).toList();
+        if (!roleIds.isEmpty()) {
+            for (RolePermission rp : rolePermissionService.lambdaQuery().in(RolePermission::getRoleId, roleIds).list()) {
+                if (rp.getRoleId() == null || rp.getPermissionId() == null) {
+                    continue;
+                }
+                rolePermMap.computeIfAbsent(rp.getRoleId(), k -> new java.util.LinkedHashSet<>()).add(rp.getPermissionId());
+            }
+        }
+
+        java.util.List<Map<String, Object>> rows = new java.util.ArrayList<>();
+        for (Role role : roles) {
+            Map<String, Object> row = new java.util.LinkedHashMap<>();
+            row.put("roleId", role.getId());
+            row.put("roleCode", role.getCode());
+            row.put("roleName", role.getName());
+            row.put("permissionIds", rolePermMap.getOrDefault(role.getId(), java.util.Set.of()));
+            rows.add(row);
+        }
+
+        Map<String, Object> result = new java.util.LinkedHashMap<>();
+        result.put("roles", rows);
+        result.put("permissions", permissions);
+        return R.ok(result);
     }
 
     private void writePermissionAudit(User operator, String operation, String detail) {

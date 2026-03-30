@@ -12,6 +12,7 @@ import org.springframework.validation.BindException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -75,6 +76,12 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public R<?> handleMessageNotReadable(HttpMessageNotReadableException e) {
         return R.error(40000, "请求体格式错误或缺少必要字段");
+    }
+
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    @ResponseStatus(HttpStatus.METHOD_NOT_ALLOWED)
+    public R<?> handleMethodNotSupported(HttpRequestMethodNotSupportedException e) {
+        return R.error(40500, "请求方法不支持，请使用正确的接口方法或访问 /login 页面");
     }
 
     private String normalizeValidationMessage(String message) {

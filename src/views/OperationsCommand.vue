@@ -202,15 +202,16 @@ import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import request from '../api/request';
 import { useUserStore } from '../store/user';
+import {
+  canApproveApprovalFlow as canApproveApprovalAction,
+  canApproveShareFlow as canApproveShareAction,
+  canManageRiskEvent,
+  normalizeRoleCode,
+} from '../utils/roleBoundary';
 
 const route = useRoute();
 const router = useRouter();
 const userStore = useUserStore();
-
-function hasAnyRole(user, ...roleCodes) {
-  const currentRole = String(user?.roleCode || '').toUpperCase();
-  return roleCodes.some(code => code === currentRole);
-}
 
 const laneOptions = [
   { key: 'all', label: '全局压测' },
@@ -235,10 +236,10 @@ const approvalForm = ref({ assetId: '', reason: '' });
 const shareForm = ref({ assetId: '', collaborators: '', reason: '' });
 const riskForm = ref({ type: '', level: 'high', status: 'open', processLog: '' });
 
-const currentRoleCode = computed(() => String(userStore.userInfo?.roleCode || '').toUpperCase());
-const canManageRisk = computed(() => hasAnyRole(userStore.userInfo, 'ADMIN', 'SECOPS'));
-const canApproveApprovalFlow = computed(() => hasAnyRole(userStore.userInfo, 'ADMIN', 'DATA_ADMIN', 'BUSINESS_OWNER'));
-const canApproveShareFlow = computed(() => hasAnyRole(userStore.userInfo, 'ADMIN', 'DATA_ADMIN'));
+const currentRoleCode = computed(() => normalizeRoleCode(userStore.userInfo));
+const canManageRisk = computed(() => canManageRiskEvent(userStore.userInfo));
+const canApproveApprovalFlow = computed(() => canApproveApprovalAction(userStore.userInfo));
+const canApproveShareFlow = computed(() => canApproveShareAction(userStore.userInfo));
 const composerOptions = computed(() => ([
   { key: 'risk', label: '风险事件', enabled: canManageRisk.value },
   { key: 'approval', label: '审批申请', enabled: true },

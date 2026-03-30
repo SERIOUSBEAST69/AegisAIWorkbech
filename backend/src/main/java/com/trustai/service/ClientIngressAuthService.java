@@ -1,5 +1,6 @@
 package com.trustai.service;
 
+import com.trustai.exception.BizException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import org.springframework.beans.factory.annotation.Value;
@@ -31,6 +32,9 @@ public class ClientIngressAuthService {
     }
 
     public Long getDefaultCompanyId() {
-        return defaultCompanyId > 0 ? defaultCompanyId : 1L;
+        if (defaultCompanyId <= 0) {
+            throw new BizException(40100, "未配置有效的客户端默认租户");
+        }
+        return defaultCompanyId;
     }
 }

@@ -208,14 +208,14 @@ import request from '../api/request';
 import { alertCenterApi } from '../api/alertCenter';
 import { privacyApi } from '../api/privacy';
 import { useUserStore } from '../store/user';
+import { canUsePrivacyOps, hasAnyRole, isExecutive as isExecutiveRole } from '../utils/roleBoundary';
 
 const userStore = useUserStore();
-const roleCode = computed(() => String(userStore.userInfo?.roleCode || '').toUpperCase());
-const isExecutive = computed(() => roleCode.value === 'EXECUTIVE');
-const isPersonalView = computed(() => !['ADMIN', 'SECOPS', 'EXECUTIVE'].includes(roleCode.value));
-const canManagePrivacyConfig = computed(() => ['ADMIN', 'SECOPS'].includes(roleCode.value));
-const canExportPrivacy = computed(() => ['ADMIN', 'SECOPS'].includes(roleCode.value));
-const canQueryOthers = computed(() => ['ADMIN', 'SECOPS'].includes(roleCode.value));
+const isExecutive = computed(() => isExecutiveRole(userStore.userInfo));
+const isPersonalView = computed(() => !hasAnyRole(userStore.userInfo, ['SECOPS', 'EXECUTIVE']));
+const canManagePrivacyConfig = computed(() => canUsePrivacyOps(userStore.userInfo));
+const canExportPrivacy = computed(() => canUsePrivacyOps(userStore.userInfo));
+const canQueryOthers = computed(() => canUsePrivacyOps(userStore.userInfo));
 
 const activeTab = ref('anomaly');
 

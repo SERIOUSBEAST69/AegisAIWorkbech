@@ -7,7 +7,9 @@ import AuditReport from '../views/AuditReport.vue';
 import UserManage from '../views/UserManage.vue';
 import RoleManage from '../views/RoleManage.vue';
 import PermissionManage from '../views/PermissionManage.vue';
-import OperationsCommand from '../views/OperationsCommand.vue';
+import SecurityCommand from '../views/SecurityCommand.vue';
+import RiskEventManage from '../views/RiskEventManage.vue';
+import OpsObservability from '../views/OpsObservability.vue';
 import ApprovalManage from '../views/ApprovalManage.vue';
 import GovernanceChangeManage from '../views/GovernanceChangeManage.vue';
 import SodRuleManage from '../views/SodRuleManage.vue';
@@ -35,12 +37,13 @@ const routes = [
   { path: '/user-manage', name: 'UserManage', component: UserManage, meta: { depth: 3 } },
   { path: '/role-manage', name: 'RoleManage', component: RoleManage, meta: { depth: 3 } },
   { path: '/permission-manage', name: 'PermissionManage', component: PermissionManage, meta: { depth: 3 } },
-  { path: '/operations-command', name: 'OperationsCommand', component: OperationsCommand, meta: { depth: 3 } },
+  { path: '/operations-command', name: 'SecurityCommand', component: SecurityCommand, meta: { depth: 3 } },
+  { path: '/ops-observability', name: 'OpsObservability', component: OpsObservability, meta: { depth: 3 } },
   { path: '/approval-manage', name: 'ApprovalManage', component: ApprovalManage, meta: { depth: 3 } },
   { path: '/governance-change-manage', name: 'GovernanceChangeManage', component: GovernanceChangeManage, meta: { depth: 3 } },
   { path: '/sod-rule-manage', name: 'SodRuleManage', component: SodRuleManage, meta: { depth: 3 } },
   { path: '/policy-manage', name: 'PolicyManage', component: PolicyManage, meta: { depth: 3 } },
-  { path: '/risk-event-manage', name: 'RiskEventManage', component: OperationsCommand, meta: { depth: 3, lane: 'risk' } },
+  { path: '/risk-event-manage', name: 'RiskEventManage', component: RiskEventManage, meta: { depth: 3 } },
   { path: '/sensitive-scan', name: 'SensitiveScan', component: SensitiveScan, meta: { depth: 2 } },
   { path: '/subject-request', name: 'SubjectRequest', component: SubjectRequest, meta: { depth: 2 } },
   { path: '/desense-preview', name: 'DesensePreview', component: DesensePreview, meta: { depth: 2 } },

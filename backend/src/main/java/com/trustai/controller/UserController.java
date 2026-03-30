@@ -79,11 +79,11 @@ public class UserController {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     @GetMapping("/list")
-    @PreAuthorize("@currentUserService.hasRole('ADMIN')")
+    @PreAuthorize("@currentUserService.hasPermission('user:manage')")
     public R<List<User>> list(@RequestParam(required = false) String username,
                               @RequestParam(required = false) String accountStatus,
                               @RequestParam(required = false) String accountType) {
-        currentUserService.requireAdmin();
+        currentUserService.requirePermission("user:manage");
         Long companyId = currentUserService.requireCurrentUser().getCompanyId();
         QueryWrapper<User> qw = new QueryWrapper<>();
         if (companyId != null) {
@@ -98,13 +98,13 @@ public class UserController {
     }
 
     @GetMapping("/page")
-    @PreAuthorize("@currentUserService.hasRole('ADMIN')")
+    @PreAuthorize("@currentUserService.hasPermission('user:manage')")
     public R<Map<String, Object>> page(@RequestParam(defaultValue = "1") int page,
                                        @RequestParam(defaultValue = "10") int pageSize,
                                        @RequestParam(required = false) String username,
                                        @RequestParam(required = false) String accountStatus,
                                        @RequestParam(required = false) String accountType) {
-        currentUserService.requireAdmin();
+        currentUserService.requirePermission("user:manage");
         Long companyId = currentUserService.requireCurrentUser().getCompanyId();
         QueryWrapper<User> qw = new QueryWrapper<>();
         if (companyId != null) {
@@ -132,9 +132,9 @@ public class UserController {
     }
 
     @GetMapping("/pending")
-    @PreAuthorize("@currentUserService.hasRole('ADMIN')")
+    @PreAuthorize("@currentUserService.hasPermission('user:manage')")
     public R<List<User>> pendingList() {
-        currentUserService.requireAdmin();
+        currentUserService.requirePermission("user:manage");
         Long companyId = currentUserService.requireCurrentUser().getCompanyId();
         QueryWrapper<User> qw = new QueryWrapper<User>()
             .eq("account_type", "real")
@@ -148,9 +148,9 @@ public class UserController {
     }
 
     @PostMapping("/approve")
-    @PreAuthorize("@currentUserService.hasRole('ADMIN')")
+    @PreAuthorize("@currentUserService.hasPermission('user:manage')")
     public R<?> approve(@Valid @RequestBody ApproveReq req) {
-        currentUserService.requireAdmin();
+        currentUserService.requirePermission("user:manage");
         User admin = currentUserService.requireCurrentUser();
         User user = requireCompanyUser(req.getId(), admin.getCompanyId());
         user.setAccountStatus(ACCOUNT_STATUS_ACTIVE);
@@ -165,9 +165,9 @@ public class UserController {
     }
 
     @PostMapping("/reject")
-    @PreAuthorize("@currentUserService.hasRole('ADMIN')")
+    @PreAuthorize("@currentUserService.hasPermission('user:manage')")
     public R<?> reject(@Valid @RequestBody RejectReq req) {
-        currentUserService.requireAdmin();
+        currentUserService.requirePermission("user:manage");
         User admin = currentUserService.requireCurrentUser();
         User user = requireCompanyUser(req.getId(), admin.getCompanyId());
         user.setAccountStatus(ACCOUNT_STATUS_REJECTED);
@@ -181,9 +181,9 @@ public class UserController {
     }
 
     @PostMapping("/register")
-    @PreAuthorize("@currentUserService.hasRole('ADMIN')")
+    @PreAuthorize("@currentUserService.hasPermission('user:manage')")
     public R<?> register(@Valid @RequestBody User user) {
-        currentUserService.requireAdmin();
+        currentUserService.requirePermission("user:manage");
         User currentUser = currentUserService.requireCurrentUser();
         if (!StringUtils.hasText(user.getUsername())) {
             throw new BizException(40000, "用户名不能为空");
@@ -216,9 +216,9 @@ public class UserController {
     }
 
     @PostMapping("/update")
-    @PreAuthorize("@currentUserService.hasRole('ADMIN')")
+    @PreAuthorize("@currentUserService.hasPermission('user:manage')")
     public R<?> update(@Valid @RequestBody User user) {
-        currentUserService.requireAdmin();
+        currentUserService.requirePermission("user:manage");
         User existing = userService.getById(user.getId());
         if (existing == null || !java.util.Objects.equals(existing.getCompanyId(), currentUserService.requireCurrentUser().getCompanyId())) {
             throw new BizException(40400, "用户不存在或不在当前公司");
@@ -237,7 +237,7 @@ public class UserController {
     }
 
     @PostMapping("/delete")
-    @PreAuthorize("@currentUserService.hasRole('ADMIN')")
+    @PreAuthorize("@currentUserService.hasPermission('user:manage')")
     public R<?> delete(@Valid @RequestBody IdReq req) {
         User operator = sensitiveOperationGuardService.requireConfirmedAdmin(req.getConfirmPassword(), "user_delete", "userId=" + req.getId());
         User existing = userService.getById(req.getId());
@@ -254,11 +254,11 @@ public class UserController {
     }
 
     @GetMapping("/recycle-bin/page")
-    @PreAuthorize("@currentUserService.hasRole('ADMIN')")
+    @PreAuthorize("@currentUserService.hasPermission('user:manage')")
     public R<Map<String, Object>> recycleBinPage(@RequestParam(defaultValue = "1") int page,
                                                  @RequestParam(defaultValue = "10") int pageSize,
                                                  @RequestParam(required = false) String username) {
-        currentUserService.requireAdmin();
+        currentUserService.requirePermission("user:manage");
         User currentUser = currentUserService.requireCurrentUser();
         QueryWrapper<UserRecycleBin> qw = new QueryWrapper<UserRecycleBin>()
             .eq("company_id", currentUser.getCompanyId())
@@ -276,7 +276,7 @@ public class UserController {
     }
 
     @PostMapping("/recycle-bin/restore")
-    @PreAuthorize("@currentUserService.hasRole('ADMIN')")
+    @PreAuthorize("@currentUserService.hasPermission('user:manage')")
     public R<?> restoreFromRecycleBin(@Valid @RequestBody RestoreReq req) {
         User operator = sensitiveOperationGuardService.requireConfirmedAdmin(req.getConfirmPassword(), "user_restore", "recycleId=" + req.getRecycleId());
         UserRecycleBin recycle = userRecycleBinService.getById(req.getRecycleId());

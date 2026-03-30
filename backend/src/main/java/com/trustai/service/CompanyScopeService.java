@@ -1,6 +1,7 @@
 package com.trustai.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.trustai.entity.Company;
 import com.trustai.entity.User;
 import com.trustai.exception.BizException;
 import java.util.List;
@@ -14,11 +15,16 @@ public class CompanyScopeService {
 
     private final CurrentUserService currentUserService;
     private final UserService userService;
+    private final CompanyService companyService;
 
     public Long requireCompanyId() {
         User user = currentUserService.requireCurrentUser();
         if (user.getCompanyId() == null) {
             throw new BizException(40300, "当前账号未绑定公司，无法访问数据");
+        }
+        Company company = companyService.getById(user.getCompanyId());
+        if (company == null) {
+            throw new BizException(40300, "租户不存在或已失效");
         }
         return user.getCompanyId();
     }

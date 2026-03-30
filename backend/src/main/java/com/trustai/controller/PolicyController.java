@@ -29,19 +29,18 @@ public class PolicyController {
     @Autowired private JdbcTemplate jdbcTemplate;
 
     @GetMapping("/list")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','DATA_ADMIN','AI_BUILDER')")
+    @PreAuthorize("@currentUserService.hasPermission('policy:view')")
     public R<List<CompliancePolicy>> list(@RequestParam(required = false) String name) {
-        if (!policyTableReady()) {
-            return R.ok(java.util.Collections.emptyList());
-        }
+        assertPolicyTableReady();
         QueryWrapper<CompliancePolicy> qw = companyScopeService.withCompany(new QueryWrapper<>());
         if (name != null && !name.isEmpty()) qw.like("name", name);
         return R.ok(compliancePolicyService.list(qw));
     }
 
     @PostMapping("/save")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
+    @PreAuthorize("@currentUserService.hasPermission('policy:structure:manage')")
     public R<?> save(@Valid @RequestBody SaveReq req) {
+        currentUserService.requirePermission("policy:structure:manage");
         assertPolicyTableReady();
         var operator = currentUserService.requireCurrentUser();
         sensitiveOperationGuardService.requireConfirmedOperator(operator, req.getConfirmPassword(), "policy_save", "policyId=" + req.getId());
@@ -73,8 +72,9 @@ public class PolicyController {
     }
 
     @PostMapping("/delete")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
+    @PreAuthorize("@currentUserService.hasPermission('policy:structure:manage')")
     public R<?> delete(@Valid @RequestBody IdReq req) {
+        currentUserService.requirePermission("policy:structure:manage");
         assertPolicyTableReady();
         var operator = currentUserService.requireCurrentUser();
         sensitiveOperationGuardService.requireConfirmedOperator(operator, req.getConfirmPassword(), "policy_delete", "policyId=" + req.getId());
@@ -86,6 +86,25 @@ public class PolicyController {
         }
         compliancePolicyService.removeById(req.getId());
         return R.okMsg("删除成功");
+    }
+
+    @PostMapping("/toggle-status")
+    @PreAuthorize("@currentUserService.hasPermission('policy:status:toggle')")
+    public R<?> toggleStatus(@Valid @RequestBody ToggleReq req) {
+        currentUserService.requirePermission("policy:status:toggle");
+        assertPolicyTableReady();
+        var operator = currentUserService.requireCurrentUser();
+        sensitiveOperationGuardService.requireConfirmedOperator(operator, req.getConfirmPassword(), "policy_toggle_status", "policyId=" + req.getId());
+        CompliancePolicy existing = compliancePolicyService.getOne(
+            companyScopeService.withCompany(new QueryWrapper<CompliancePolicy>()).eq("id", req.getId())
+        );
+        if (existing == null) {
+            throw new BizException(40400, "策略不存在或不在当前公司");
+        }
+        existing.setStatus(req.getEnabled() != null && req.getEnabled() ? 1 : 0);
+        existing.setUpdateTime(new Date());
+        compliancePolicyService.updateById(existing);
+        return R.okMsg("状态更新成功");
     }
 
     private Integer normalizeStatus(String status) {
@@ -129,6 +148,22 @@ public class PolicyController {
         private String confirmPassword;
         public Long getId(){return id;}
         public void setId(Long id){this.id=id;}
+        public String getConfirmPassword() { return confirmPassword; }
+        public void setConfirmPassword(String confirmPassword) { this.confirmPassword = confirmPassword; }
+    }
+
+    public static class ToggleReq {
+        @NotNull(message = "策略ID不能为空")
+        private Long id;
+        @NotNull(message = "启停状态不能为空")
+        private Boolean enabled;
+        @NotBlank(message = "敏感操作需要二次密码")
+        private String confirmPassword;
+
+        public Long getId() { return id; }
+        public void setId(Long id) { this.id = id; }
+        public Boolean getEnabled() { return enabled; }
+        public void setEnabled(Boolean enabled) { this.enabled = enabled; }
         public String getConfirmPassword() { return confirmPassword; }
         public void setConfirmPassword(String confirmPassword) { this.confirmPassword = confirmPassword; }
     }

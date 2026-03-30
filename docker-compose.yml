@@ -175,6 +175,8 @@ services:
       dockerfile: Dockerfile.frontend.dev
     container_name: aegisai-frontend
     restart: always
+    environment:
+      VITE_PROXY_TARGET: http://aegisai-backend:8080
     ports:
       - "3000:5173"
     depends_on:

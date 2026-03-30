@@ -23,7 +23,7 @@ public class AuditLogController {
     @Autowired private CompanyScopeService companyScopeService;
 
     @GetMapping("/search")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
+    @PreAuthorize("@currentUserService.hasPermission('audit:log:view')")
     public R<List<AuditLogDocument>> search(@RequestParam(required = false) Long userId,
                                             @RequestParam(required = false) String operation,
                                             @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss") Date from,

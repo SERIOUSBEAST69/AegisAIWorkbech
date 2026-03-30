@@ -9,6 +9,7 @@ import com.trustai.entity.GovernanceEvent;
 import com.trustai.entity.PrivacyEvent;
 import com.trustai.entity.SecurityEvent;
 import com.trustai.entity.User;
+import com.trustai.exception.BizException;
 import com.trustai.service.CompliancePolicyService;
 import com.trustai.service.EventHubService;
 import com.trustai.service.GovernanceEventService;
@@ -31,9 +32,7 @@ public class EventHubServiceImpl implements EventHubService {
 
     @Override
     public long resolvePolicyVersion(Long companyId) {
-        if (companyId == null) {
-            return 1L;
-        }
+        assertCompanyId(companyId);
         List<CompliancePolicy> policies = compliancePolicyService.list(new QueryWrapper<CompliancePolicy>()
             .eq("company_id", companyId)
             .eq("status", 1)
@@ -186,8 +185,9 @@ public class EventHubServiceImpl implements EventHubService {
         Date eventTime,
         Map<String, Object> payload
     ) {
+        assertCompanyId(companyId);
         GovernanceEvent event = new GovernanceEvent();
-        event.setCompanyId(companyId == null ? 1L : companyId);
+        event.setCompanyId(companyId);
         event.setUserId(userId);
         event.setUsername(username);
         event.setEventType(eventType);
@@ -228,6 +228,12 @@ public class EventHubServiceImpl implements EventHubService {
             return objectMapper.writeValueAsString(payload == null ? new LinkedHashMap<>() : payload);
         } catch (JsonProcessingException ex) {
             return "{}";
+        }
+    }
+
+    private void assertCompanyId(Long companyId) {
+        if (companyId == null || companyId <= 0) {
+            throw new BizException(40100, "缺少合法租户上下文");
         }
     }
 }

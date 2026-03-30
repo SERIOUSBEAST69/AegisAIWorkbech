@@ -17,6 +17,27 @@ CREATE TABLE IF NOT EXISTS role (
   update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS permission (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  company_id BIGINT,
+  name VARCHAR(50) NOT NULL,
+  code VARCHAR(50) NOT NULL,
+  type VARCHAR(20),
+  parent_id BIGINT,
+  create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_permission_company_code ON permission(company_id, code);
+
+CREATE TABLE IF NOT EXISTS role_permission (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  role_id BIGINT NOT NULL,
+  permission_id BIGINT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_role_permission_role_perm ON role_permission(role_id, permission_id);
+
 CREATE TABLE IF NOT EXISTS sys_user (
   id BIGINT AUTO_INCREMENT PRIMARY KEY,
   company_id BIGINT,

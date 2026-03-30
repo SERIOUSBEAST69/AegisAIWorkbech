@@ -24,9 +24,9 @@ public class RiskEventController {
     @Autowired private KeyTaskMetricService keyTaskMetricService;
 
     @GetMapping("/list")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
+    @PreAuthorize("@currentUserService.hasAnyPermission('risk:event:view','risk:event:handle')")
     public R<List<RiskEvent>> list(@RequestParam(required = false) String type) {
-        currentUserService.requireAnyRole("ADMIN", "SECOPS");
+        currentUserService.requireAnyPermission("risk:event:view", "risk:event:handle");
         QueryWrapper<RiskEvent> qw = new QueryWrapper<>();
         companyScopeService.withCompany(qw);
         if (type != null && !type.isEmpty()) qw.like("type", type);
@@ -34,10 +34,10 @@ public class RiskEventController {
     }
 
     @PostMapping("/add")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
+    @PreAuthorize("@currentUserService.hasPermission('risk:event:handle')")
     public R<?> add(@RequestBody RiskEvent event) {
         try {
-            currentUserService.requireAnyRole("ADMIN", "SECOPS");
+            currentUserService.requirePermission("risk:event:handle");
             User currentUser = currentUserService.requireCurrentUser();
             event.setId(null);
             event.setCompanyId(companyScopeService.requireCompanyId());
@@ -54,10 +54,10 @@ public class RiskEventController {
     }
 
     @PostMapping("/update")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
+    @PreAuthorize("@currentUserService.hasPermission('risk:event:handle')")
     public R<?> update(@RequestBody RiskEvent event) {
         try {
-            currentUserService.requireAnyRole("ADMIN", "SECOPS");
+            currentUserService.requirePermission("risk:event:handle");
             RiskEvent scoped = riskEventService.getOne(companyScopeService.withCompany(new QueryWrapper<RiskEvent>()).eq("id", event.getId()));
             if (scoped == null) {
                 throw new BizException(40400, "风险事件不存在或不在当前公司");
@@ -76,9 +76,9 @@ public class RiskEventController {
     }
 
     @PostMapping("/delete")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
+    @PreAuthorize("@currentUserService.hasPermission('risk:event:handle')")
     public R<?> delete(@RequestBody IdReq req) {
-        currentUserService.requireAnyRole("ADMIN", "SECOPS");
+        currentUserService.requirePermission("risk:event:handle");
         RiskEvent scoped = riskEventService.getOne(companyScopeService.withCompany(new QueryWrapper<RiskEvent>()).eq("id", req.getId()));
         if (scoped == null) {
             throw new BizException(40400, "风险事件不存在或不在当前公司");

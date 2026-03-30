@@ -411,7 +411,28 @@ public class PrivacyShieldController {
         if (matchedTypes == null || matchedTypes.isEmpty()) {
             return "low";
         }
-        boolean high = matchedTypes.stream().anyMatch(type -> "id_card".equalsIgnoreCase(type) || "bank_card".equalsIgnoreCase(type));
+        boolean critical = matchedTypes.stream().anyMatch(type -> {
+            if (type == null) {
+                return false;
+            }
+            String normalized = type.trim().toLowerCase();
+            return "exfil_file_critical".equals(normalized)
+                || normalized.startsWith("file:") && normalized.contains("pdf") && matchedTypes.stream().anyMatch(item -> item != null && item.toLowerCase().startsWith("exfil:"));
+        });
+        if (critical) {
+            return "critical";
+        }
+        boolean high = matchedTypes.stream().anyMatch(type -> {
+            if (type == null) {
+                return false;
+            }
+            String normalized = type.trim().toLowerCase();
+            return "id_card".equals(normalized)
+                || "bank_card".equals(normalized)
+                || "exfil_risk".equals(normalized)
+                || normalized.startsWith("keyword:")
+                || normalized.startsWith("exfil:");
+        });
         if (high) {
             return "high";
         }

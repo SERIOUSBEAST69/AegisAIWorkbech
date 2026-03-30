@@ -36,7 +36,7 @@ public class AuditReportController {
     private AdversarialRecordService adversarialRecordService;
 
     @GetMapping("/compare")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','EXECUTIVE')")
+    @PreAuthorize("@currentUserService.hasAnyPermission('audit:report:view','ops:metrics:view')")
     public R<Map<String, Object>> compare(@RequestParam String from, @RequestParam String to) {
         String startAt = from + " 00:00:00";
         String endAt = to + " 23:59:59";

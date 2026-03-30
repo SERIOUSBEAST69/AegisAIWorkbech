@@ -84,18 +84,28 @@ public class DataInitializer implements CommandLineRunner {
             return;
         }
         List<PermissionSeed> permissionSeeds = List.of(
-            new PermissionSeed("用户读取", "USER_VIEW", "menu"),
-            new PermissionSeed("用户管理", "USER_MANAGE", "button"),
-            new PermissionSeed("角色管理", "ROLE_MANAGE", "menu"),
-            new PermissionSeed("权限管理", "PERMISSION_MANAGE", "menu"),
-            new PermissionSeed("审批读取", "APPROVAL_VIEW", "menu"),
-            new PermissionSeed("审批处理", "APPROVAL_OPERATE", "button"),
-            new PermissionSeed("审计读取", "AUDIT_VIEW", "menu"),
-            new PermissionSeed("审计导出", "AUDIT_EXPORT", "button"),
-            new PermissionSeed("风险事件处理", "RISK_EVENT_HANDLE", "button"),
-            new PermissionSeed("策略管理", "POLICY_MANAGE", "menu"),
-            new PermissionSeed("主体权利处理", "SUBJECT_REQUEST_HANDLE", "button"),
-            new PermissionSeed("模型风险总览", "MODEL_RISK_VIEW", "menu")
+            new PermissionSeed("用户管理", "user:manage", "button"),
+            new PermissionSeed("角色管理", "role:manage", "button"),
+            new PermissionSeed("权限管理", "permission:manage", "button"),
+            new PermissionSeed("权限矩阵查看", "permission:matrix:view", "menu"),
+            new PermissionSeed("SoD规则查看", "sod:rule:view", "menu"),
+            new PermissionSeed("SoD规则编辑", "sod:rule:edit", "button"),
+            new PermissionSeed("治理变更发起", "govern:change:create", "button"),
+            new PermissionSeed("治理变更查看", "govern:change:view", "menu"),
+            new PermissionSeed("治理变更复核", "govern:change:review", "button"),
+            new PermissionSeed("审批查看", "approval:view", "menu"),
+            new PermissionSeed("审批处理", "approval:operate", "button"),
+            new PermissionSeed("风险事件查看", "risk:event:view", "menu"),
+            new PermissionSeed("风险事件处置", "risk:event:handle", "button"),
+            new PermissionSeed("安全事件查看", "security:event:view", "menu"),
+            new PermissionSeed("安全事件处置", "security:event:handle", "button"),
+            new PermissionSeed("安全规则管理", "security:rule:manage", "button"),
+            new PermissionSeed("策略查看", "policy:view", "menu"),
+            new PermissionSeed("策略结构管理", "policy:structure:manage", "button"),
+            new PermissionSeed("策略状态切换", "policy:status:toggle", "button"),
+            new PermissionSeed("审计日志检索", "audit:log:view", "menu"),
+            new PermissionSeed("审计报告查看", "audit:report:view", "menu"),
+            new PermissionSeed("运维指标查看", "ops:metrics:view", "menu")
         );
 
         Map<String, Long> permissionIdByCode = new LinkedHashMap<>();
@@ -127,10 +137,41 @@ public class DataInitializer implements CommandLineRunner {
             }
         }
 
-        bindPermissions(roleMap.get("ADMIN"), permissionIdByCode.keySet());
-        bindPermissions(roleMap.get("SECOPS"), Arrays.asList("AUDIT_VIEW", "AUDIT_EXPORT", "RISK_EVENT_HANDLE", "APPROVAL_VIEW", "MODEL_RISK_VIEW"));
-        bindPermissions(roleMap.get("DATA_ADMIN"), Arrays.asList("APPROVAL_VIEW", "APPROVAL_OPERATE", "POLICY_MANAGE"));
-        bindPermissions(roleMap.get("BUSINESS_OWNER"), Arrays.asList("APPROVAL_VIEW", "APPROVAL_OPERATE", "MODEL_RISK_VIEW"));
+        bindPermissions(roleMap.get("ADMIN"), Arrays.asList(
+            "user:manage",
+            "role:manage",
+            "permission:manage",
+            "permission:matrix:view",
+            "sod:rule:view",
+            "sod:rule:edit",
+            "govern:change:create",
+            "govern:change:view",
+            "approval:view",
+            "approval:operate",
+            "policy:view",
+            "policy:structure:manage",
+            "ops:metrics:view"
+        ));
+        bindPermissions(roleMap.get("SECOPS"), Arrays.asList(
+            "govern:change:view",
+            "govern:change:review",
+            "risk:event:view",
+            "risk:event:handle",
+            "security:event:view",
+            "security:event:handle",
+            "security:rule:manage",
+            "policy:view",
+            "policy:status:toggle",
+            "audit:log:view",
+            "audit:report:view",
+            "ops:metrics:view"
+        ));
+        bindPermissions(roleMap.get("EXECUTIVE"), Arrays.asList(
+            "audit:report:view",
+            "ops:metrics:view"
+        ));
+        bindPermissions(roleMap.get("DATA_ADMIN"), Arrays.asList("approval:view", "approval:operate", "policy:view"));
+        bindPermissions(roleMap.get("BUSINESS_OWNER"), Arrays.asList("approval:view", "approval:operate"));
     }
 
     private void bindPermissions(Role role, Iterable<String> permissionCodes) {

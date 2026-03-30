@@ -13,7 +13,7 @@
       </el-form-item>
       <el-form-item>
         <el-button type="primary" :loading="loading" @click="fetchRules">查询</el-button>
-        <el-button v-if="isAdmin" @click="openAdd">新增规则</el-button>
+        <el-button v-if="canManage" @click="openAdd">新增规则</el-button>
       </el-form-item>
     </el-form>
 
@@ -30,8 +30,8 @@
       <el-table-column prop="description" label="说明" min-width="220" />
       <el-table-column label="操作" width="220" fixed="right">
         <template #default="scope">
-          <el-button v-if="isAdmin" size="small" @click="editRule(scope.row)">编辑</el-button>
-          <el-button v-if="isAdmin" size="small" type="danger" @click="deleteRule(scope.row.id)">删除</el-button>
+          <el-button v-if="canManage" size="small" @click="editRule(scope.row)">编辑</el-button>
+          <el-button v-if="canManage" size="small" type="danger" @click="deleteRule(scope.row.id)">删除</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -80,6 +80,7 @@ import { computed, ref, watch } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import request from '../api/request';
 import { getSession } from '../utils/auth';
+import { canManageSodRule } from '../utils/roleBoundary';
 
 const rules = ref([]);
 const loading = ref(false);
@@ -91,7 +92,7 @@ const pagination = ref({ current: 1, pageSize: 10, total: 0 });
 const editForm = ref({ id: null, scenario: '', roleCodeA: '', roleCodeB: '', enabled: 1, description: '' });
 const enabledSwitch = ref(true);
 
-const isAdmin = computed(() => String(getSession()?.user?.roleCode || '').toUpperCase() === 'ADMIN');
+const canManage = computed(() => canManageSodRule(getSession()?.user));
 
 const formRules = {
   scenario: [{ required: true, message: '场景不能为空', trigger: 'blur' }],
@@ -115,12 +116,20 @@ function onPageSizeChange(size) {
 }
 
 function openAdd() {
+  if (!canManage.value) {
+    ElMessage.error('当前身份无 SoD 规则编辑权限');
+    return;
+  }
   editForm.value = { id: null, scenario: '', roleCodeA: '', roleCodeB: '', enabled: 1, description: '' };
   enabledSwitch.value = true;
   showEdit.value = true;
 }
 
 function editRule(row) {
+  if (!canManage.value) {
+    ElMessage.error('当前身份无 SoD 规则编辑权限');
+    return;
+  }
   editForm.value = {
     id: row.id,
     scenario: row.scenario || '',
@@ -154,6 +163,10 @@ async function fetchRules() {
 }
 
 async function saveRule() {
+  if (!canManage.value) {
+    ElMessage.error('当前身份无 SoD 规则编辑权限');
+    return;
+  }
   if (!editFormRef.value) return;
   editFormRef.value.validate(async valid => {
     if (!valid) return;
@@ -176,6 +189,10 @@ async function saveRule() {
 }
 
 async function deleteRule(id) {
+  if (!canManage.value) {
+    ElMessage.error('当前身份无 SoD 规则删除权限');
+    return;
+  }
   try {
     await ElMessageBox.confirm('确认删除该 SoD 规则吗？', '提示', { type: 'warning' });
     const pwdPrompt = await ElMessageBox.prompt('请输入当前治理管理员密码确认删除', '敏感操作二次校验', {

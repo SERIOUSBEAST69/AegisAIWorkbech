@@ -581,18 +581,17 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import request from '../api/request';
 import { alertCenterApi } from '../api/alertCenter';
 import { useUserStore } from '../store/user';
+import {
+  canAccessThreatMonitor,
+  canHandleThreatEvent,
+} from '../utils/roleBoundary';
 
 const userStore = useUserStore();
 
-function hasAnyRole(...roleCodes) {
-  const currentRole = String(userStore.userInfo?.roleCode || '').toUpperCase();
-  return roleCodes.some(role => role === currentRole);
-}
-
-const canViewThreatMonitor = computed(() => hasAnyRole('ADMIN', 'SECOPS', 'EXECUTIVE'));
-const canHandleThreats = computed(() => hasAnyRole('ADMIN', 'SECOPS'));
-const canManageThreatRules = computed(() => hasAnyRole('ADMIN', 'SECOPS'));
-const canRunThreatDrill = computed(() => hasAnyRole('ADMIN', 'SECOPS'));
+const canViewThreatMonitor = computed(() => canAccessThreatMonitor(userStore.userInfo));
+const canHandleThreats = computed(() => canHandleThreatEvent(userStore.userInfo));
+const canManageThreatRules = computed(() => canHandleThreatEvent(userStore.userInfo));
+const canRunThreatDrill = computed(() => canHandleThreatEvent(userStore.userInfo));
 
 // ── 统计 ──────────────────────────────────────────────────────────────────────
 const stats = ref({});

@@ -1,11 +1,16 @@
 package com.trustai.service;
 
 import com.trustai.config.jwt.JwtPrincipal;
+import com.trustai.entity.Permission;
 import com.trustai.entity.Role;
+import com.trustai.entity.RolePermission;
 import com.trustai.entity.User;
 import com.trustai.exception.BizException;
 import java.util.Objects;
 import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.springframework.security.access.AccessDeniedException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
@@ -22,6 +27,8 @@ public class CurrentUserService {
 
     private final UserService userService;
     private final RoleService roleService;
+    private final RolePermissionService rolePermissionService;
+    private final PermissionService permissionService;
 
     public User requireCurrentUser() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
@@ -117,8 +124,84 @@ public class CurrentUserService {
             .anyMatch(code -> code.equalsIgnoreCase(current));
     }
 
+    public boolean hasPermission(String permissionCode) {
+        if (!StringUtils.hasText(permissionCode)) {
+            return false;
+        }
+        try {
+            User user = requireCurrentUser();
+            Role role = getCurrentRole(user);
+            if (role == null || role.getId() == null) {
+                return false;
+            }
+            Set<String> codes = currentPermissionCodes(role.getId(), user.getCompanyId());
+            return codes.contains(permissionCode.trim().toLowerCase());
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
+    public boolean hasAnyPermission(String... permissionCodes) {
+        if (permissionCodes == null || permissionCodes.length == 0) {
+            return false;
+        }
+        try {
+            User user = requireCurrentUser();
+            Role role = getCurrentRole(user);
+            if (role == null || role.getId() == null) {
+                return false;
+            }
+            Set<String> codes = currentPermissionCodes(role.getId(), user.getCompanyId());
+            return Arrays.stream(permissionCodes)
+                .filter(StringUtils::hasText)
+                .map(code -> code.trim().toLowerCase())
+                .anyMatch(codes::contains);
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
+    public void requirePermission(String permissionCode) {
+        if (!hasPermission(permissionCode)) {
+            throw new AccessDeniedException("当前身份无权执行该操作");
+        }
+    }
+
+    public void requireAnyPermission(String... permissionCodes) {
+        if (!hasAnyPermission(permissionCodes)) {
+            throw new AccessDeniedException("当前身份无权执行该操作");
+        }
+    }
+
     public boolean isEmployeeUser() {
         return EMPLOYEE_ROLE_CODE.equalsIgnoreCase(currentRoleCode());
+    }
+
+    private Set<String> currentPermissionCodes(Long roleId, Long companyId) {
+        if (roleId == null) {
+            return Set.of();
+        }
+        Set<Long> permissionIds = rolePermissionService.lambdaQuery()
+            .eq(RolePermission::getRoleId, roleId)
+            .list()
+            .stream()
+            .map(RolePermission::getPermissionId)
+            .filter(Objects::nonNull)
+            .collect(Collectors.toSet());
+        if (permissionIds.isEmpty()) {
+            return Set.of();
+        }
+
+        Set<String> codes = new HashSet<>();
+        for (Permission permission : permissionService.lambdaQuery()
+            .in(Permission::getId, permissionIds)
+            .eq(companyId != null, Permission::getCompanyId, companyId)
+            .list()) {
+            if (StringUtils.hasText(permission.getCode())) {
+                codes.add(permission.getCode().trim().toLowerCase());
+            }
+        }
+        return codes;
     }
 
     private String safeCurrentRoleCode() {

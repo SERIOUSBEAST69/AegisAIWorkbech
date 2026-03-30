@@ -450,6 +450,7 @@ import AIPrivacyShield from '../components/AIPrivacyShield.vue';
 import { useUserStore } from '../store/user';
 import { getPersonaExperience, personalizeWorkbench } from '../utils/persona';
 import { quickPrivacyCheck } from '../utils/privacyPatterns';
+import { canRunAdversarialSimulation } from '../utils/roleBoundary';
 
 function createEmptyOverview() {
   return {
@@ -536,7 +537,7 @@ const adversarialConfig = ref({
   rounds: 10,
   seed: ''
 });
-const isAdmin = computed(() => String(userStore.userInfo?.roleCode || '').toUpperCase() === 'ADMIN');
+const isAdmin = computed(() => canRunAdversarialSimulation(userStore.userInfo));
 let adversarialPlaybackTimer = null;
 
 let privacyCheckDebounceTimer = null;

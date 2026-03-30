@@ -38,9 +38,9 @@ public class RoleController {
     private SensitiveOperationGuardService sensitiveOperationGuardService;
 
     @GetMapping("/list")
-    @PreAuthorize("@currentUserService.hasRole('ADMIN')")
+    @PreAuthorize("@currentUserService.hasPermission('role:manage')")
     public R<List<Role>> list(@RequestParam(required = false) String name) {
-        currentUserService.requireAdmin();
+        currentUserService.requirePermission("role:manage");
         User currentUser = currentUserService.requireCurrentUser();
         QueryWrapper<Role> qw = new QueryWrapper<>();
         if (currentUser.getCompanyId() != null) {
@@ -54,12 +54,12 @@ public class RoleController {
     }
 
     @GetMapping("/page")
-    @PreAuthorize("@currentUserService.hasRole('ADMIN')")
+    @PreAuthorize("@currentUserService.hasPermission('role:manage')")
     public R<Map<String, Object>> page(@RequestParam(defaultValue = "1") int page,
                                        @RequestParam(defaultValue = "10") int pageSize,
                                        @RequestParam(required = false) String name,
                                        @RequestParam(required = false) String code) {
-        currentUserService.requireAdmin();
+        currentUserService.requirePermission("role:manage");
         User currentUser = currentUserService.requireCurrentUser();
         QueryWrapper<Role> qw = new QueryWrapper<>();
         if (currentUser.getCompanyId() != null) {
@@ -83,10 +83,10 @@ public class RoleController {
     }
 
     @PostMapping("/add")
-    @PreAuthorize("@currentUserService.hasRole('ADMIN')")
+    @PreAuthorize("@currentUserService.hasPermission('role:manage')")
     public R<?> add(@RequestBody Role role) {
         User currentUser = currentUserService.requireCurrentUser();
-        currentUserService.requireAdmin();
+        currentUserService.requirePermission("role:manage");
         if (currentUser.getCompanyId() == null) {
             throw new BizException(40300, "当前账号未绑定公司，无法新增角色");
         }
@@ -111,10 +111,10 @@ public class RoleController {
     }
 
     @PostMapping("/update")
-    @PreAuthorize("@currentUserService.hasRole('ADMIN')")
+    @PreAuthorize("@currentUserService.hasPermission('role:manage')")
     public R<?> update(@RequestBody Role role) {
         User currentUser = currentUserService.requireCurrentUser();
-        currentUserService.requireAdmin();
+        currentUserService.requirePermission("role:manage");
         Role existing = roleService.getById(role.getId());
         if (existing == null || !java.util.Objects.equals(existing.getCompanyId(), currentUser.getCompanyId())) {
             throw new BizException(40400, "角色不存在或不在当前公司");
@@ -139,7 +139,7 @@ public class RoleController {
     }
 
     @PostMapping("/delete")
-    @PreAuthorize("@currentUserService.hasRole('ADMIN')")
+    @PreAuthorize("@currentUserService.hasPermission('role:manage')")
     public R<?> delete(@jakarta.validation.Valid @RequestBody IdReq req) {
         User currentUser = sensitiveOperationGuardService.requireConfirmedAdmin(req.getConfirmPassword(), "role_delete", "roleId=" + req.getId());
         currentUserService.requireAdmin();

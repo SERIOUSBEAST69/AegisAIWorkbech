@@ -6,6 +6,7 @@ import com.trustai.service.AiService;
 import com.trustai.service.RateLimiterService;
 import com.trustai.utils.R;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.trustai.exception.BizException;
 import com.trustai.entity.AiCallLog;
 import com.trustai.service.AiCallAuditService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -62,8 +63,7 @@ public class AiCallController {
             result.forEach(MonitorRow::finish);
             return R.ok(result);
         } catch (Exception e) {
-            // 若表尚未建好或无数据，返回空列表避免前端报错
-            return R.ok(List.of());
+            throw new BizException(50000, "监控摘要加载失败：" + e.getMessage());
         }
     }
 

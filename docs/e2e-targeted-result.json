@@ -1,0 +1,268 @@
+﻿{
+  "config": {
+    "configFile": "C:\\Users\\serio\\Desktop\\AegisAIWorkbech\\playwright.config.js",
+    "rootDir": "C:/Users/serio/Desktop/AegisAIWorkbech/e2e",
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "reporter": [
+      [
+        "json"
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "quiet": false,
+    "projects": [
+      {
+        "outputDir": "C:/Users/serio/Desktop/AegisAIWorkbech/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "chromium",
+        "name": "chromium",
+        "testDir": "C:/Users/serio/Desktop/AegisAIWorkbech/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 60000
+      }
+    ],
+    "shard": null,
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.53.0",
+    "workers": 1,
+    "webServer": {
+      "command": "npm run dev -- --host 127.0.0.1 --port 5173",
+      "url": "http://127.0.0.1:5173",
+      "reuseExistingServer": true,
+      "timeout": 120000
+    }
+  },
+  "suites": [
+    {
+      "title": "core-flow.spec.js",
+      "file": "core-flow.spec.js",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "home and command deck should be reachable after login",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 60000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "timedOut",
+                  "duration": 60476,
+                  "error": {
+                    "message": "\u001b[31mTest timeout of 60000ms exceeded.\u001b[39m",
+                    "stack": "\u001b[31mTest timeout of 60000ms exceeded.\u001b[39m"
+                  },
+                  "errors": [
+                    {
+                      "message": "\u001b[31mTest timeout of 60000ms exceeded.\u001b[39m"
+                    },
+                    {
+                      "location": {
+                        "file": "C:\\Users\\serio\\Desktop\\AegisAIWorkbech\\e2e\\core-flow.spec.js",
+                        "column": 67,
+                        "line": 37
+                      },
+                      "message": "Error: locator.click: Test timeout of 60000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByRole('button', { name: /瀹夊叏鎸囨尌鍙皘杩愯惀鎸囨尌鍙? }).first()\u001b[22m\n\n\n  35 |   await expect(paletteInput).toBeVisible();\n  36 |   await paletteInput.fill('瀹夊叏鎸囨尌鍙?);\n> 37 |   await page.getByRole('button', { name: /瀹夊叏鎸囨尌鍙皘杩愯惀鎸囨尌鍙? }).first().click();\n     |                                                                   ^\n  38 |\n  39 |   await expect(page).toHaveURL(/operations-command/);\n  40 |   await expect(page.getByRole('heading', { name: /瀹夊叏鎸囨尌鍙皘杩愯惀鎸囨尌鍙? })).toBeVisible();\n    at C:\\Users\\serio\\Desktop\\AegisAIWorkbech\\e2e\\core-flow.spec.js:37:67"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-03-30T14:53:57.217Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "C:\\Users\\serio\\Desktop\\AegisAIWorkbech\\test-results\\core-flow-home-and-command-fc776-ld-be-reachable-after-login-chromium\\test-failed-1.png"
+                    },
+                    {
+                      "name": "video",
+                      "contentType": "video/webm",
+                      "path": "C:\\Users\\serio\\Desktop\\AegisAIWorkbech\\test-results\\core-flow-home-and-command-fc776-ld-be-reachable-after-login-chromium\\video.webm"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "C:\\Users\\serio\\Desktop\\AegisAIWorkbech\\test-results\\core-flow-home-and-command-fc776-ld-be-reachable-after-login-chromium\\error-context.md"
+                    },
+                    {
+                      "name": "trace",
+                      "contentType": "application/zip",
+                      "path": "C:\\Users\\serio\\Desktop\\AegisAIWorkbech\\test-results\\core-flow-home-and-command-fc776-ld-be-reachable-after-login-chromium\\trace.zip"
+                    }
+                  ]
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "d4c58aedd57f6491d173-fdbc63c278676d7852cd",
+          "file": "core-flow.spec.js",
+          "line": 29,
+          "column": 1
+        },
+        {
+          "title": "operations command can switch lanes",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 60000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 11775,
+                  "error": {
+                    "message": "Error: \u001b[31mTimed out 10000ms waiting for \u001b[39m\u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m()\u001b[22m\n\nLocator: getByRole('heading', { name: /瀹夊叏鎸囨尌鍙皘杩愯惀鎸囨尌鍙? })\nExpected: visible\nReceived: <element(s) not found>\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 10000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('heading', { name: /瀹夊叏鎸囨尌鍙皘杩愯惀鎸囨尌鍙? })\u001b[22m\n",
+                    "stack": "Error: \u001b[31mTimed out 10000ms waiting for \u001b[39m\u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m()\u001b[22m\n\nLocator: getByRole('heading', { name: /瀹夊叏鎸囨尌鍙皘杩愯惀鎸囨尌鍙? })\nExpected: visible\nReceived: <element(s) not found>\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 10000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('heading', { name: /瀹夊叏鎸囨尌鍙皘杩愯惀鎸囨尌鍙? })\u001b[22m\n\n    at C:\\Users\\serio\\Desktop\\AegisAIWorkbech\\e2e\\core-flow.spec.js:45:68",
+                    "location": {
+                      "file": "C:\\Users\\serio\\Desktop\\AegisAIWorkbech\\e2e\\core-flow.spec.js",
+                      "column": 68,
+                      "line": 45
+                    },
+                    "snippet": "\u001b[0m \u001b[90m 43 |\u001b[39m test(\u001b[32m'operations command can switch lanes'\u001b[39m\u001b[33m,\u001b[39m \u001b[36masync\u001b[39m ({ page }) \u001b[33m=>\u001b[39m {\n \u001b[90m 44 |\u001b[39m   \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mgoto(\u001b[32m'/operations-command'\u001b[39m)\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 45 |\u001b[39m   \u001b[36mawait\u001b[39m expect(page\u001b[33m.\u001b[39mgetByRole(\u001b[32m'heading'\u001b[39m\u001b[33m,\u001b[39m { name\u001b[33m:\u001b[39m \u001b[35m/瀹夊叏鎸囨尌鍙皘杩愯惀鎸囨尌鍙?\u001b[39m }))\u001b[33m.\u001b[39mtoBeVisible()\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                                                                    \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 46 |\u001b[39m\n \u001b[90m 47 |\u001b[39m   \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mlocator(\u001b[32m'.lane-switch .lane-button'\u001b[39m\u001b[33m,\u001b[39m { hasText\u001b[33m:\u001b[39m \u001b[32m'椋庨櫓浜嬩欢'\u001b[39m })\u001b[33m.\u001b[39mfirst()\u001b[33m.\u001b[39mclick()\u001b[33m;\u001b[39m\n \u001b[90m 48 |\u001b[39m   \u001b[36mawait\u001b[39m expect(page\u001b[33m.\u001b[39mlocator(\u001b[32m'.dispatch-card .card-header'\u001b[39m)\u001b[33m.\u001b[39mfirst())\u001b[33m.\u001b[39mtoHaveText(\u001b[32m'椋庨櫓闂幆闃熷垪'\u001b[39m)\u001b[33m;\u001b[39m\u001b[0m"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "C:\\Users\\serio\\Desktop\\AegisAIWorkbech\\e2e\\core-flow.spec.js",
+                        "column": 68,
+                        "line": 45
+                      },
+                      "message": "Error: \u001b[31mTimed out 10000ms waiting for \u001b[39m\u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m()\u001b[22m\n\nLocator: getByRole('heading', { name: /瀹夊叏鎸囨尌鍙皘杩愯惀鎸囨尌鍙? })\nExpected: visible\nReceived: <element(s) not found>\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 10000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('heading', { name: /瀹夊叏鎸囨尌鍙皘杩愯惀鎸囨尌鍙? })\u001b[22m\n\n\n  43 | test('operations command can switch lanes', async ({ page }) => {\n  44 |   await page.goto('/operations-command');\n> 45 |   await expect(page.getByRole('heading', { name: /瀹夊叏鎸囨尌鍙皘杩愯惀鎸囨尌鍙? })).toBeVisible();\n     |                                                                    ^\n  46 |\n  47 |   await page.locator('.lane-switch .lane-button', { hasText: '椋庨櫓浜嬩欢' }).first().click();\n  48 |   await expect(page.locator('.dispatch-card .card-header').first()).toHaveText('椋庨櫓闂幆闃熷垪');\n    at C:\\Users\\serio\\Desktop\\AegisAIWorkbech\\e2e\\core-flow.spec.js:45:68"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-03-30T14:55:04.257Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "C:\\Users\\serio\\Desktop\\AegisAIWorkbech\\test-results\\core-flow-operations-command-can-switch-lanes-chromium\\test-failed-1.png"
+                    },
+                    {
+                      "name": "video",
+                      "contentType": "video/webm",
+                      "path": "C:\\Users\\serio\\Desktop\\AegisAIWorkbech\\test-results\\core-flow-operations-command-can-switch-lanes-chromium\\video.webm"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "C:\\Users\\serio\\Desktop\\AegisAIWorkbech\\test-results\\core-flow-operations-command-can-switch-lanes-chromium\\error-context.md"
+                    },
+                    {
+                      "name": "trace",
+                      "contentType": "application/zip",
+                      "path": "C:\\Users\\serio\\Desktop\\AegisAIWorkbech\\test-results\\core-flow-operations-command-can-switch-lanes-chromium\\trace.zip"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "C:\\Users\\serio\\Desktop\\AegisAIWorkbech\\e2e\\core-flow.spec.js",
+                    "column": 68,
+                    "line": 45
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "d4c58aedd57f6491d173-4f5ed9cfb28e35794b5e",
+          "file": "core-flow.spec.js",
+          "line": 43,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "governance-admin-full-workflow.spec.js",
+      "file": "governance-admin-full-workflow.spec.js",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "governance admin pages and key buttons should keep session alive",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 60000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 39028,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-03-30T14:55:22.591Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "256be996304e17e7edd7-c18fd680dc61a7d6486d",
+          "file": "governance-admin-full-workflow.spec.js",
+          "line": 47,
+          "column": 1
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-03-30T14:53:56.562Z",
+    "duration": 127086.88100000001,
+    "expected": 1,
+    "skipped": 0,
+    "unexpected": 2,
+    "flaky": 0
+  }
+}
