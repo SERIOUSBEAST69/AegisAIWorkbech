@@ -17,6 +17,10 @@ export const dashboardApi = {
     return request.get('/dashboard/workbench');
   },
 
+  async getHomeBundle() {
+    return request.get('/dashboard/home-bundle');
+  },
+
   async getTrustPulse() {
     return request.get('/dashboard/trust-pulse');
   },

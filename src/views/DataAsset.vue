@@ -77,7 +77,7 @@
           </div>
         </template>
 
-        <el-table :data="assets" style="width: 100%" v-loading="loading">
+        <el-table :data="assets" style="width: 100%" v-loading="loading" empty-text="暂无记录">
           <el-table-column prop="id" label="ID" width="80">
             <template #default="scope">
               <div class="cell nowrap">{{ scope.row.id }}</div>

@@ -41,14 +41,14 @@ public class AiCallController {
     }
 
     @PostMapping("/quota/reset/{modelCode}")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','AI_BUILDER')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
     public R<?> resetQuota(@PathVariable String modelCode) {
         rateLimiterService.reset(modelCode, LocalDate.now());
         return R.okMsg("已重置今日配额");
     }
 
     @GetMapping("/monitor/summary")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','AI_BUILDER')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
     public R<?> monitorSummary() {
         try {
             List<AiCallLog> logs = aiCallAuditService.list(new QueryWrapper<AiCallLog>().orderByDesc("create_time").last("limit 500"));
@@ -68,7 +68,7 @@ public class AiCallController {
     }
 
     @GetMapping("/monitor/trend")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','AI_BUILDER')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
     public R<?> monitorTrend() {
         try {
             LocalDate today = LocalDate.now();
@@ -89,6 +89,26 @@ public class AiCallController {
         } catch (Exception e) {
             return R.ok(List.of());
         }
+    }
+
+    @GetMapping("/monitor/logs")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
+    public R<?> monitorLogs(@RequestParam(defaultValue = "1") int page,
+                            @RequestParam(defaultValue = "20") int pageSize) {
+        int safePage = Math.max(1, page);
+        int safePageSize = Math.max(1, Math.min(100, pageSize));
+        int offset = (safePage - 1) * safePageSize;
+        List<AiCallLog> all = aiCallAuditService.list(new QueryWrapper<AiCallLog>().orderByDesc("create_time"));
+        int total = all.size();
+        int to = Math.min(total, offset + safePageSize);
+        List<AiCallLog> list = offset >= total ? List.of() : all.subList(offset, to);
+
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("total", total);
+        payload.put("current", safePage);
+        payload.put("pageSize", safePageSize);
+        payload.put("list", list);
+        return R.ok(payload);
     }
 
     private static class MonitorRow {

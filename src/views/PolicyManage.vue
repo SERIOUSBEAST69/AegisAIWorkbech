@@ -154,6 +154,7 @@ async function addPolicy() {
     try {
       const prompt = await ElMessageBox.prompt('请输入当前账号密码确认保存策略', '敏感操作二次校验', {
         inputType: 'password',
+        inputAttributes: { autocomplete: 'current-password', autofocus: 'autofocus' },
         inputPlaceholder: '请输入密码',
         inputValidator: value => (!!value && value.trim().length > 0) || '密码不能为空',
         confirmButtonText: '确认',
@@ -196,6 +197,7 @@ async function updatePolicy() {
     try {
       const prompt = await ElMessageBox.prompt('请输入当前账号密码确认更新策略', '敏感操作二次校验', {
         inputType: 'password',
+        inputAttributes: { autocomplete: 'current-password', autofocus: 'autofocus' },
         inputPlaceholder: '请输入密码',
         inputValidator: value => (!!value && value.trim().length > 0) || '密码不能为空',
         confirmButtonText: '确认',
@@ -227,6 +229,7 @@ async function deletePolicy(id) {
     await ElMessageBox.confirm('确认删除该策略吗？', '提示', { type: 'warning' });
     const prompt = await ElMessageBox.prompt('请输入当前账号密码确认删除策略', '敏感操作二次校验', {
       inputType: 'password',
+      inputAttributes: { autocomplete: 'current-password', autofocus: 'autofocus' },
       inputPlaceholder: '请输入密码',
       inputValidator: value => (!!value && value.trim().length > 0) || '密码不能为空',
       confirmButtonText: '确认',
@@ -259,6 +262,7 @@ async function togglePolicyStatus(row) {
   try {
     const prompt = await ElMessageBox.prompt(`请输入当前账号密码确认${actionLabel}策略`, '敏感操作二次校验', {
       inputType: 'password',
+      inputAttributes: { autocomplete: 'current-password', autofocus: 'autofocus' },
       inputPlaceholder: '请输入密码',
       inputValidator: value => (!!value && value.trim().length > 0) || '密码不能为空',
       confirmButtonText: '确认',

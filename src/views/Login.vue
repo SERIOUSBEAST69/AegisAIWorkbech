@@ -399,16 +399,6 @@ const registrationOptions = reactive({
   demoAccounts: [],
 });
 
-const FALLBACK_DEMO_ACCOUNTS = [
-  { roleCode: 'ADMIN', roleLabel: '治理管理员', accounts: [{ label: '主治理管理员', username: 'admin', password: 'admin' }] },
-  { roleCode: 'EXECUTIVE', roleLabel: '管理层', accounts: [{ label: '管理层账号A', username: 'executive', password: 'Passw0rd!' }] },
-  { roleCode: 'SECOPS', roleLabel: '安全运维', accounts: [{ label: '安全运维A', username: 'secops', password: 'Passw0rd!' }] },
-  { roleCode: 'DATA_ADMIN', roleLabel: '数据管理员', accounts: [{ label: '数据管理员A', username: 'dataadmin', password: 'Passw0rd!' }] },
-  { roleCode: 'AI_BUILDER', roleLabel: 'AI应用开发者', accounts: [{ label: 'AI开发者A', username: 'aibuilder', password: 'Passw0rd!' }] },
-  { roleCode: 'BUSINESS_OWNER', roleLabel: '业务负责人', accounts: [{ label: '业务负责人A', username: 'bizowner', password: 'Passw0rd!' }] },
-  { roleCode: 'EMPLOYEE', roleLabel: '普通员工', accounts: [{ label: '员工账号A', username: 'employee', password: 'Passw0rd!' }] },
-];
-
 const selectedDemoRole = ref('');
 const selectedDemoUsername = ref('');
 
@@ -1066,11 +1056,11 @@ onMounted(async () => {
     registrationOptions.organizations = normalizeOptions(result?.organizations, DEFAULT_ORGANIZATIONS);
     registrationOptions.demoAccounts = Array.isArray(result?.demoAccounts) && result.demoAccounts.length > 0
       ? result.demoAccounts
-      : [...FALLBACK_DEMO_ACCOUNTS];
+      : [];
   } catch {
     registrationOptions.identities = [...DEFAULT_IDENTITIES];
     registrationOptions.organizations = [...DEFAULT_ORGANIZATIONS];
-    registrationOptions.demoAccounts = [...FALLBACK_DEMO_ACCOUNTS];
+    registrationOptions.demoAccounts = [];
   }
 
   const initialPose = getPortalPose(false);

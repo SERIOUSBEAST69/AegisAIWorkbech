@@ -234,6 +234,7 @@ public class CompanySchemaInitializer implements CommandLineRunner {
         ensureColumn("subject_request", "company_id", "BIGINT");
         ensureColumn("compliance_policy", "company_id", "BIGINT");
         ensureColumn("client_report", "company_id", "BIGINT");
+        ensureColumn("client_report", "ip_address", "VARCHAR(64)");
         ensureColumn("client_scan_queue", "company_id", "BIGINT");
         ensureColumn("privacy_event", "company_id", "BIGINT");
         ensureColumn("privacy_event", "policy_version", "BIGINT");

@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Locale;
 import java.util.Random;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.CommandLineRunner;
@@ -63,13 +64,18 @@ public class DataInitializer implements CommandLineRunner {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Value("${app.seed.demo-data:false}")
+    private boolean seedDemoData;
+
     @Override
     public void run(String... args) {
         Map<String, Role> roleMap = ensureDefaultRoles(DEFAULT_COMPANY_ID);
         for (UserSeed seed : BASELINE_USERS) {
             ensureUser(DEFAULT_COMPANY_ID, seed, roleMap.get(seed.roleCode()));
         }
-        seedGovernanceAdminDemoData(DEFAULT_COMPANY_ID, roleMap);
+        if (seedDemoData) {
+            seedGovernanceAdminDemoData(DEFAULT_COMPANY_ID, roleMap);
+        }
     }
 
     private void seedGovernanceAdminDemoData(Long companyId, Map<String, Role> roleMap) {

@@ -12,16 +12,7 @@
         </p>
       </div>
       <div class="page-header-actions">
-        <el-tag :type="autoRefresh ? 'success' : 'info'" size="large">
-          {{ autoRefresh ? '实时刷新中' : '已暂停刷新' }}
-        </el-tag>
-        <el-button
-          :type="autoRefresh ? 'warning' : 'success'"
-          @click="toggleAutoRefresh"
-        >
-          <el-icon><component :is="autoRefresh ? 'VideoPause' : 'VideoPlay'" /></el-icon>
-          {{ autoRefresh ? '暂停' : '开启实时刷新' }}
-        </el-button>
+        <el-tag type="info" size="large">自动刷新已移除</el-tag>
         <el-button type="primary" :loading="loading" @click="refresh">
           <el-icon><Refresh /></el-icon>
           刷新
@@ -105,6 +96,7 @@
           <el-table
             :data="events"
             v-loading="loading"
+            empty-text="暂无记录"
             style="margin-top: 12px"
             row-class-name="event-row"
             :row-style="rowStyle"
@@ -163,14 +155,14 @@
             <el-table-column label="操作" width="160" fixed="right">
               <template #default="{ row }">
                 <el-button
-                  v-if="canHandleThreats && (row.status === 'pending' || row.status === 'reviewing')"
+                  v-if="canBlacklistEvent(row) && (row.status === 'pending' || row.status === 'reviewing')"
                   size="small"
                   type="danger"
                   :loading="actionLoading === row.id + '-block'"
                   @click="blockEvent(row)"
                 >阻拦</el-button>
                 <el-button
-                  v-if="canHandleThreats && (row.status === 'pending' || row.status === 'reviewing')"
+                  v-if="canMarkFalsePositive(row) && (row.status === 'pending' || row.status === 'reviewing')"
                   size="small"
                   :loading="actionLoading === row.id + '-ignore'"
                   @click="ignoreEvent(row)"
@@ -241,6 +233,7 @@
           <el-table
             :data="centerEvents"
             v-loading="centerLoading"
+            empty-text="暂无记录"
             style="margin-top: 12px"
             :row-style="rowStyle"
           >
@@ -270,16 +263,16 @@
               <template #default="{ row }">
                 <el-button size="small" @click="openRelated(row)">关联事件</el-button>
                 <el-button
-                  v-if="canHandleThreats && (row.status === 'pending' || row.status === 'reviewing')"
+                  v-if="canBlacklistEvent(row) && (row.status === 'pending' || row.status === 'reviewing')"
                   size="small"
                   type="danger"
                   @click="openDispose(row, 'blocked')"
                 >阻断并验证</el-button>
                 <el-button
-                  v-if="canHandleThreats && (row.status === 'pending' || row.status === 'reviewing')"
+                  v-if="canMarkFalsePositive(row) && (row.status === 'pending' || row.status === 'reviewing')"
                   size="small"
                   @click="openDispose(row, 'ignored')"
-                >忽略</el-button>
+                >标记误报</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -309,6 +302,9 @@
           </div>
 
           <el-table :data="rules" v-loading="rulesLoading" style="margin-top: 12px">
+            <template #empty>
+              <el-empty description="暂无记录" />
+            </template>
             <el-table-column prop="id" label="ID" width="250">
               <template #default="scope">
                 <div class="cell nowrap">{{ scope.row.id }}</div>
@@ -381,6 +377,9 @@
             </div>
 
             <el-table :data="threatDrill.recentSecurityEvents || []" style="margin-top: 12px">
+              <template #empty>
+                <el-empty description="暂无记录" />
+              </template>
               <el-table-column prop="eventType" label="事件类型" width="180" />
               <el-table-column prop="employeeId" label="员工" width="140" />
               <el-table-column prop="severity" label="严重级别" width="120" />
@@ -467,6 +466,9 @@
           <el-tag v-for="(count, key) in relatedTypeCount" :key="key" size="small">{{ centerEventTypeLabel(key) }}: {{ count }}</el-tag>
         </div>
         <el-table :data="relatedEvents" style="margin-top: 10px">
+          <template #empty>
+            <el-empty description="暂无记录" />
+          </template>
           <el-table-column prop="id" label="ID" width="80" />
           <el-table-column prop="eventType" label="类型" width="130">
             <template #default="{ row }">{{ centerEventTypeLabel(row.eventType) }}</template>
@@ -575,7 +577,7 @@
 <script setup>
 import { computed, ref, onMounted, onUnmounted } from 'vue';
 import {
-  Refresh, Search, Plus, VideoPause, VideoPlay,
+  Refresh, Search, Plus,
 } from '@element-plus/icons-vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import request from '../api/request';
@@ -584,14 +586,17 @@ import { useUserStore } from '../store/user';
 import {
   canAccessThreatMonitor,
   canHandleThreatEvent,
+  canManageThreatRule,
 } from '../utils/roleBoundary';
 
 const userStore = useUserStore();
 
 const canViewThreatMonitor = computed(() => canAccessThreatMonitor(userStore.userInfo));
 const canHandleThreats = computed(() => canHandleThreatEvent(userStore.userInfo));
-const canManageThreatRules = computed(() => canHandleThreatEvent(userStore.userInfo));
+const canManageThreatRules = computed(() => canManageThreatRule(userStore.userInfo));
 const canRunThreatDrill = computed(() => canHandleThreatEvent(userStore.userInfo));
+const isAdminUser = computed(() => String(userStore.userInfo?.roleCode || '').toUpperCase() === 'ADMIN');
+const isSecopsUser = computed(() => String(userStore.userInfo?.roleCode || '').toUpperCase() === 'SECOPS');
 
 // ── 统计 ──────────────────────────────────────────────────────────────────────
 const stats = ref({});
@@ -623,7 +628,7 @@ const disposeForm = ref({
   id: null,
   status: 'blocked',
   note: '',
-  triggerSimulation: true,
+  triggerSimulation: false,
   rounds: 12,
 });
 const disposeResult = ref(null);
@@ -664,6 +669,10 @@ function resetFilter() {
 }
 
 async function blockEvent(row) {
+  if (!canBlacklistEvent(row)) {
+    ElMessage.warning('当前身份不可执行拉黑/阻断');
+    return;
+  }
   actionLoading.value = row.id + '-block';
   try {
     await request.post('/security/block', { id: row.id });
@@ -678,6 +687,10 @@ async function blockEvent(row) {
 }
 
 async function ignoreEvent(row) {
+  if (!canMarkFalsePositive(row)) {
+    ElMessage.warning('当前身份不可执行误报标记');
+    return;
+  }
   actionLoading.value = row.id + '-ignore';
   try {
     await request.post('/security/ignore', { id: row.id });
@@ -767,10 +780,6 @@ async function deleteRule(id) {
   }
 }
 
-// ── 自动刷新 ──────────────────────────────────────────────────────────────────
-const autoRefresh = ref(true);
-let refreshTimer = null;
-
 const drillLoading = ref(false);
 const floatingDrillLoading = ref(false);
 const simDrillLoading = ref(false);
@@ -797,33 +806,20 @@ const simulationScenarios = computed(() => {
   return all.filter(scene => String(scene?.code || '').trim().toLowerCase() !== 'real-threat-check');
 });
 
-function startAutoRefresh() {
-  stopAutoRefresh();
-  refreshTimer = setInterval(() => {
-    refreshEvents();
-    if (activeTab.value === 'alertCenter') {
-      refreshCenterEvents();
-    }
-    fetchStats();
-  }, 5000);
+function canBlacklistEvent(row) {
+  if (!row) return false;
+  if (String(row.eventType || '').toUpperCase() === 'SHADOW_AI_ALERT') {
+    return isAdminUser.value;
+  }
+  return isSecopsUser.value;
 }
 
-function stopAutoRefresh() {
-  if (refreshTimer) {
-    clearInterval(refreshTimer);
-    refreshTimer = null;
+function canMarkFalsePositive(row) {
+  if (!row) return false;
+  if (String(row.eventType || '').toUpperCase() === 'SHADOW_AI_ALERT') {
+    return isSecopsUser.value;
   }
-}
-
-function toggleAutoRefresh() {
-  autoRefresh.value = !autoRefresh.value;
-  if (autoRefresh.value) {
-    startAutoRefresh();
-    ElMessage.success('已开启实时刷新（每5秒）');
-  } else {
-    stopAutoRefresh();
-    ElMessage.info('已暂停自动刷新');
-  }
+  return isSecopsUser.value;
 }
 
 // ── 标签页 ────────────────────────────────────────────────────────────────────
@@ -882,11 +878,19 @@ async function openRelated(row) {
 }
 
 function openDispose(row, status) {
+  if (status === 'blocked' && !canBlacklistEvent(row)) {
+    ElMessage.warning('当前身份不可执行拉黑处置');
+    return;
+  }
+  if (status === 'ignored' && !canMarkFalsePositive(row)) {
+    ElMessage.warning('当前身份不可执行误报标记');
+    return;
+  }
   disposeForm.value = {
     id: row.id,
     status,
     note: '',
-    triggerSimulation: true,
+    triggerSimulation: false,
     rounds: 12,
   };
   disposeResult.value = null;
@@ -1105,14 +1109,13 @@ function rowStyle({ row }) {
 // ── 生命周期 ──────────────────────────────────────────────────────────────────
 onMounted(() => {
   if (!canViewThreatMonitor.value) {
-    ElMessage.error('当前身份无权访问实施威胁检测模块');
+    ElMessage.error('当前身份无权访问实时威胁监控模块');
     return;
   }
-  refresh();
+  refresh().catch(() => {});
   if (canManageThreatRules.value) {
     fetchRules();
   }
-  if (autoRefresh.value) startAutoRefresh();
   if (canRunThreatDrill.value) {
     fetchThreatDrillMeta();
   }
@@ -1120,7 +1123,6 @@ onMounted(() => {
 
 onUnmounted(() => {
   stopBattlePlayback();
-  stopAutoRefresh();
 });
 </script>
 

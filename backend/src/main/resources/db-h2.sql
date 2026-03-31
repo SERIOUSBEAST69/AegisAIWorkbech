@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS client_report (
   company_id BIGINT,
   client_id VARCHAR(64) NOT NULL,
   hostname VARCHAR(255),
+  ip_address VARCHAR(64),
   os_username VARCHAR(255),
   os_type VARCHAR(32),
   client_version VARCHAR(32),
@@ -336,11 +337,17 @@ WHERE NOT EXISTS (SELECT 1 FROM company WHERE company_code = 'aegis-default');
 
 -- Default AI models
 INSERT INTO ai_model (model_name, model_code, provider, api_url, api_key, model_type, risk_level, status, call_limit, current_calls, description) VALUES
-('GPT-4', 'gpt-4', 'OpenAI', 'https://api.openai.com/v1/chat/completions', 'encrypted_key_1', 'chat', 'medium', 'enabled', 1000, 0, 'OpenAI GPT-4 大语言模型'),
-('GPT-3.5', 'gpt-3.5-turbo', 'OpenAI', 'https://api.openai.com/v1/chat/completions', 'encrypted_key_2', 'chat', 'low', 'enabled', 5000, 0, 'OpenAI GPT-3.5 Turbo 模型'),
-('Claude 3', 'claude-3-opus', 'Anthropic', 'https://api.anthropic.com/v1/messages', 'encrypted_key_3', 'chat', 'medium', 'enabled', 800, 0, 'Anthropic Claude 3 Opus 模型'),
-('文心一言', 'ernie-bot', '百度', 'https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat/completions', 'encrypted_key_4', 'chat', 'low', 'enabled', 2000, 0, '百度文心一言大模型'),
-('通义千问', 'qwen-turbo', '阿里云', 'https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation', 'encrypted_key_5', 'chat', 'low', 'enabled', 3000, 0, '阿里云通义千问模型');
+('阿里通义系列', 'qwen-turbo', 'qwen', 'https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation', 'encrypted_key_1', 'chat', 'low', 'enabled', 3000, 0, '阿里通义系列模型'),
+('百度文心系列', 'ernie-bot', 'wenxin', 'https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat/completions', 'encrypted_key_2', 'chat', 'low', 'enabled', 2500, 0, '百度文心系列模型'),
+('DeepSeek', 'deepseek-chat', 'deepseek', 'https://api.deepseek.com/v1/chat/completions', 'encrypted_key_3', 'chat', 'medium', 'enabled', 2200, 0, 'DeepSeek 模型服务'),
+('豆包 AI', 'doubao-pro', 'doubao', 'https://ark.cn-beijing.volces.com/api/v1/chat/completions', 'encrypted_key_4', 'chat', 'medium', 'enabled', 2500, 0, '豆包 AI 模型服务'),
+('科大讯飞星火', 'spark-max', 'spark', 'https://spark-api.xf-yun.com/v3.5/chat', 'encrypted_key_5', 'chat', 'medium', 'enabled', 2000, 0, '科大讯飞星火模型'),
+('Kimi', 'kimi-k2', 'kimi', 'https://api.moonshot.cn/v1/chat/completions', 'encrypted_key_6', 'chat', 'medium', 'enabled', 2000, 0, 'Kimi 模型服务'),
+('腾讯混元系列', 'hunyuan-standard', 'hunyuan', 'https://api.hunyuan.cloud.tencent.com/v1/chat/completions', 'encrypted_key_7', 'chat', 'medium', 'enabled', 2200, 0, '腾讯混元系列模型'),
+('智谱 AI', 'glm-4-flash', 'zhipu', 'https://open.bigmodel.cn/api/paas/v4/chat/completions', 'encrypted_key_8', 'chat', 'medium', 'enabled', 2200, 0, '智谱 AI 模型服务'),
+('稿定设计', 'gaoding-design', 'gaoding', 'https://api.gaoding.com/v1/aigc/design', 'encrypted_key_9', 'image', 'low', 'enabled', 1200, 0, '稿定设计智能生成'),
+('和鲸 ModelWhale', 'modelwhale-core', 'modelwhale', 'https://api.modelwhale.com/v1/inference', 'encrypted_key_10', 'platform', 'low', 'enabled', 1200, 0, '和鲸 ModelWhale 平台'),
+('即梦', 'jimeng-image', 'jimeng', 'https://api.jimeng.com/v1/generate', 'encrypted_key_11', 'image', 'low', 'enabled', 1200, 0, '即梦生成服务');
 
 -- Default data assets
 INSERT INTO data_asset (company_id, name, type, sensitivity_level, location, discovery_time, owner_id, lineage, description, create_time, update_time) VALUES

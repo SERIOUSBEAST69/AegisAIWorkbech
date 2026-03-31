@@ -78,10 +78,10 @@ public class SubjectRequestController {
     @PostMapping("/process")
     @PreAuthorize("@currentUserService.hasRole('ADMIN')")
     public R<?> process(@RequestBody @Validated ProcessReq req) {
-        SubjectRequest sr = subjectRequestService.getOne(
-            companyScopeService.withCompany(new QueryWrapper<SubjectRequest>()).eq("id", req.getId())
-        );
-        if (sr == null) return R.error(40000, "申请不存在");
+        SubjectRequest sr = subjectRequestService.getById(req.getId());
+        if (sr == null || !java.util.Objects.equals(sr.getCompanyId(), companyScopeService.requireCompanyId())) {
+            return R.error(40400, "工单不存在或不在当前公司");
+        }
         if (!ALLOWED_STATUS.contains(req.getStatus())) return R.error(40000, "不支持的状态");
         if (FINAL_STATUS.contains(sr.getStatus())) return R.error(40000, "已完结的工单不可再次处理");
         if (req.getHandlerId() == null) return R.error(40000, "处理人不能为空");

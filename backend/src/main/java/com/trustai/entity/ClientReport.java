@@ -26,6 +26,9 @@ public class ClientReport {
     /** 主机名 */
     private String hostname;
 
+    /** 客户端上报来源IP */
+    private String ipAddress;
+
     /** 操作系统用户名 */
     private String osUsername;
 

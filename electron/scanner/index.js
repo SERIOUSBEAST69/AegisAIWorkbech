@@ -18,6 +18,9 @@ const axios = require('axios');
 const { scanBrowserHistory }   = require('./browserHistoryScanner');
 const { scanNetworkConnections } = require('./networkScanner');
 const { scanRunningProcesses } = require('./processScanner');
+const { AI_SERVICES } = require('./aiServiceList');
+
+const DEFAULT_AI_WHITELIST = ['阿里通义系列', '百度文心系列'];
 
 // ── 辅助：合并去重 ──────────────────────────────────────────────────────────
 
@@ -64,6 +67,33 @@ function calcOverallRisk(services) {
   return 'none';
 }
 
+function normalizeWhitelist(policy) {
+  const catalog = new Set(AI_SERVICES.map(item => String(item.name || '').trim()).filter(Boolean));
+  const raw = Array.isArray(policy?.aiWhitelist) ? policy.aiWhitelist : DEFAULT_AI_WHITELIST;
+  const trimmed = raw.map(item => String(item || '').trim()).filter(Boolean);
+  const valid = trimmed.filter(item => catalog.has(item));
+  if (valid.length > 0) {
+    return [...new Set(valid)];
+  }
+  const fallback = [...DEFAULT_AI_WHITELIST.filter(item => catalog.has(item))];
+  return fallback;
+}
+
+async function fetchPolicyConfig(apiBase, headers) {
+  if (!apiBase) {
+    return {};
+  }
+  try {
+    const resp = await axios.get(`${apiBase}/api/privacy/config/public`, {
+      timeout: 5000,
+      headers,
+    });
+    return resp?.data?.data || resp?.data || {};
+  } catch {
+    return {};
+  }
+}
+
 // ── 主扫描函数 ────────────────────────────────────────────────────────────────
 
 /**
@@ -82,6 +112,16 @@ async function scan({ clientId, backendUrl, serverUrl, clientToken, companyId })
   const apiBase = backendUrl || serverUrl;
   const startTime = Date.now();
   console.log('[Scanner] 开始扫描，clientId:', clientId);
+
+  const headers = {};
+  if (clientToken) {
+    headers['X-Client-Token'] = String(clientToken);
+  }
+  if (Number.isFinite(Number(companyId)) && Number(companyId) > 0) {
+    headers['X-Company-Id'] = String(companyId);
+  }
+  const policy = await fetchPolicyConfig(apiBase, headers);
+  const aiWhitelist = normalizeWhitelist(policy);
 
   // 并行运行所有扫描器
   const [browserResults, networkResults, processResults] = await Promise.allSettled([
@@ -106,10 +146,14 @@ async function scan({ clientId, backendUrl, serverUrl, clientToken, companyId })
   ]).then(results => results.map(r => (r.status === 'fulfilled' ? r.value : [])));
 
   const allServices = mergeResults(browserResults, networkResults, processResults);
-  const riskLevel   = calcOverallRisk(allServices);
+  const whitelistSet = new Set(aiWhitelist);
+  const shadowServices = allServices
+    .filter(service => !whitelistSet.has(service.name))
+    .map(service => ({ ...service, isWhitelisted: false }));
+  const riskLevel = calcOverallRisk(shadowServices);
   const scanTime    = new Date().toISOString();
 
-  console.log(`[Scanner] 扫描完成，耗时 ${Date.now() - startTime}ms，发现 ${allServices.length} 个影子AI服务`);
+  console.log(`[Scanner] 扫描完成，耗时 ${Date.now() - startTime}ms，发现 ${shadowServices.length} 个影子AI服务`);
 
   // ── 上报至服务端 ────────────────────────────────────────────────────────────
   if (apiBase && clientId) {
@@ -119,23 +163,17 @@ async function scan({ clientId, backendUrl, serverUrl, clientToken, companyId })
       osUsername:  os.userInfo().username,
       osType:      getOsType(),
       clientVersion: '1.0.0',
-      discoveredServices: JSON.stringify(allServices),
-      shadowAiCount: allServices.length,
+      discoveredServices: JSON.stringify(shadowServices),
+      shadowAiCount: shadowServices.length,
       riskLevel,
       scanTime,
     };
 
     try {
-      const headers = { 'Content-Type': 'application/json' };
-      if (clientToken) {
-        headers['X-Client-Token'] = String(clientToken);
-      }
-      if (Number.isFinite(Number(companyId)) && Number(companyId) > 0) {
-        headers['X-Company-Id'] = String(companyId);
-      }
+      const reportHeaders = { ...headers, 'Content-Type': 'application/json' };
       await axios.post(`${apiBase}/api/client/report`, report, {
         timeout: 10000,
-        headers,
+        headers: reportHeaders,
       });
       console.log('[Scanner] 扫描报告已成功上报至服务端');
     } catch (err) {
@@ -145,9 +183,10 @@ async function scan({ clientId, backendUrl, serverUrl, clientToken, companyId })
   }
 
   return {
-    shadowAiCount: allServices.length,
+    shadowAiCount: shadowServices.length,
     riskLevel,
-    services: allServices,
+    services: shadowServices,
+    aiWhitelist,
     time: scanTime,
   };
 }

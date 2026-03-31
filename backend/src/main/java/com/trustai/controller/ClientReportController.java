@@ -84,6 +84,7 @@ public class ClientReportController {
     @PostMapping("/report")
     public R<Map<String, Object>> report(@RequestHeader(value = "X-Client-Token", required = false) String clientToken,
                                          @RequestHeader(value = "X-Company-Id", required = false) Long headerCompanyId,
+                                         HttpServletRequest servletReq,
                                          @RequestBody ClientReport report) {
         if (!clientIngressAuthService.isAuthorized(clientToken)) {
             return R.error(40100, "客户端令牌无效");
@@ -94,6 +95,7 @@ public class ClientReportController {
 
         report.setId(null);
         report.setCompanyId(resolveCompanyId(headerCompanyId));
+        report.setIpAddress(resolveClientIp(servletReq));
         if (report.getScanTime() == null) {
             report.setScanTime(LocalDateTime.now());
         }
@@ -126,9 +128,9 @@ public class ClientReportController {
      * 返回所有客户端的最新一条扫描报告（按 client_id 去重，取最新）。
      */
     @GetMapping("/list")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','AI_BUILDER')")
-    public R<List<ClientReport>> list() {
-        currentUserService.requireAnyRole("ADMIN", "SECOPS", "AI_BUILDER");
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
+    public R<List<Map<String, Object>>> list() {
+        currentUserService.requireAnyRole("ADMIN", "SECOPS");
         Long companyId = currentUserService.requireCurrentUser().getCompanyId();
         // 取全部报告，按 clientId 分组，每组保留最新一条
         List<ClientReport> all = clientReportService.list(
@@ -138,20 +140,43 @@ public class ClientReportController {
         );
 
         Map<String, ClientReport> latestByClient = new LinkedHashMap<>();
+        Map<String, LocalDateTime> firstLoginByClient = new LinkedHashMap<>();
         for (ClientReport r : all) {
             latestByClient.putIfAbsent(r.getClientId(), r);
+            firstLoginByClient.put(r.getClientId(), r.getScanTime());
         }
 
-        return R.ok(new ArrayList<>(latestByClient.values()));
+        LocalDateTime onlineThreshold = LocalDateTime.now().minusMinutes(5);
+        List<Map<String, Object>> payload = new ArrayList<>();
+        for (ClientReport latest : latestByClient.values()) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("id", latest.getId());
+            row.put("clientId", latest.getClientId());
+            row.put("deviceIdentifier", latest.getClientId());
+            row.put("hostname", latest.getHostname());
+            row.put("osUsername", latest.getOsUsername());
+            row.put("ipAddress", latest.getIpAddress());
+            row.put("loginTime", firstLoginByClient.get(latest.getClientId()));
+            row.put("onlineStatus", latest.getScanTime() != null && latest.getScanTime().isAfter(onlineThreshold));
+            row.put("osType", latest.getOsType());
+            row.put("clientVersion", latest.getClientVersion());
+            row.put("discoveredServices", latest.getDiscoveredServices());
+            row.put("shadowAiCount", latest.getShadowAiCount());
+            row.put("riskLevel", latest.getRiskLevel());
+            row.put("scanTime", latest.getScanTime());
+            payload.add(row);
+        }
+
+        return R.ok(payload);
     }
 
     /**
      * 查询指定客户端的历史报告（最近 50 条）。
      */
     @GetMapping("/history")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','AI_BUILDER')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
     public R<List<ClientReport>> history(@RequestParam String clientId) {
-        currentUserService.requireAnyRole("ADMIN", "SECOPS", "AI_BUILDER");
+        currentUserService.requireAnyRole("ADMIN", "SECOPS");
         Long companyId = currentUserService.requireCurrentUser().getCompanyId();
         List<ClientReport> records = clientReportService.list(
                 new QueryWrapper<ClientReport>()
@@ -169,9 +194,9 @@ public class ClientReportController {
      * 返回影子AI治理摘要，供工作台首页和 ShadowAiDiscovery 视图使用。
      */
     @GetMapping("/stats")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','AI_BUILDER')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
     public R<Map<String, Object>> stats() {
-        currentUserService.requireAnyRole("ADMIN", "SECOPS", "AI_BUILDER");
+        currentUserService.requireAnyRole("ADMIN", "SECOPS");
         Long companyId = currentUserService.requireCurrentUser().getCompanyId();
         List<ClientReport> all = clientReportService.list(
             new QueryWrapper<ClientReport>()
@@ -223,9 +248,9 @@ public class ClientReportController {
      * 当用户通过Web界面下载客户端并开启本地扫描时，相应记录将出现在此队列中。
      */
     @GetMapping("/queue")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','AI_BUILDER')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
     public R<List<ClientScanQueue>> queue() {
-        currentUserService.requireAnyRole("ADMIN", "SECOPS", "AI_BUILDER");
+        currentUserService.requireAnyRole("ADMIN", "SECOPS");
         Long companyId = currentUserService.requireCurrentUser().getCompanyId();
         List<ClientScanQueue> items = clientScanQueueService.list(
                 new QueryWrapper<ClientScanQueue>()
@@ -243,9 +268,9 @@ public class ClientReportController {
      * @param req 平台信息及发起下载的设备信息
      */
     @PostMapping("/queue")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','AI_BUILDER')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
     public R<ClientScanQueue> enqueue(@RequestBody QueueReq req, HttpServletRequest servletReq) {
-        currentUserService.requireAnyRole("ADMIN", "SECOPS", "AI_BUILDER");
+        currentUserService.requireAnyRole("ADMIN", "SECOPS");
         Long companyId = currentUserService.requireCurrentUser().getCompanyId();
         ClientScanQueue entry = new ClientScanQueue();
         entry.setCompanyId(companyId);
@@ -265,9 +290,9 @@ public class ClientReportController {
      * 更新队列中某条记录的扫描状态（由安装后的客户端或调度任务调用）。
      */
     @PostMapping("/queue/{id}/status")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','AI_BUILDER')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
     public R<?> updateQueueStatus(@PathVariable Long id, @RequestBody QueueStatusReq req) {
-        currentUserService.requireAnyRole("ADMIN", "SECOPS", "AI_BUILDER");
+        currentUserService.requireAnyRole("ADMIN", "SECOPS");
         Long companyId = currentUserService.requireCurrentUser().getCompanyId();
         ClientScanQueue entry = clientScanQueueService.getOne(
             new QueryWrapper<ClientScanQueue>()
@@ -334,6 +359,24 @@ public class ClientReportController {
             }
         }
         return null;
+    }
+
+    private String resolveClientIp(HttpServletRequest req) {
+        if (req == null) {
+            return null;
+        }
+        String xff = req.getHeader("X-Forwarded-For");
+        if (xff != null && !xff.isBlank()) {
+            String first = xff.split(",")[0].trim();
+            if (!first.isBlank()) {
+                return first;
+            }
+        }
+        String realIp = req.getHeader("X-Real-IP");
+        if (realIp != null && !realIp.isBlank()) {
+            return realIp.trim();
+        }
+        return req.getRemoteAddr();
     }
 
     // ── DTO ────────────────────────────────────────────────────────────────────

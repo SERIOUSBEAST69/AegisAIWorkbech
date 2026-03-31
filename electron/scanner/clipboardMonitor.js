@@ -15,6 +15,26 @@ const DEFAULT_EXFIL_WINDOW_RULES = {
   processPathKeywords: ['wechat', 'dingtalk', 'qq', 'wxwork', 'browser'],
 };
 
+const FILE_HEADER_SCAN_BYTES = 256;
+const FILE_SENSITIVE_KEYWORDS = [
+  '机密',
+  '绝密',
+  '保密',
+  '内部',
+  '核心',
+  '财务',
+  '薪酬',
+  '合同',
+  '客户',
+  '供应商',
+  '报表',
+  '方案',
+  '密钥',
+  '凭证',
+  '台账',
+  '涉密',
+].map(item => item.toLowerCase());
+
 const DEFAULT_CONFIG = {
   monitorEnabled: true,
   predictEnabled: true,
@@ -30,7 +50,7 @@ const DEFAULT_CONFIG = {
     pathKeywords: ['confidential', 'secret', '核心', '机密', '财务', '合同', '投标', '预算'],
   },
   aiWindowRules: {
-    titleKeywords: ['ChatGPT', '豆包', '文心一言', 'Kimi', '通义千问'],
+    titleKeywords: ['通义', '文心', 'DeepSeek', '稿定', 'ModelWhale', '即梦', '豆包', '星火', 'Kimi', '混元', '智谱'],
     processNames: ['chrome', 'msedge', 'firefox', 'doubao', 'qqbrowser'],
   },
   exfilWindowRules: DEFAULT_EXFIL_WINDOW_RULES,
@@ -174,6 +194,38 @@ function extensionOf(filePath) {
   return idx >= 0 ? base.slice(idx + 1).toLowerCase() : '';
 }
 
+function hasSensitiveKeyword(text, keywords = FILE_SENSITIVE_KEYWORDS) {
+  const lowered = normalizeText(text);
+  if (!lowered) {
+    return false;
+  }
+  return keywords.some(keyword => keyword && lowered.includes(keyword));
+}
+
+async function readFileHeaderText(filePath, byteLimit = FILE_HEADER_SCAN_BYTES) {
+  let fd;
+  try {
+    fd = await fs.promises.open(filePath, 'r');
+    const size = Math.max(1, Number(byteLimit || FILE_HEADER_SCAN_BYTES));
+    const buffer = Buffer.alloc(size);
+    const { bytesRead } = await fd.read(buffer, 0, size, 0);
+    if (!bytesRead) {
+      return '';
+    }
+    return buffer.toString('utf8', 0, bytesRead);
+  } catch {
+    return '';
+  } finally {
+    if (fd) {
+      try {
+        await fd.close();
+      } catch {
+        // ignore close failure to keep monitor loop resilient
+      }
+    }
+  }
+}
+
 async function callPredict(config, text) {
   if (!config?.predictEnabled || !config?.predictEndpoint || !text) {
     return [];
@@ -304,63 +356,57 @@ class ClipboardPrivacyMonitor {
     const isAiWindow = this.matchAiWindow(activeWindow);
     const exfilTarget = this.matchExfilWindow(activeWindow);
     const contentHash = crypto.createHash('sha256').update(current).digest('hex');
-    const dedupeMs = Math.max(1, Number(this.config.dedupeSeconds || 60)) * 1000;
-    const lastWarnAt = this.lastWarnByHash.get(contentHash) || 0;
-    if (Date.now() - lastWarnAt < dedupeMs) {
+    if (this.isDedupeHit(contentHash)) {
       return;
     }
 
-    const authState = this.getAuthState() || {};
-    const username = authState?.user?.username || 'unknown';
-    const nowIso = new Date().toISOString();
+    const eventContext = this.buildEventContext(activeWindow);
     const severity = this.resolveSeverity(detectedTypes, exfilTarget != null);
-    const copyWindowTitle = activeWindow?.title || '';
-    const copyProcessName = activeWindow?.owner?.name || '';
     const copyRecord = {
       content: current,
       contentHash,
       detectedTypes,
-      username,
+      username: eventContext.username,
       copyAt: Date.now(),
-      copyAtIso: nowIso,
-      copyWindowTitle,
-      copyProcessName,
+      copyAtIso: eventContext.nowIso,
+      copyWindowTitle: eventContext.copyWindowTitle,
+      copyProcessName: eventContext.copyProcessName,
       severity,
     };
     this.pushPendingCopy(copyRecord);
 
     const payload = {
-      userId: username,
+      userId: eventContext.username,
       eventType: exfilTarget ? 'CLIPBOARD_TEXT_EXFIL' : 'CLIPBOARD_SENSITIVE',
       content: current,
       source: 'clipboard',
       action: exfilTarget ? 'block' : (isAiWindow ? 'warn' : 'audit_only'),
       severity,
-      timestamp: nowIso,
-      deviceId: `${username}-device`,
+      timestamp: eventContext.nowIso,
+      deviceId: `${eventContext.username}-device`,
       hostname: os.hostname(),
-      windowTitle: this.composeWindowTitle(copyWindowTitle, copyProcessName, exfilTarget),
+      windowTitle: this.composeWindowTitle(eventContext.copyWindowTitle, eventContext.copyProcessName, exfilTarget),
       matchedTypes: detectedTypes.join(','),
     };
 
     this.writeLocalAudit({
       ...payload,
-      copyWindowTitle,
-      copyProcessName,
+      copyWindowTitle: eventContext.copyWindowTitle,
+      copyProcessName: eventContext.copyProcessName,
       contentDigest: contentHash,
       contentPreview: maskContent(current).slice(0, 180),
     });
     await this.reportEvent(payload);
 
     if (isAiWindow && Notification.isSupported()) {
-      this.lastWarnByHash.set(contentHash, Date.now());
+      this.markWarned(contentHash);
       new Notification({
         title: '隐私盾警告',
         body: '剪贴板中含有敏感信息，请勿粘贴到外部 AI 应用',
       }).show();
     }
 
-    this.lastWarnByHash.set(contentHash, Date.now());
+    this.markWarned(contentHash);
     this.showForcedRiskDialog({
       kind: exfilTarget ? 'text-exfil' : 'text-sensitive',
       exfilTarget,
@@ -370,7 +416,7 @@ class ClipboardPrivacyMonitor {
   }
 
   async handleSensitiveFileCopy(fileList, activeWindow) {
-    const sensitiveFiles = this.matchSensitiveFiles(fileList);
+    const sensitiveFiles = await this.matchSensitiveFiles(fileList);
     if (sensitiveFiles.length === 0) {
       return;
     }
@@ -378,45 +424,39 @@ class ClipboardPrivacyMonitor {
     const exfilTarget = this.matchExfilWindow(activeWindow);
     const rawContent = sensitiveFiles.join('; ');
     const contentHash = crypto.createHash('sha256').update(rawContent).digest('hex');
-    const dedupeMs = Math.max(1, Number(this.config.dedupeSeconds || 60)) * 1000;
-    const lastWarnAt = this.lastWarnByHash.get(contentHash) || 0;
-    if (Date.now() - lastWarnAt < dedupeMs) {
+    if (this.isDedupeHit(contentHash)) {
       return;
     }
 
-    const authState = this.getAuthState() || {};
-    const username = authState?.user?.username || 'unknown';
-    const nowIso = new Date().toISOString();
+    const eventContext = this.buildEventContext(activeWindow);
     const detectedTypes = sensitiveFiles.map(file => `file:${extensionOf(file) || 'unknown'}`);
     const severity = exfilTarget ? 'critical' : 'high';
-    const copyWindowTitle = activeWindow?.title || '';
-    const copyProcessName = activeWindow?.owner?.name || '';
 
     const copyRecord = {
       kind: 'file',
       content: rawContent,
       contentHash,
       detectedTypes,
-      username,
+      username: eventContext.username,
       copyAt: Date.now(),
-      copyAtIso: nowIso,
-      copyWindowTitle,
-      copyProcessName,
+      copyAtIso: eventContext.nowIso,
+      copyWindowTitle: eventContext.copyWindowTitle,
+      copyProcessName: eventContext.copyProcessName,
       severity,
     };
     this.pushPendingCopy(copyRecord);
 
     const payload = {
-      userId: username,
+      userId: eventContext.username,
       eventType: exfilTarget ? 'CLIPBOARD_FILE_EXFIL' : 'CLIPBOARD_FILE_SENSITIVE',
       content: rawContent,
       source: 'clipboard',
       action: exfilTarget ? 'block' : 'warn',
       severity,
-      timestamp: nowIso,
-      deviceId: `${username}-device`,
+      timestamp: eventContext.nowIso,
+      deviceId: `${eventContext.username}-device`,
       hostname: os.hostname(),
-      windowTitle: this.composeWindowTitle(copyWindowTitle, copyProcessName, exfilTarget),
+      windowTitle: this.composeWindowTitle(eventContext.copyWindowTitle, eventContext.copyProcessName, exfilTarget),
       matchedTypes: [
         ...detectedTypes,
         ...sensitiveFiles.map(file => `file_path:${String(file).slice(0, 80)}`),
@@ -426,14 +466,14 @@ class ClipboardPrivacyMonitor {
 
     this.writeLocalAudit({
       ...payload,
-      copyWindowTitle,
-      copyProcessName,
+      copyWindowTitle: eventContext.copyWindowTitle,
+      copyProcessName: eventContext.copyProcessName,
       contentDigest: contentHash,
       contentPreview: sensitiveFiles.join('; ').slice(0, 220),
       copiedFiles: sensitiveFiles,
     });
     await this.reportEvent(payload);
-    this.lastWarnByHash.set(contentHash, Date.now());
+    this.markWarned(contentHash);
 
     this.showForcedRiskDialog({
       kind: exfilTarget ? 'file-exfil' : 'file-sensitive',
@@ -495,6 +535,26 @@ class ClipboardPrivacyMonitor {
     const expireAt = copyRecord.copyAt + windowMs;
     this.pendingSensitiveCopies.push({ ...copyRecord, expireAt });
     this.pendingSensitiveCopies = this.pendingSensitiveCopies.filter(item => item.expireAt > Date.now());
+  }
+
+  buildEventContext(activeWindow) {
+    const authState = this.getAuthState() || {};
+    return {
+      username: authState?.user?.username || 'unknown',
+      nowIso: new Date().toISOString(),
+      copyWindowTitle: activeWindow?.title || '',
+      copyProcessName: activeWindow?.owner?.name || '',
+    };
+  }
+
+  isDedupeHit(contentHash) {
+    const dedupeMs = Math.max(1, Number(this.config.dedupeSeconds || 60)) * 1000;
+    const lastWarnAt = this.lastWarnByHash.get(contentHash) || 0;
+    return Date.now() - lastWarnAt < dedupeMs;
+  }
+
+  markWarned(contentHash) {
+    this.lastWarnByHash.set(contentHash, Date.now());
   }
 
   async checkPendingExfilRisk(activeWindow) {
@@ -576,17 +636,16 @@ class ClipboardPrivacyMonitor {
     return `copy:${srcTitle} (${srcProcess}) -> exfil:${targetTitle} (${targetProcess})`;
   }
 
-  matchSensitiveFiles(fileList) {
-    const rules = this.config?.sensitiveFileRules || DEFAULT_CONFIG.sensitiveFileRules;
-    const extAllow = new Set(normalizeArray(rules.extensions, DEFAULT_CONFIG.sensitiveFileRules.extensions).map(item => item.toLowerCase()));
-    const pathKeywords = normalizeArray(rules.pathKeywords, DEFAULT_CONFIG.sensitiveFileRules.pathKeywords).map(item => item.toLowerCase());
+  async matchSensitiveFiles(fileList) {
     const sensitive = [];
     for (const file of fileList) {
-      const ext = extensionOf(file);
-      const loweredPath = normalizeText(file);
-      const extHit = ext && extAllow.has(ext);
-      const keywordHit = pathKeywords.some(keyword => keyword && loweredPath.includes(keyword));
-      if (extHit || keywordHit) {
+      const fileName = String(file || '').split(/[\\/]/).pop() || '';
+      if (hasSensitiveKeyword(fileName)) {
+        sensitive.push(file);
+        continue;
+      }
+      const headerText = await readFileHeaderText(file, FILE_HEADER_SCAN_BYTES);
+      if (hasSensitiveKeyword(headerText)) {
         sensitive.push(file);
       }
     }

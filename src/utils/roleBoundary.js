@@ -49,19 +49,27 @@ export function canManagePolicyStructure(user) {
 }
 
 export function canTogglePolicyStatus(user) {
-  return isSecOps(user);
+  return isGovernanceAdmin(user);
 }
 
 export function canUsePrivacyOps(user) {
-  return isSecOps(user);
+  return hasAnyRole(user, [ROLE.ADMIN, ROLE.SECOPS]);
+}
+
+export function canManagePrivacyConfig(user) {
+  return isGovernanceAdmin(user);
 }
 
 export function canAccessThreatMonitor(user) {
-  return isSecOps(user);
+  return hasAnyRole(user, [ROLE.ADMIN, ROLE.SECOPS]);
 }
 
 export function canHandleThreatEvent(user) {
   return isSecOps(user);
+}
+
+export function canManageThreatRule(user) {
+  return isGovernanceAdmin(user);
 }
 
 export function canManageRiskEvent(user) {

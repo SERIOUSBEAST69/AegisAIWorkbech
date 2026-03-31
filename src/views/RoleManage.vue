@@ -10,7 +10,7 @@
         <el-button @click="openAdd">新增角色</el-button>
       </el-form-item>
     </el-form>
-    <el-table :data="roles" style="width: 100%" v-loading="loading">
+    <el-table :data="roles" style="width: 100%" v-loading="loading" empty-text="暂无记录">
       <el-table-column prop="id" label="ID" width="250">
         <template #default="scope">
           <div class="cell nowrap">{{ scope.row.id }}</div>
@@ -158,6 +158,7 @@ async function deleteRole(id) {
     await ElMessageBox.confirm('确认删除该角色吗？', '提示', { type: 'warning' });
     const { value: confirmPassword } = await ElMessageBox.prompt('请输入当前治理管理员密码以确认删除角色', '敏感操作二次校验', {
       inputType: 'password',
+      inputAttributes: { autocomplete: 'current-password', autofocus: 'autofocus' },
       inputPlaceholder: '请输入密码',
       inputValidator: value => (!!value && value.trim().length > 0) || '密码不能为空',
       confirmButtonText: '确认删除',

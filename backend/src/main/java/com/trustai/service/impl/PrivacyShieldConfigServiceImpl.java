@@ -7,8 +7,10 @@ import com.trustai.repository.SystemConfigRepository;
 import com.trustai.service.PrivacyShieldConfigService;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Set;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -20,6 +22,20 @@ import org.springframework.util.StringUtils;
 public class PrivacyShieldConfigServiceImpl implements PrivacyShieldConfigService {
 
     private static final String CONFIG_KEY = "privacy.shield.config";
+    private static final List<String> COMPETITION_AI_CATALOG = List.of(
+        "阿里通义系列",
+        "百度文心系列",
+        "DeepSeek",
+        "稿定设计",
+        "和鲸 ModelWhale",
+        "即梦",
+        "豆包 AI",
+        "科大讯飞星火",
+        "Kimi",
+        "腾讯混元系列",
+        "智谱 AI"
+    );
+    private static final List<String> DEFAULT_AI_WHITELIST = List.of("阿里通义系列", "百度文心系列");
 
     private final SystemConfigRepository systemConfigRepository;
     private final ObjectMapper objectMapper;
@@ -45,6 +61,7 @@ public class PrivacyShieldConfigServiceImpl implements PrivacyShieldConfigServic
         if (newConfig != null) {
             merged.putAll(newConfig);
         }
+        merged = sanitizeCompetitionConfig(merged);
         long currentVersion = toLong(current.get("configVersion"), 1L);
         long requestedVersion = toLong(merged.get("configVersion"), currentVersion);
         merged.put("configVersion", Math.max(currentVersion + 1, requestedVersion));
@@ -90,6 +107,7 @@ public class PrivacyShieldConfigServiceImpl implements PrivacyShieldConfigServic
             if (parsed != null) {
                 merged.putAll(parsed);
             }
+            merged = sanitizeCompetitionConfig(merged);
             merged.put("configVersion", toLong(merged.get("configVersion"), 1L));
             merged.putIfAbsent("updatedAt", System.currentTimeMillis());
             return merged;
@@ -108,10 +126,18 @@ public class PrivacyShieldConfigServiceImpl implements PrivacyShieldConfigServic
         root.put("updatedAt", System.currentTimeMillis());
         root.put("syncIntervalSec", 60);
         root.put("sensitiveKeywords", List.of("身份证", "银行卡", "手机号", "公司代码"));
+        root.put("aiCatalog", COMPETITION_AI_CATALOG);
+        root.put("aiWhitelist", DEFAULT_AI_WHITELIST);
+        root.put("desenseGlobalEnabled", true);
+        root.put("desenseRules", Map.of(
+            "phone", Map.of("enabled", true, "pattern", "(1\\\\d{2})\\\\d{4}(\\\\d{4})", "format", "$1****$2"),
+            "idCard", Map.of("enabled", true, "pattern", "(\\\\d{6})\\\\d{9}(\\\\d{3}[\\\\dXx])", "format", "$1*********$2"),
+            "email", Map.of("enabled", true, "pattern", "([A-Za-z0-9._%+-]{2})([A-Za-z0-9._%+-]*)([A-Za-z0-9._%+-]{2})@([A-Za-z0-9.-]+\\\\.[A-Za-z]{2,})", "format", "$1****$3@$4")
+        ));
 
         List<Map<String, Object>> selectors = new ArrayList<>();
-        selectors.add(selector("chatgpt", List.of("chat.openai.com", "chatgpt.com"),
-                List.of("#prompt-textarea", "textarea[data-testid='prompt-textarea']", "textarea")));
+        selectors.add(selector("tongyi", List.of("qianwen.aliyun.com", "tongyi.aliyun.com", "dashscope.aliyuncs.com"),
+                List.of("textarea", "div[contenteditable='true']")));
         selectors.add(selector("doubao", List.of("doubao.com", "www.doubao.com"),
                 List.of("textarea", "div[contenteditable='true']", "[data-testid='chat-input']")));
         selectors.add(selector("yiyan", List.of("yiyan.baidu.com"),
@@ -119,10 +145,48 @@ public class PrivacyShieldConfigServiceImpl implements PrivacyShieldConfigServic
         root.put("siteSelectors", selectors);
 
         Map<String, Object> windowRules = new LinkedHashMap<>();
-        windowRules.put("titleKeywords", List.of("ChatGPT", "豆包", "文心一言", "Kimi", "通义千问"));
+        windowRules.put("titleKeywords", List.of("通义", "文心", "DeepSeek", "稿定", "ModelWhale", "即梦", "豆包", "星火", "Kimi", "混元", "智谱"));
         windowRules.put("processNames", List.of("chrome", "msedge", "firefox", "doubao", "qqbrowser"));
         root.put("aiWindowRules", windowRules);
         return root;
+    }
+
+    private Map<String, Object> sanitizeCompetitionConfig(Map<String, Object> raw) {
+        Map<String, Object> sanitized = new LinkedHashMap<>(raw == null ? Map.of() : raw);
+        sanitized.put("aiCatalog", COMPETITION_AI_CATALOG);
+
+        Set<String> catalog = new LinkedHashSet<>(COMPETITION_AI_CATALOG);
+        List<String> rawWhitelist = toStringList(sanitized.get("aiWhitelist"));
+        List<String> whitelist = new ArrayList<>();
+        for (String item : rawWhitelist) {
+            if (catalog.contains(item) && !whitelist.contains(item)) {
+                whitelist.add(item);
+            }
+        }
+        if (whitelist.isEmpty()) {
+            for (String candidate : DEFAULT_AI_WHITELIST) {
+                if (!whitelist.contains(candidate) && catalog.contains(candidate)) {
+                    whitelist.add(candidate);
+                }
+            }
+        }
+        sanitized.put("aiWhitelist", whitelist);
+        return sanitized;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<String> toStringList(Object value) {
+        if (value instanceof List<?> list) {
+            List<String> out = new ArrayList<>();
+            for (Object item : list) {
+                String normalized = String.valueOf(item == null ? "" : item).trim();
+                if (StringUtils.hasText(normalized)) {
+                    out.add(normalized);
+                }
+            }
+            return out;
+        }
+        return List.of();
     }
 
     private Map<String, Object> selector(String siteId, List<String> hosts, List<String> inputs) {

@@ -120,21 +120,6 @@
           </div>
         </div>
 
-        <div v-if="canManagePrivacyConfig" class="panel card-glass">
-          <div class="panel-head">
-            <h3>隐私盾配置管理</h3>
-            <div class="panel-actions">
-              <el-button :loading="configLoading" @click="loadPrivacyConfig">读取配置</el-button>
-              <el-button type="primary" :loading="configSaving" @click="savePrivacyConfig">保存配置</el-button>
-            </div>
-          </div>
-          <el-input
-            v-model="privacyConfigText"
-            type="textarea"
-            :rows="12"
-            placeholder="JSON 配置"
-          />
-        </div>
       </el-tab-pane>
 
       <el-tab-pane label="员工画像闭环" name="profile">
@@ -213,7 +198,6 @@ import { canUsePrivacyOps, hasAnyRole, isExecutive as isExecutiveRole } from '..
 const userStore = useUserStore();
 const isExecutive = computed(() => isExecutiveRole(userStore.userInfo));
 const isPersonalView = computed(() => !hasAnyRole(userStore.userInfo, ['SECOPS', 'EXECUTIVE']));
-const canManagePrivacyConfig = computed(() => canUsePrivacyOps(userStore.userInfo));
 const canExportPrivacy = computed(() => canUsePrivacyOps(userStore.userInfo));
 const canQueryOthers = computed(() => canUsePrivacyOps(userStore.userInfo));
 
@@ -231,9 +215,6 @@ const privacySummary = ref({ total: 0, today: 0, extensionCount: 0, clipboardCou
 const privacyTotal = ref(0);
 const privacyQuery = ref({ page: 1, pageSize: 10 });
 
-const privacyConfigText = ref('');
-const configLoading = ref(false);
-const configSaving = ref(false);
 const profileLoading = ref(false);
 const profileQueryUser = ref('');
 const profileData = ref({
@@ -345,41 +326,6 @@ async function loadPrivacyEvents() {
   }
 }
 
-async function loadPrivacyConfig() {
-  if (!canManagePrivacyConfig.value) return;
-  configLoading.value = true;
-  try {
-    const data = await privacyApi.getConfig();
-    privacyConfigText.value = JSON.stringify(data || {}, null, 2);
-  } catch (error) {
-    ElMessage.error(error?.message || '读取配置失败');
-  } finally {
-    configLoading.value = false;
-  }
-}
-
-async function savePrivacyConfig() {
-  if (!canManagePrivacyConfig.value) return;
-  let payload = {};
-  try {
-    payload = JSON.parse(privacyConfigText.value || '{}');
-  } catch {
-    ElMessage.error('配置 JSON 格式不正确');
-    return;
-  }
-
-  configSaving.value = true;
-  try {
-    const data = await privacyApi.updateConfig(payload);
-    privacyConfigText.value = JSON.stringify(data || {}, null, 2);
-    ElMessage.success('配置已保存');
-  } catch (error) {
-    ElMessage.error(error?.message || '保存配置失败');
-  } finally {
-    configSaving.value = false;
-  }
-}
-
 function handlePrivacyPageChange(page) {
   privacyQuery.value.page = page;
   loadPrivacyEvents();
@@ -405,9 +351,6 @@ function exportPrivacyCsv() {
 function handleTabChange(name) {
   if (name === 'privacy') {
     loadPrivacyEvents();
-    if (canManagePrivacyConfig.value && !privacyConfigText.value) {
-      loadPrivacyConfig();
-    }
   }
   if (name === 'profile') {
     loadProfile();

@@ -89,6 +89,9 @@ public class AiGatewayService {
     public Map<String, Object> chat(ChatReq req) {
         Instant begin = Instant.now();
         AiModel model = aiModelService.lambdaQuery().eq(AiModel::getModelCode, req.getModel()).one();
+        if (!isOfficialModel(model)) {
+            throw new BizException(40000, "仅允许使用官方11个AI目录中的模型");
+        }
         aiModelAccessGuardService.validate(model, req.getAssetId(), req.getAccessReason(), mergeMessages(req.getMessages()));
 
         String provider = model.getProvider() != null ? model.getProvider().toLowerCase(Locale.ROOT) : req.getProvider().toLowerCase(Locale.ROOT);
@@ -136,6 +139,7 @@ public class AiGatewayService {
             .eq(AiModel::getStatus, "enabled")
             .list()
             .stream()
+            .filter(this::isOfficialModel)
             .map(item -> {
                 Map<String, Object> model = new HashMap<>();
                 model.put("id", item.getId());
@@ -147,6 +151,26 @@ public class AiGatewayService {
                 return model;
             })
             .collect(Collectors.toList());
+    }
+
+    private boolean isOfficialModel(AiModel model) {
+        if (model == null) {
+            return false;
+        }
+        String name = normalizeLower(model.getModelName());
+        String provider = normalizeLower(model.getProvider());
+        String code = normalizeLower(model.getModelCode());
+        return (name.contains("通义") || provider.contains("aliyun") || provider.contains("qwen") || code.contains("qwen"))
+            || (name.contains("文心") || provider.contains("baidu") || code.contains("wenxin") || code.contains("ernie"))
+            || name.contains("deepseek") || provider.contains("deepseek") || code.contains("deepseek")
+            || name.contains("稿定") || provider.contains("gaoding") || code.contains("gaoding")
+            || name.contains("modelwhale") || provider.contains("modelwhale") || code.contains("modelwhale")
+            || name.contains("即梦") || provider.contains("jimeng") || code.contains("jimeng")
+            || name.contains("豆包") || provider.contains("doubao") || code.contains("doubao")
+            || (name.contains("星火") || provider.contains("ifly") || provider.contains("spark") || code.contains("spark"))
+            || name.contains("kimi") || provider.contains("moonshot") || code.contains("kimi")
+            || (name.contains("混元") || provider.contains("tencent") || provider.contains("hunyuan") || code.contains("hunyuan"))
+            || (name.contains("智谱") || provider.contains("zhipu") || code.contains("chatglm") || code.contains("bigmodel"));
     }
 
     public Map<String, Object> adversarialMeta() {
@@ -177,13 +201,22 @@ public class AiGatewayService {
 
         Map<String, Object> assessment = buildThreatAssessment(true);
         if ("real-threat-check".equalsIgnoreCase(scenario)) {
-            Map<String, Object> quick = new HashMap<>();
+            Map<String, Object> quick = new HashMap<>(assessment);
             quick.put("scenario", "real-threat-check");
             quick.put("mode", "real-threat-assessment");
             quick.put("rounds", rounds);
             quick.put("seed", effectiveSeed);
-            quick.put("battle", buildSyntheticBattle(assessment, rounds, effectiveSeed, "real-threat-check", "real-threat-assessment"));
-            return finalizeBattleResult(assessment, quick, true, null);
+            quick.put("ok", true);
+            quick.put("battle", Map.of(
+                "winner", "assessment",
+                "total_rounds", 0,
+                "attack_success_rate", 0,
+                "attacker_final_score", 0,
+                "defender_final_score", 0,
+                "rounds", List.of(),
+                "recommendations", quick.getOrDefault("strategyOptimizationSuggestions", List.of())
+            ));
+            return quick;
         }
 
         try {
@@ -194,8 +227,23 @@ public class AiGatewayService {
             Map<String, Object> remote = aiInferenceClient.adversarialRun(payload);
             return finalizeBattleResult(assessment, remote, true, null);
         } catch (Exception ex) {
-            Map<String, Object> fallback = buildLocalAdversarialFallback(scenario, rounds, effectiveSeed, assessment, ex);
-            return finalizeBattleResult(assessment, fallback, false, ex.getMessage());
+            Map<String, Object> unavailable = new HashMap<>(assessment);
+            unavailable.put("scenario", scenario);
+            unavailable.put("rounds", rounds);
+            unavailable.put("seed", effectiveSeed);
+            unavailable.put("ok", false);
+            unavailable.put("mode", "engine_unavailable");
+            unavailable.put("error", ex.getMessage());
+            unavailable.put("battle", Map.of(
+                "winner", "unknown",
+                "total_rounds", 0,
+                "attack_success_rate", 0,
+                "attacker_final_score", 0,
+                "defender_final_score", 0,
+                "rounds", List.of(),
+                "recommendations", unavailable.getOrDefault("strategyOptimizationSuggestions", List.of())
+            ));
+            return unavailable;
         }
     }
 
@@ -456,6 +504,13 @@ public class AiGatewayService {
         } catch (Exception ignored) {
             return defaultValue;
         }
+    }
+
+    private String normalizeLower(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.trim().toLowerCase(Locale.ROOT);
     }
 
     private void persistLog(ChatReq req, AiModel model, String provider, Map<String, Object> resp, Instant begin, String status) {

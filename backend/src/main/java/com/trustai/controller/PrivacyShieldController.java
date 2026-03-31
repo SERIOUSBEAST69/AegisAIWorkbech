@@ -192,7 +192,7 @@ public class PrivacyShieldController {
     }
 
     @PostMapping("/config")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
+    @PreAuthorize("@currentUserService.hasRole('ADMIN')")
     public R<Map<String, Object>> updateConfig(@RequestBody(required = false) Map<String, Object> payload) {
         Map<String, Object> updated = privacyShieldConfigService.updateConfig(payload == null ? Map.of() : payload);
         return R.ok(updated);

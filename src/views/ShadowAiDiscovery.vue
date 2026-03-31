@@ -118,7 +118,7 @@
       </div>
 
       <div v-else-if="!localScanResult" class="local-scan-empty">
-        <span>尚未执行本机扫描，请点击「立即扫描」或等待定时扫描。</span>
+        <span>尚未执行本机扫描，请点击「立即扫描」。</span>
       </div>
 
       <div v-else>
@@ -283,7 +283,7 @@
 
         <div v-else-if="filteredClients.length === 0" class="empty-state">
           <el-icon><Monitor /></el-icon>
-          <span>暂无客户端数据。请先部署客户端。</span>
+          <span>暂无终端记录</span>
         </div>
 
         <div v-else class="client-list">
@@ -300,12 +300,18 @@
                   {{ client.hostname }}
                 </div>
                 <div class="client-meta">
-                  {{ client.osUsername }} · {{ client.osType }} · v{{ client.clientVersion }}
+                  {{ client.osUsername || '-' }} · {{ client.ipAddress || '-' }} · {{ client.osType || '-' }} · v{{ client.clientVersion || '-' }}
+                </div>
+                <div class="client-meta">
+                  设备标识：{{ client.deviceIdentifier || client.clientId || '-' }} · 首次登录：{{ formatTime(client.loginTime) }}
                 </div>
               </div>
               <div class="client-risk">
                 <span :class="['risk-badge', client.riskLevel]">
                   {{ riskLabel(client.riskLevel) }}
+                </span>
+                <span :class="['risk-badge', client.onlineStatus ? 'low' : 'none']">
+                  {{ client.onlineStatus ? '在线' : '离线' }}
                 </span>
                 <span class="client-ai-count">
                   {{ client.shadowAiCount }} 个影子AI
@@ -409,7 +415,19 @@
             <span>用户</span><strong>{{ selectedClient.osUsername }}</strong>
           </div>
           <div class="drawer-meta-row">
+            <span>IP</span><strong>{{ selectedClient.ipAddress || '-' }}</strong>
+          </div>
+          <div class="drawer-meta-row">
             <span>系统</span><strong>{{ selectedClient.osType }}</strong>
+          </div>
+          <div class="drawer-meta-row">
+            <span>设备标识</span><strong>{{ selectedClient.deviceIdentifier || selectedClient.clientId || '-' }}</strong>
+          </div>
+          <div class="drawer-meta-row">
+            <span>首次登录</span><strong>{{ formatTime(selectedClient.loginTime) }}</strong>
+          </div>
+          <div class="drawer-meta-row">
+            <span>在线状态</span><strong>{{ selectedClient.onlineStatus ? '在线' : '离线' }}</strong>
           </div>
           <div class="drawer-meta-row">
             <span>客户端版本</span><strong>v{{ selectedClient.clientVersion }}</strong>
@@ -491,6 +509,7 @@ const downloading = ref(null);
 const scanQueue   = ref([]);
 const queueLoading = ref(false);
 const isEmployeeView = computed(() => String(userStore.userInfo?.roleCode || '').toUpperCase() === 'EMPLOYEE');
+const isAdminUser = computed(() => String(userStore.userInfo?.roleCode || '').toUpperCase() === 'ADMIN');
 
 // ── 计算属性 ──────────────────────────────────────────────────────────────────
 const filteredClients = computed(() => {
@@ -619,36 +638,8 @@ async function runLocalScan() {
       updateLocalClientEntry(result);
       ElMessage.success(`本机扫描完成，发现 ${result?.shadowAiCount ?? 0} 个影子AI服务`);
     } else {
-      if (isEmployeeView.value) {
-        ElMessage.info('员工 Web 模式仅可查看本机客户端检测结果，请在客户端执行扫描。');
-        return;
-      }
-      // Web 模式：从服务端拉取最新扫描摘要作为"本机"结果展示
-      const [s, c] = await Promise.all([
-        shadowAiApi.getStats(),
-        shadowAiApi.getClients(),
-      ]);
-      stats.value   = s;
-      clients.value = c;
-      // 构造一个汇总结果显示在本地扫描面板
-      const totalShadow = Number(s?.totalShadowAi ?? 0);
-      const riskLevel   = s?.highRiskClients > 0 ? 'high' : totalShadow > 0 ? 'medium' : 'none';
-      localScanResult.value = {
-        time: new Date().toISOString(),
-        shadowAiCount: totalShadow,
-        riskLevel,
-        services: (c ?? []).flatMap(client => {
-          try {
-            const svcs = typeof client.discoveredServices === 'string'
-              ? JSON.parse(client.discoveredServices)
-              : (client.discoveredServices ?? []);
-            return Array.isArray(svcs) ? svcs : [];
-          } catch { return []; }
-        }).slice(0, 20),
-      };
-      ElMessage.success(`扫描完成（Web 模式），发现 ${totalShadow} 个影子AI服务`);
-      // 同时刷新云端队列
-      await refreshQueue();
+      ElMessage.info('Web 模式不支持本机实时扫描，请在 Electron 客户端执行。');
+      localScanResult.value = null;
     }
   } catch (err) {
     ElMessage.error('扫描失败：' + (err.message || '未知错误'));
@@ -658,6 +649,9 @@ async function runLocalScan() {
 }
 
 function updateLocalClientEntry(result) {
+  if (!isElectron) {
+    return;
+  }
   const localClient = buildLocalClient(localClientInfo.value, result);
   // 替换或插入本地客户端条目（排在最前面）
   const idx = clients.value.findIndex(c => c._local);
@@ -695,7 +689,7 @@ async function refresh() {
     loading.value = false;
     clients.value = [];
     stats.value = {
-      totalClients: 1,
+      totalClients: 0,
       highRiskClients: 0,
       totalShadowAi: localScanResult.value?.shadowAiCount || 0,
       recentReports: 0,
@@ -737,12 +731,6 @@ async function refresh() {
       if (lastResult) {
         localScanResult.value = lastResult;
         updateLocalClientEntry(lastResult);
-      } else {
-        // 无历史结果时添加占位条目，触发首次扫描
-        const placeholder = buildLocalClient(localClientInfo.value, null);
-        const idx = clients.value.findIndex(c => c._local);
-        if (idx < 0) clients.value.unshift(placeholder);
-        rebuildStats();
       }
     } catch (e) {
       console.warn('[ShadowAI] Unable to load local client info:', e.message);
@@ -763,6 +751,10 @@ function selectClient(client) {
  * 2. 若本地扫描已开启，同时向云端队列提交一条入队记录。
  */
 async function downloadClient(platform) {
+  if (!isAdminUser.value) {
+    ElMessage.warning('仅治理管理员可执行客户端下载与治理管理操作');
+    return;
+  }
   downloading.value = platform;
   try {
     // 使用隐藏 <a> 标签触发真实文件下载
@@ -796,7 +788,7 @@ async function downloadClient(platform) {
 // ── 云端扫描队列 ──────────────────────────────────────────────────────────────
 
 async function refreshQueue() {
-  if (isEmployeeView.value) {
+  if (isEmployeeView.value || !isAdminUser.value) {
     scanQueue.value = [];
     return;
   }

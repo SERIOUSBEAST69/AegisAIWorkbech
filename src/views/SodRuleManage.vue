@@ -17,7 +17,7 @@
       </el-form-item>
     </el-form>
 
-    <el-table :data="rules" v-loading="loading" style="width: 100%">
+    <el-table :data="rules" v-loading="loading" style="width: 100%" empty-text="暂无记录">
       <el-table-column prop="id" label="ID" width="100" />
       <el-table-column prop="scenario" label="场景" min-width="180" />
       <el-table-column prop="roleCodeA" label="角色A" width="140" />
@@ -197,6 +197,7 @@ async function deleteRule(id) {
     await ElMessageBox.confirm('确认删除该 SoD 规则吗？', '提示', { type: 'warning' });
     const pwdPrompt = await ElMessageBox.prompt('请输入当前治理管理员密码确认删除', '敏感操作二次校验', {
       inputType: 'password',
+      inputAttributes: { autocomplete: 'current-password', autofocus: 'autofocus' },
       inputPlaceholder: '请输入密码',
       inputValidator: value => (!!value && value.trim().length > 0) || '密码不能为空',
       confirmButtonText: '确认删除',

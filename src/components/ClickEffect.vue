@@ -29,7 +29,7 @@ function createEffect(e) {
   effects.value.push({
     x,
     y,
-    duration: 320
+    duration: 220
   });
 }
 
@@ -63,8 +63,8 @@ onBeforeUnmount(() => {
 
 .click-effect {
   position: absolute;
-  width: 40px;
-  height: 40px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -74,11 +74,11 @@ onBeforeUnmount(() => {
 }
 
 .click-effect-core {
-  width: 6px;
-  height: 6px;
+  width: 4px;
+  height: 4px;
   border-radius: 50%;
-  background: rgba(95, 135, 255, 0.65);
-  animation: coreEffect 320ms ease-out forwards;
+  background: rgba(95, 135, 255, 0.34);
+  animation: coreEffect 220ms ease-out forwards;
   z-index: 2;
   position: relative;
 }
@@ -88,8 +88,8 @@ onBeforeUnmount(() => {
   width: 100%;
   height: 100%;
   border-radius: 50%;
-  border: 1px solid rgba(95, 135, 255, 0.35);
-  animation: rippleEffect 320ms ease-out forwards;
+  border: 1px solid rgba(95, 135, 255, 0.2);
+  animation: rippleEffect 220ms ease-out forwards;
   z-index: 1;
 }
 
@@ -99,18 +99,18 @@ onBeforeUnmount(() => {
     opacity: 1;
   }
   100% {
-    transform: scale(1.2);
+    transform: scale(1.05);
     opacity: 0;
   }
 }
 
 @keyframes rippleEffect {
   0% {
-    transform: scale(0.7);
-    opacity: 0.45;
+    transform: scale(0.86);
+    opacity: 0.28;
   }
   100% {
-    transform: scale(1.35);
+    transform: scale(1.12);
     opacity: 0;
   }
 }

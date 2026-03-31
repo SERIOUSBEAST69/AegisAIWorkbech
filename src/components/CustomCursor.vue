@@ -143,33 +143,33 @@ onUnmounted(() => {
 
 /* ── 外环 ── */
 .cursor-ring {
-  width: 36px;
-  height: 36px;
-  border: 1.5px solid rgba(100, 160, 255, 0.55);
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(100, 160, 255, 0.32);
   background: transparent;
-  mix-blend-mode: screen; /* 在深色背景上发光 */
+  mix-blend-mode: normal;
 }
 
 /* ── 内核 ── */
 .cursor-dot {
-  width: 6px;
-  height: 6px;
-  background: #64a0ff;
-  box-shadow: 0 0 8px 2px rgba(100, 160, 255, 0.7);
+  width: 4px;
+  height: 4px;
+  background: rgba(100, 160, 255, 0.7);
+  box-shadow: none;
 }
 
 /* ── 悬停可点击元素 ── */
 .cursor-ring.is-pointer {
-  width: 52px;
-  height: 52px;
-  border-color: rgba(100, 160, 255, 0.8);
-  background: rgba(100, 160, 255, 0.06);
+  width: 36px;
+  height: 36px;
+  border-color: rgba(100, 160, 255, 0.46);
+  background: rgba(100, 160, 255, 0.03);
 }
 .cursor-dot.is-pointer {
-  width: 8px;
-  height: 8px;
-  background: #a0c4ff;
-  box-shadow: 0 0 12px 3px rgba(100, 160, 255, 0.9);
+  width: 5px;
+  height: 5px;
+  background: rgba(160, 196, 255, 0.82);
+  box-shadow: none;
 }
 
 /* ── 悬停文本输入框 ── */

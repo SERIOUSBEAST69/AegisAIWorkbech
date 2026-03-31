@@ -124,108 +124,6 @@
       <div ref="trendChartRef" class="chart-canvas trend-canvas"></div>
     </el-card>
 
-    <el-card class="chart-card card-glass award-card scene-block">
-      <div class="panel-head">
-        <div>
-          <div class="card-header">国家级评审材料中枢</div>
-          <p class="panel-subtitle">所有指标均由真实治理事件、审计留痕与在线探测产生，自动沉淀为可追溯证据。</p>
-        </div>
-        <div class="panel-actions">
-          <button class="mini-refresh-btn" :disabled="awardLoading" @click="fetchAwardSummary">
-            {{ awardLoading ? '刷新中...' : '刷新材料' }}
-          </button>
-        </div>
-      </div>
-
-      <div class="award-grid">
-        <article class="award-metric-card">
-          <span>误报率下降</span>
-          <strong>{{ awardImprovement.falsePositiveReductionPct }}%</strong>
-          <em>基线 vs 当前窗口</em>
-        </article>
-        <article class="award-metric-card">
-          <span>响应时长压降</span>
-          <strong>{{ awardImprovement.responseTimeReductionPct }}%</strong>
-          <em>闭环耗时（秒）</em>
-        </article>
-        <article class="award-metric-card">
-          <span>拦截能力提升</span>
-          <strong>{{ awardImprovement.interceptionUpliftPct }}%</strong>
-          <em>Blocked 占比提升</em>
-        </article>
-      </div>
-
-      <div class="award-actions-row">
-        <button class="mini-refresh-btn" :disabled="evidenceGenerating" @click="generateComplianceEvidenceNow">
-          {{ evidenceGenerating ? '生成中...' : '生成合规证据' }}
-        </button>
-        <button class="mini-refresh-btn" :disabled="drillRunning" @click="runReliabilityDrillNow">
-          {{ drillRunning ? '演练中...' : '执行可靠性演练' }}
-        </button>
-      </div>
-
-      <div class="award-evidence-line">
-        <span>最新证据哈希：</span>
-        <strong>{{ awardLatestEvidenceHash }}</strong>
-      </div>
-      <div class="award-evidence-line">
-        <span>最新演练状态：</span>
-        <strong>{{ awardLatestDrillStatus }}</strong>
-      </div>
-    </el-card>
-
-    <el-card class="chart-card card-glass observability-card scene-block">
-      <div class="panel-head">
-        <div>
-          <div class="card-header">Web Vitals 实时观测</div>
-          <p class="panel-subtitle">来自真实前端采样（LCP/FCP/CLS/TTFB）的近期质量态势。</p>
-        </div>
-      </div>
-      <div class="web-vitals-grid">
-        <article v-for="item in webVitalSummary.summary || []" :key="item.name" class="web-vital-item">
-          <strong>{{ item.name }}</strong>
-          <span>平均 {{ item.avg }}</span>
-          <em>Good {{ item.goodRate }}%</em>
-        </article>
-      </div>
-    </el-card>
-
-    <el-card class="chart-card card-glass observability-card scene-block">
-      <div class="panel-head">
-        <div>
-          <div class="card-header">接口 P95/P99 历史趋势</div>
-          <p class="panel-subtitle">按天聚合接口延迟分位点，支持回溯性能回归。</p>
-        </div>
-      </div>
-      <div ref="apiLatencyChartRef" class="chart-canvas trend-canvas"></div>
-    </el-card>
-
-    <el-card class="chart-card card-glass observability-card scene-block">
-      <div class="panel-head">
-        <div>
-          <div class="card-header">时间序列对照图卡片</div>
-          <p class="panel-subtitle">基线窗口与当前窗口关键指标对照（国奖答辩用）。</p>
-        </div>
-      </div>
-      <div class="compare-grid" v-if="awardSummary.experiment">
-        <article class="compare-item">
-          <span>基线误报率</span>
-          <strong>{{ awardSummary.experiment?.baseline?.falsePositiveRate ?? 0 }}%</strong>
-        </article>
-        <article class="compare-item">
-          <span>当前误报率</span>
-          <strong>{{ awardSummary.experiment?.current?.falsePositiveRate ?? 0 }}%</strong>
-        </article>
-        <article class="compare-item">
-          <span>基线平均响应</span>
-          <strong>{{ awardSummary.experiment?.baseline?.avgResponseSeconds ?? 0 }}s</strong>
-        </article>
-        <article class="compare-item">
-          <span>当前平均响应</span>
-          <strong>{{ awardSummary.experiment?.current?.avgResponseSeconds ?? 0 }}s</strong>
-        </article>
-      </div>
-    </el-card>
 
     <el-card class="chart-card card-glass risk-card scene-block">
       <div class="panel-head">
@@ -272,94 +170,27 @@
       </div>
     </el-card>
 
-    <!-- ── AI 工作台开放面板 ──────────────────────────────────────────── -->
+    <!-- ── AI 调用审计日志（真实上报） ─────────────────────────────────── -->
     <el-card class="ai-workbench-card card-glass scene-block" style="grid-column: 1 / -1">
       <div class="panel-head">
         <div>
-          <div class="card-header">AI 工作台 · 隐私盾守护</div>
-          <p class="panel-subtitle">在此处向 AI 发送消息前，AegisAI 将实时扫描您的输入，阻断含个人隐私信息的请求并检测 AI 响应中的数据外泄风险。</p>
+          <div class="card-header">AI 调用审计日志</div>
+          <p class="panel-subtitle">仅展示客户端与网关真实入库记录，不提供聊天、模型切换、模拟拦截与伪统计。</p>
         </div>
-        <div class="ps-status-badge" :class="privacyShieldActive ? 'badge-on' : 'badge-off'">
-          {{ privacyShieldActive ? '🛡️ 隐私盾已激活' : '⚪ 隐私盾待机' }}
+        <div class="panel-actions">
+          <el-button :loading="aiAuditLoading" @click="loadAiAuditLogs">刷新</el-button>
         </div>
       </div>
-      <div class="ai-config-row">
-        <el-select v-model="selectedAiModelCode" class="ai-model-select" placeholder="请选择已注册模型" style="width: 100%; max-width: 400px;">
-          <el-option
-            v-for="model in aiModelOptions"
-            :key="model.id"
-            :label="`${cleanModelName(model.modelName)} (${cleanModelName(model.modelCode)})`"
-            :value="model.modelCode"
-          />
-        </el-select>
-        <input
-          v-model="aiAccessReason"
-          class="ai-reason-input"
-          placeholder="访问目的（高风险模型建议填写更具体）"
-        />
-      </div>
-      <div class="ai-meta-row">
-        <span class="ai-meta-pill" :class="`state-${aiModelLoadState}`">{{ aiModelLoadLabel }}</span>
-        <span v-if="selectedModelLabel" class="ai-meta-pill state-selected">当前模型：{{ selectedModelLabel }}</span>
-      </div>
-      <p v-if="aiModelLoadMessage" class="ai-model-notice">{{ aiModelLoadMessage }}</p>
-
-      <div class="security-surface">
-        <article class="security-card">
-          <div class="security-card-title">跨站拦截状态</div>
-          <div class="security-item-grid">
-            <div class="security-item">
-              <span>防护模式</span>
-              <strong>{{ crossSiteGuard.enabled ? '强制拦截' : '已关闭' }}</strong>
-            </div>
-            <div class="security-item">
-              <span>已拦截请求</span>
-              <strong>{{ crossSiteGuard.blockedCount }}</strong>
-            </div>
-            <div class="security-item security-item-wide">
-              <span>最近一次拦截</span>
-              <strong>{{ crossSiteLastBlockedText }}</strong>
-            </div>
-          </div>
-          <div class="security-origin-row">
-            <span v-for="origin in crossSiteGuard.allowedOrigins.slice(0, 3)" :key="origin" class="origin-chip">{{ origin }}</span>
-            <span v-if="crossSiteGuard.allowedOrigins.length === 0" class="origin-chip muted">未配置来源</span>
-          </div>
-        </article>
-
-        <article class="security-card">
-          <div class="security-card-title">训练模型栈</div>
-          <div v-if="aiModelStack.loading" class="stack-placeholder">正在同步 Python 模型指标...</div>
-          <div v-else-if="!aiModelStack.available" class="stack-placeholder">
-            {{ aiModelStack.message || '训练模型服务暂不可达，请检查 python-service' }}
-          </div>
-          <div v-else class="stack-list">
-            <article v-for="item in aiModelStack.classifierStack.slice(0, 3)" :key="item.name" class="stack-item">
-              <strong>{{ item.name }}</strong>
-              <span>{{ item.trained ? '已训练' : '规则/零样本' }}</span>
-              <em v-if="typeof item.benchmark_accuracy === 'number'">准确率 {{ Math.round(item.benchmark_accuracy * 1000) / 10 }}%</em>
-            </article>
-          </div>
-        </article>
-      </div>
-
-      <div class="ai-input-row">
-        <textarea
-          v-model="aiDraftMessage"
-          class="ai-draft-input"
-          rows="3"
-          placeholder="在此输入您想发给 AI 的消息…（自动检测个人隐私信息）"
-          @input="onAiDraftInput"
-        ></textarea>
-        <button class="ai-send-btn" :disabled="!!privacyBlockReason || aiSending || !selectedAiModelCode" @click="sendAiDraft">
-          {{ privacyBlockReason ? '⛔ 已拦截' : (aiSending ? '发送中...' : '发送') }}
-        </button>
-      </div>
-      <p v-if="privacyBlockReason" class="ai-block-notice">{{ privacyBlockReason }}</p>
-      <p v-else-if="aiDraftMessage.length > 3" class="ai-safe-notice">✅ 未检测到隐私信息，可安全发送。</p>
-      <div v-if="aiResponsePreview" class="ai-response-panel">
-        <div class="ai-response-title">模型响应</div>
-        <pre class="ai-response-content">{{ aiResponsePreview }}</pre>
+      <div v-if="aiAuditLoading" class="empty-state">加载中...</div>
+      <div v-else-if="!aiAuditLogs.length" class="empty-state">暂无记录</div>
+      <div v-else class="event-list">
+        <div v-for="item in aiAuditLogs" :key="item.id" class="event-item">
+          <strong>{{ item.modelCode || '-' }}</strong>
+          <span>{{ item.provider || '-' }}</span>
+          <span>{{ item.status || '-' }}</span>
+          <span>{{ item.durationMs || 0 }}ms</span>
+          <span>{{ item.createTime || '-' }}</span>
+        </div>
       </div>
     </el-card>
 
@@ -449,8 +280,6 @@ import StatCard from '../components/StatCard.vue';
 import AIPrivacyShield from '../components/AIPrivacyShield.vue';
 import { useUserStore } from '../store/user';
 import { getPersonaExperience, personalizeWorkbench } from '../utils/persona';
-import { quickPrivacyCheck } from '../utils/privacyPatterns';
-import { canRunAdversarialSimulation } from '../utils/roleBoundary';
 
 function createEmptyOverview() {
   return {
@@ -482,20 +311,12 @@ const stageRef = ref(null);
 const heroRef = ref(null);
 const trendChartRef = ref(null);
 const riskChartRef = ref(null);
-const apiLatencyChartRef = ref(null);
 const userStore = useUserStore();
 const overview = ref(createEmptyOverview());
 const insights = ref({ postureScore: 0, summary: {}, highlights: [], recommendations: [] });
 const trustPulse = ref({ score: 0, pulseLevel: '', mission: '', innovationLabel: '', dimensions: [], signals: [] });
 const loading = ref(true);
 const forecastDataSource = ref('real_db');
-const awardLoading = ref(false);
-const evidenceGenerating = ref(false);
-const drillRunning = ref(false);
-const awardSummary = ref({ experiment: {}, latestEvidence: {}, latestDrill: {} });
-const webVitalSummary = ref({ summary: [], trend: [] });
-const httpHistory = ref({ rows: [] });
-const innovationReport = ref({});
 
 // ── AI Privacy Shield ────────────────────────────────────────────────────────
 const privacyShieldRef = ref(null);
@@ -510,82 +331,47 @@ const aiAccessReason = ref('工作台交互请求');
 const aiResponsePreview = ref('');
 const aiSending = ref(false);
 const forecastRefreshing = ref(false);
-const crossSiteGuard = ref({
-  loading: false,
-  enabled: false,
-  mode: 'disabled',
-  allowedOrigins: [],
-  blockedCount: 0,
-  lastBlockedAt: null,
-  message: ''
+const aiAuditLoading = ref(false);
+const aiAuditLogs = ref([]);
+const isAdmin = computed(() => {
+  const role = String(userStore.userInfo?.roleCode || userStore.userInfo?.role || '')
+    .trim()
+    .toUpperCase();
+  return role === 'ADMIN' || role === 'ADMIN_OPS' || role === 'ADMIN_REVIEWER';
 });
-const aiModelStack = ref({
-  loading: false,
-  available: false,
-  classifierStack: [],
-  benchmark: null,
-  message: ''
-});
-const adversarialPanelOpen = ref(false);
-const adversarialRunning = ref(false);
 const adversarialMeta = ref({ scenarios: [] });
+const adversarialConfig = ref({ scenario: 'random', rounds: 10, seed: '' });
+const adversarialPanelOpen = ref(false);
+const adversarialError = ref('');
+const adversarialRunning = ref(false);
 const adversarialBattle = ref(null);
 const adversarialVisibleRounds = ref([]);
-const adversarialError = ref('');
-const adversarialConfig = ref({
-  scenario: 'random',
-  rounds: 10,
-  seed: ''
-});
-const isAdmin = computed(() => canRunAdversarialSimulation(userStore.userInfo));
 let adversarialPlaybackTimer = null;
 
-let privacyCheckDebounceTimer = null;
-function onAiDraftInput() {
-  if (privacyCheckDebounceTimer) clearTimeout(privacyCheckDebounceTimer);
-  privacyBlockReason.value = '';
-  privacyShieldActive.value = true;
-  privacyShieldRef.value?.check(aiDraftMessage.value);
-  privacyCheckDebounceTimer = setTimeout(async () => {
-    const detected = quickPrivacyCheck(aiDraftMessage.value);
-    if (detected.length > 0) {
-      privacyBlockReason.value = '⚠️ 检测到隐私信息（' + detected.join('、') + '），禁止发送给 AI。';
-    } else {
-      privacyBlockReason.value = '';
-    }
-  }, 300);
-}
-
 function selectedModel() {
-  return aiModelOptions.value.find(item => item.modelCode === selectedAiModelCode.value) || null;
+  return aiModelOptions.value.find(item => item.modelCode === selectedAiModelCode.value)
+    || aiModelOptions.value[0]
+    || null;
 }
 
-const selectedModelLabel = computed(() => {
-  const model = selectedModel();
-  if (!model) return '';
-  const modelName = cleanModelName(model.modelName || model.name || model.modelCode) || '未命名模型';
-  const modelCode = cleanModelName(model.modelCode) || '';
-  return modelCode ? `${modelName} (${modelCode})` : modelName;
-});
+function normalizeAiReply(payload) {
+  if (typeof payload === 'string') return payload;
+  if (typeof payload?.reply === 'string') return payload.reply;
+  if (typeof payload?.content === 'string') return payload.content;
+  if (typeof payload?.data?.reply === 'string') return payload.data.reply;
+  return '已收到响应';
+}
 
-const aiModelLoadLabel = computed(() => {
-  if (aiModelLoadState.value === 'loading') return '模型列表加载中';
-  if (aiModelLoadState.value === 'ready') return `已加载 ${aiModelOptions.value.length} 个可用模型`;
-  if (aiModelLoadState.value === 'empty') return '未发现可用模型';
-  if (aiModelLoadState.value === 'error') return '模型加载失败';
-  return '等待加载模型';
-});
-
-const crossSiteLastBlockedText = computed(() => {
-  if (!crossSiteGuard.value.lastBlockedAt) return '暂无';
-  return new Date(crossSiteGuard.value.lastBlockedAt).toLocaleString('zh-CN', { hour12: false });
-});
-
-function normalizeAiReply(data) {
-  if (!data) return '';
-  if (typeof data.reply === 'string' && data.reply.trim()) return data.reply;
-  if (typeof data.raw === 'string' && data.raw.trim()) return data.raw;
-  return JSON.stringify(data, null, 2);
+async function loadAiAuditLogs() {
+  aiAuditLoading.value = true;
+  try {
+    const data = await request.get('/ai/monitor/logs', { params: { page: 1, pageSize: 20 } });
+    aiAuditLogs.value = Array.isArray(data?.list) ? data.list : [];
+  } catch {
+    aiAuditLogs.value = [];
+  } finally {
+    aiAuditLoading.value = false;
+  }
 }
 
 async function sendAiDraft() {
@@ -843,10 +629,9 @@ async function refreshForecastNow() {
 
 let trendChart;
 let riskChart;
-let apiLatencyChart;
 let resizeHandler;
-let securityStatusTimer;
 let echartsLib;
+let primaryChartRenderTimer;
 
 async function ensureEcharts() {
   if (!echartsLib) {
@@ -882,20 +667,6 @@ const heroHeadline = computed(() => {
   };
 });
 const personaExperience = computed(() => getPersonaExperience(userStore.userInfo));
-const awardImprovement = computed(() => awardSummary.value?.experiment?.improvement || {
-  falsePositiveReductionPct: 0,
-  responseTimeReductionPct: 0,
-  interceptionUpliftPct: 0,
-});
-const awardLatestEvidenceHash = computed(() => {
-  const hash = awardSummary.value?.latestEvidence?.evidenceHash;
-  return hash || '暂无';
-});
-const awardLatestDrillStatus = computed(() => {
-  const latest = awardSummary.value?.latestDrill || {};
-  if (!latest?.sloStatus) return '暂无';
-  return `${latest.sloStatus} · 恢复 ${latest.recoverySeconds ?? 0}s · 可用性 ${latest.sliAvailability ?? 0}%`;
-});
 
 function riskTone(level) {
   const value = String(level || '').toLowerCase();
@@ -1098,65 +869,6 @@ async function renderRiskChart() {
   });
 }
 
-async function renderApiLatencyChart() {
-  const echarts = await ensureEcharts();
-  if (!apiLatencyChartRef.value) return;
-  if (!apiLatencyChart) {
-    apiLatencyChart = echarts.init(apiLatencyChartRef.value);
-  }
-  const rows = Array.isArray(httpHistory.value?.rows) ? httpHistory.value.rows : [];
-  const labels = [...new Set(rows.map(item => item.day))];
-  const p95Series = labels.map(day => {
-    const subset = rows.filter(item => item.day === day);
-    if (subset.length === 0) return 0;
-    return Math.round((subset.reduce((sum, item) => sum + Number(item.p95 || 0), 0) / subset.length) * 100) / 100;
-  });
-  const p99Series = labels.map(day => {
-    const subset = rows.filter(item => item.day === day);
-    if (subset.length === 0) return 0;
-    return Math.round((subset.reduce((sum, item) => sum + Number(item.p99 || 0), 0) / subset.length) * 100) / 100;
-  });
-
-  apiLatencyChart.setOption({
-    backgroundColor: 'transparent',
-    tooltip: { trigger: 'axis' },
-    legend: { top: 0, textStyle: { color: '#b8c2d4' }, data: ['P95', 'P99'] },
-    grid: { left: 24, right: 28, top: 42, bottom: 22, containLabel: true },
-    xAxis: {
-      type: 'category',
-      data: labels,
-      axisLine: { lineStyle: { color: 'rgba(255,255,255,0.12)' } },
-      axisLabel: { color: '#93a0b8' }
-    },
-    yAxis: {
-      type: 'value',
-      min: 0,
-      axisLine: { show: false },
-      splitLine: { lineStyle: { color: 'rgba(255,255,255,0.08)' } },
-      axisLabel: { color: '#93a0b8' }
-    },
-    series: [
-      {
-        name: 'P95',
-        type: 'line',
-        smooth: true,
-        symbolSize: 6,
-        data: p95Series,
-        lineStyle: { color: '#6aa6ff', width: 2 },
-        itemStyle: { color: '#6aa6ff' }
-      },
-      {
-        name: 'P99',
-        type: 'line',
-        smooth: true,
-        symbolSize: 6,
-        data: p99Series,
-        lineStyle: { color: '#ff9d66', width: 2 },
-        itemStyle: { color: '#ff9d66' }
-      }
-    ]
-  });
-}
 
 function playEntryScene() {
   if (!stageRef.value) return;
@@ -1192,12 +904,11 @@ function playEntryScene() {
 async function fetchData() {
   loading.value = true;
   try {
-    const [workbench, insightData, pulseData, forecastData] = await Promise.all([
-      dashboardApi.getWorkbench(),
-      dashboardApi.getInsights(),
-      dashboardApi.getTrustPulse(),
-      dashboardApi.getForecast(),
-    ]);
+    const bundle = await dashboardApi.getHomeBundle();
+    const workbench = bundle?.workbench || {};
+    const insightData = bundle?.insights || {};
+    const pulseData = bundle?.trustPulse || {};
+    const forecastData = bundle?.forecast || {};
     const personalized = personalizeWorkbench(workbench, userStore.userInfo);
 
     // 将 LSTM 7 日预测序列合并到 trend 中，使预测气泡数字来自实际模型
@@ -1210,137 +921,60 @@ async function fetchData() {
         forecastNextDay: Math.round(series[0] ?? personalized.trend.forecastNextDay),
       };
       // 标记数据来源（real_db = 实际 LSTM 输出；degraded = 降级均值）
-      forecastDataSource.value = forecastData._dataSource || (forecastData.method === 'lstm' ? 'real_db' : 'degraded');
+      const method = String(forecastData.method || '').toLowerCase();
+      forecastDataSource.value = forecastData._dataSource || (method.includes('lstm') ? 'real_db' : 'degraded');
     }
 
     overview.value = personalized;
     insights.value = insightData;
     trustPulse.value = pulseData;
-    await nextTick();
-    await Promise.all([renderTrendChart(), renderRiskChart()]);
     playEntryScene();
-    await Promise.all([fetchAwardSummary(), fetchObservabilityData(), fetchInnovationReport()]);
+    loading.value = false;
+
+    // 图表渲染延后到首屏完成后，避免阻塞登录进入首页。
+    schedulePrimaryChartRender();
+
+    // 首页主数据已就绪，避免附加冗余请求影响首屏性能。
   } catch (error) {
     ElMessage.error(error?.message || '首页工作台加载失败');
   } finally {
-    loading.value = false;
+    if (loading.value) {
+      loading.value = false;
+    }
   }
 }
 
-async function fetchAwardSummary() {
-  awardLoading.value = true;
-  try {
-    const summary = await dashboardApi.getAwardSummary();
-    awardSummary.value = summary || { experiment: {}, latestEvidence: {}, latestDrill: {} };
-  } catch (error) {
-    ElMessage.warning(error?.message || '评审材料加载失败');
-  } finally {
-    awardLoading.value = false;
+function schedulePrimaryChartRender() {
+  if (primaryChartRenderTimer) {
+    clearTimeout(primaryChartRenderTimer);
   }
-}
-
-async function fetchObservabilityData() {
-  try {
-    const [vitals, history] = await Promise.all([
-      dashboardApi.getWebVitalSummary(7),
-      dashboardApi.getHttpHistory(7),
-    ]);
-    webVitalSummary.value = vitals || { summary: [], trend: [] };
-    httpHistory.value = history || { rows: [] };
+  primaryChartRenderTimer = window.setTimeout(async () => {
     await nextTick();
-    await renderApiLatencyChart();
-  } catch (error) {
-    ElMessage.warning(error?.message || '观测数据加载失败');
-  }
+    await Promise.all([renderTrendChart(), renderRiskChart()]);
+  }, 180);
 }
 
-async function fetchInnovationReport() {
-  try {
-    const today = new Date();
-    const currentTo = today.toISOString().slice(0, 10);
-    const currentFromDate = new Date(today);
-    currentFromDate.setDate(today.getDate() - 6);
-    const baselineToDate = new Date(currentFromDate);
-    baselineToDate.setDate(currentFromDate.getDate() - 1);
-    const baselineFromDate = new Date(baselineToDate);
-    baselineFromDate.setDate(baselineToDate.getDate() - 6);
-    innovationReport.value = await dashboardApi.getInnovationReport({
-      baselineFrom: baselineFromDate.toISOString().slice(0, 10),
-      baselineTo: baselineToDate.toISOString().slice(0, 10),
-      currentFrom: currentFromDate.toISOString().slice(0, 10),
-      currentTo,
-    });
-  } catch (error) {
-    innovationReport.value = { available: false, message: error?.message || '创新报告加载失败' };
-  }
-}
-
-async function generateComplianceEvidenceNow() {
-  evidenceGenerating.value = true;
-  try {
-    await dashboardApi.generateComplianceEvidence({});
-    ElMessage.success('已生成最新合规证据');
-    await fetchAwardSummary();
-  } catch (error) {
-    ElMessage.error(error?.message || '合规证据生成失败');
-  } finally {
-    evidenceGenerating.value = false;
-  }
-}
-
-async function runReliabilityDrillNow() {
-  drillRunning.value = true;
-  try {
-    await dashboardApi.runReliabilityDrill({
-      scenario: 'latency-and-failure-observe',
-      targetPath: '/api/auth/registration-options',
-      injectPath: '/api/non-existent-reliability-probe',
-      probeCount: 4,
-    });
-    ElMessage.success('可靠性演练已完成并入库');
-    await fetchAwardSummary();
-  } catch (error) {
-    ElMessage.error(error?.message || '可靠性演练失败');
-  } finally {
-    drillRunning.value = false;
-  }
-}
 
 watch(() => overview.value.trend, async () => {
-  await nextTick();
-  await Promise.all([renderTrendChart(), renderRiskChart()]);
-}, { deep: true });
-
-watch(() => httpHistory.value.rows, async () => {
-  await nextTick();
-  await renderApiLatencyChart();
+  schedulePrimaryChartRender();
 }, { deep: true });
 
 onMounted(() => {
   fetchData();
-  fetchAiModels();
-  fetchCrossSiteGuardStatus(false);
-  fetchAiModelStack();
+  loadAiAuditLogs();
   resizeHandler = () => {
     trendChart?.resize();
     riskChart?.resize();
-    apiLatencyChart?.resize();
   };
   window.addEventListener('resize', resizeHandler);
-  securityStatusTimer = window.setInterval(() => {
-    fetchCrossSiteGuardStatus(true);
-  }, 15000);
 });
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', resizeHandler);
-  if (securityStatusTimer) {
-    clearInterval(securityStatusTimer);
-  }
+  if (primaryChartRenderTimer) clearTimeout(primaryChartRenderTimer);
   stopAdversarialPlayback();
   trendChart?.dispose();
   riskChart?.dispose();
-  apiLatencyChart?.dispose();
 });
 </script>
 

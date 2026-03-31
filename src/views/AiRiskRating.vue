@@ -117,6 +117,7 @@
 
         <div class="card-click-hint">点击查看详情 →</div>
       </div>
+      <el-empty v-if="!loading && services.length === 0" description="暂无记录" />
     </div>
 
     <!-- 详情弹窗 -->

@@ -78,7 +78,7 @@ public class GovernanceChangeController {
     }
 
     @PostMapping("/submit")
-    @PreAuthorize("@currentUserService.hasPermission('govern:change:create')")
+    @PreAuthorize("@currentUserService.hasRole('ADMIN')")
     public R<?> submit(@Valid @RequestBody SubmitReq req) {
         User requester = sensitiveOperationGuardService.requireConfirmedAdmin(req.getConfirmPassword(), "governance_change_submit", req.getModule() + ":" + req.getAction());
         GovernanceChangeRequest request = new GovernanceChangeRequest();
@@ -99,7 +99,7 @@ public class GovernanceChangeController {
     }
 
     @GetMapping("/page")
-    @PreAuthorize("@currentUserService.hasAnyPermission('govern:change:view','govern:change:review')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
     public R<Map<String, Object>> page(@RequestParam(defaultValue = "1") int page,
                                        @RequestParam(defaultValue = "10") int pageSize,
                                        @RequestParam(required = false) String status,
@@ -123,7 +123,7 @@ public class GovernanceChangeController {
     }
 
     @PostMapping("/approve")
-    @PreAuthorize("@currentUserService.hasPermission('govern:change:review')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
     public R<?> approve(@Valid @RequestBody ApproveReq req) {
         User approver = currentUserService.requireCurrentUser();
         String approverRole = resolveRoleCode(approver);
@@ -145,13 +145,19 @@ public class GovernanceChangeController {
             if (!STATUS_PENDING.equalsIgnoreCase(request.getStatus())) {
                 throw new BizException(40000, "仅待复核申请可审批");
             }
-            User requester = findRequester(request.getRequesterId());
-            if (requester.getId() != null && requester.getId().equals(approver.getId())) {
-                throw new BizException(40000, "SoD冲突：发起人与审批人不能是同一账号");
+            User requester = null;
+            if (request.getRequesterId() != null) {
+                requester = findRequester(request.getRequesterId());
+                if (requester.getId() != null && requester.getId().equals(approver.getId())) {
+                    throw new BizException(40000, "SoD冲突：发起人与审批人不能是同一账号");
+                }
+                sodEnforcementService.enforceReviewerSeparation(requester, approver, "PRIVILEGE_CHANGE_REVIEW");
             }
-            sodEnforcementService.enforceReviewerSeparation(requester, approver, "PRIVILEGE_CHANGE_REVIEW");
 
             if (Boolean.TRUE.equals(req.getApprove())) {
+                if (requester == null) {
+                    throw new BizException(40000, "申请人信息缺失，无法通过该变更");
+                }
                 applyChangeRequest(request, approver);
                 request.setStatus(STATUS_APPROVED);
             } else {

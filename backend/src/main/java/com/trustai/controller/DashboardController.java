@@ -42,13 +42,13 @@ public class DashboardController {
     @Autowired private AiModelService aiModelService;
     @Autowired private UserService userService;
     @Autowired private RiskEventService riskEventService;
-    @Autowired private RiskPredictionService riskPredictionService;
     @Autowired private SubjectRequestService subjectRequestService;
     @Autowired private AuditLogService auditLogService;
     @Autowired private ModelCallStatService modelCallStatService;
     @Autowired private ApprovalRequestService approvalRequestService;
     @Autowired private CurrentUserService currentUserService;
     @Autowired private CompanyScopeService companyScopeService;
+    @Autowired private RiskForecastScheduler riskForecastScheduler;
 
     @GetMapping("/stats")
     public R<Map<String, Object>> stats() {
@@ -64,7 +64,7 @@ public class DashboardController {
 
     @GetMapping("/risk-forecast")
     public R<List<Double>> riskForecast() {
-        return R.ok(riskPredictionService.forecastNext7Days());
+        return R.ok(riskForecastScheduler.getLatest().forecast);
     }
 
     @GetMapping("/workbench")
@@ -195,6 +195,16 @@ public class DashboardController {
         dto.setTodos(buildTodos(highRiskEvents, openAlerts, pendingSubjectRequests, enabledModels));
         dto.setFeeds(buildFeeds(recentRiskEvents, recentSubjectRequests));
         return R.ok(dto);
+    }
+
+    @GetMapping("/home-bundle")
+    public R<Map<String, Object>> homeBundle() {
+        Map<String, Object> bundle = new LinkedHashMap<>();
+        bundle.put("workbench", workbench().getData());
+        bundle.put("insights", insights().getData());
+        bundle.put("trustPulse", trustPulse().getData());
+        bundle.put("forecast", riskForecastScheduler.getLatest());
+        return R.ok(bundle);
     }
 
         @GetMapping("/insights")
@@ -545,7 +555,7 @@ public class DashboardController {
             trend.getAiCallSeries().add(aiCalls);
             trend.getCostSeries().add(cost);
         }
-        trend.setForecastNextDay(forecastNextDay(riskSeries));
+        trend.setForecastNextDay(resolveForecastNextDayFromLstm(riskSeries));
         return trend;
         }
 
@@ -632,10 +642,19 @@ public class DashboardController {
         return value.toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
         }
 
-        private long forecastNextDay(List<Long> series) {
-        double average = series.stream().mapToLong(Long::longValue).average().orElse(0);
-        long last = series.isEmpty() ? 0L : series.get(series.size() - 1);
-        return Math.max(0L, Math.round((average * 0.55) + (last * 0.45) + Math.sqrt(Math.max(average, 0))));
+        private long resolveForecastNextDayFromLstm(List<Long> series) {
+        try {
+            List<Double> forecast = riskForecastScheduler.getLatest().forecast;
+            if (forecast != null && !forecast.isEmpty()) {
+                return Math.max(0L, Math.round(forecast.get(0)));
+            }
+        } catch (Exception ignored) {
+            // fallback below keeps dashboard resilient when scheduler is temporarily unavailable
+        }
+        if (series == null || series.isEmpty()) {
+            return 0L;
+        }
+        return Math.max(0L, series.get(series.size() - 1));
         }
 
         private String safeUserName(User user) {

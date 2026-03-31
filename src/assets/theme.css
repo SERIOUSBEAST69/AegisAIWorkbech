@@ -291,9 +291,15 @@ body {
 }
 
 .el-table__empty-text {
+  color: transparent;
+  font-size: 0;
+  padding: 40px 0;
+}
+
+.el-table__empty-text::after {
+  content: '暂无记录';
   color: var(--color-text-subtle);
   font-size: 14px;
-  padding: 40px 0;
 }
 
 .light-mode .el-table__empty-text {

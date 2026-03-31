@@ -219,8 +219,21 @@ public class AlertCenterController {
         }
         GovernanceEvent event = getScopedEvent(req.getId());
         User operator = currentUserService.requireCurrentUser();
+        boolean isAdmin = currentUserService.hasRole("ADMIN");
+        boolean isSecops = currentUserService.hasRole("SECOPS");
+        boolean isShadow = "SHADOW_AI_ALERT".equalsIgnoreCase(event.getEventType());
 
         String nextStatus = StringUtils.hasText(req.getStatus()) ? req.getStatus().toLowerCase(Locale.ROOT) : "reviewing";
+        if (isShadow) {
+            if ("blocked".equals(nextStatus) && !isAdmin) {
+                throw new BizException(40300, "仅治理管理员可执行影子AI拉黑处置");
+            }
+            if ("ignored".equals(nextStatus) && !isSecops) {
+                throw new BizException(40300, "仅安全运维可标记影子AI误报");
+            }
+        } else if (!isSecops) {
+            throw new BizException(40300, "仅安全运维可处置非影子AI告警");
+        }
         event.setStatus(nextStatus);
         event.setDisposeNote(req.getNote());
         event.setHandlerId(operator.getId());
@@ -238,32 +251,40 @@ public class AlertCenterController {
 
         Map<String, Object> validation = Map.of();
         if (Boolean.TRUE.equals(req.getTriggerSimulation())) {
-            AiGatewayController.BattleReq battleReq = new AiGatewayController.BattleReq();
-            battleReq.setScenario(mapScenario(event));
-            battleReq.setRounds(req.getRounds() == null ? 12 : Math.max(1, Math.min(100, req.getRounds())));
-            validation = aiGatewayService.adversarialRun(battleReq);
+            try {
+                AiGatewayController.BattleReq battleReq = new AiGatewayController.BattleReq();
+                battleReq.setScenario(mapScenario(event));
+                battleReq.setRounds(req.getRounds() == null ? 12 : Math.max(1, Math.min(100, req.getRounds())));
+                validation = aiGatewayService.adversarialRun(battleReq);
 
-            AdversarialRecord record = new AdversarialRecord();
-            record.setCompanyId(event.getCompanyId());
-            record.setUserId(event.getUserId());
-            record.setUsername(event.getUsername());
-            record.setGovernanceEventId(event.getId());
-            record.setScenario(battleReq.getScenario());
-            record.setPolicyVersion(event.getPolicyVersion());
-            record.setResultJson(writeJson(validation.getOrDefault("battle", validation)));
-            String analysisText = String.valueOf(validation.getOrDefault(
-                "effectivenessAnalysis",
-                validation.getOrDefault("analysis", validation.getOrDefault("defensePolicyEffectiveness", ""))
-            ));
-            record.setEffectivenessAnalysis(analysisText);
-            Object suggestionPayload = validation.get("optimizationSuggestions");
-            if (suggestionPayload == null) {
-                suggestionPayload = validation.getOrDefault("suggestions", validation.getOrDefault("strategyOptimizationSuggestions", List.of()));
+                AdversarialRecord record = new AdversarialRecord();
+                record.setCompanyId(event.getCompanyId());
+                record.setUserId(event.getUserId());
+                record.setUsername(event.getUsername());
+                record.setGovernanceEventId(event.getId());
+                record.setScenario(battleReq.getScenario());
+                record.setPolicyVersion(event.getPolicyVersion());
+                record.setResultJson(writeJson(validation.getOrDefault("battle", validation)));
+                String analysisText = String.valueOf(validation.getOrDefault(
+                    "effectivenessAnalysis",
+                    validation.getOrDefault("analysis", validation.getOrDefault("defensePolicyEffectiveness", ""))
+                ));
+                record.setEffectivenessAnalysis(analysisText);
+                Object suggestionPayload = validation.get("optimizationSuggestions");
+                if (suggestionPayload == null) {
+                    suggestionPayload = validation.getOrDefault("suggestions", validation.getOrDefault("strategyOptimizationSuggestions", List.of()));
+                }
+                record.setSuggestionsJson(writeJson(suggestionPayload));
+                record.setCreateTime(new Date());
+                record.setUpdateTime(new Date());
+                adversarialRecordService.save(record);
+            } catch (Exception ex) {
+                validation = Map.of(
+                    "available", false,
+                    "message", "攻防验证引擎暂不可用，处置状态已更新",
+                    "engineError", ex.getMessage() == null ? "unknown" : ex.getMessage()
+                );
             }
-            record.setSuggestionsJson(writeJson(suggestionPayload));
-            record.setCreateTime(new Date());
-            record.setUpdateTime(new Date());
-            adversarialRecordService.save(record);
         }
 
         saveAudit(operator, event, nextStatus, req.getTriggerSimulation(), validation);

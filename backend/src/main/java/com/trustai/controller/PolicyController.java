@@ -38,9 +38,9 @@ public class PolicyController {
     }
 
     @PostMapping("/save")
-    @PreAuthorize("@currentUserService.hasPermission('policy:structure:manage')")
+    @PreAuthorize("@currentUserService.hasRole('ADMIN')")
     public R<?> save(@Valid @RequestBody SaveReq req) {
-        currentUserService.requirePermission("policy:structure:manage");
+        currentUserService.requireAdmin();
         assertPolicyTableReady();
         var operator = currentUserService.requireCurrentUser();
         sensitiveOperationGuardService.requireConfirmedOperator(operator, req.getConfirmPassword(), "policy_save", "policyId=" + req.getId());
@@ -72,9 +72,9 @@ public class PolicyController {
     }
 
     @PostMapping("/delete")
-    @PreAuthorize("@currentUserService.hasPermission('policy:structure:manage')")
+    @PreAuthorize("@currentUserService.hasRole('ADMIN')")
     public R<?> delete(@Valid @RequestBody IdReq req) {
-        currentUserService.requirePermission("policy:structure:manage");
+        currentUserService.requireAdmin();
         assertPolicyTableReady();
         var operator = currentUserService.requireCurrentUser();
         sensitiveOperationGuardService.requireConfirmedOperator(operator, req.getConfirmPassword(), "policy_delete", "policyId=" + req.getId());
@@ -89,9 +89,9 @@ public class PolicyController {
     }
 
     @PostMapping("/toggle-status")
-    @PreAuthorize("@currentUserService.hasPermission('policy:status:toggle')")
+    @PreAuthorize("@currentUserService.hasRole('ADMIN')")
     public R<?> toggleStatus(@Valid @RequestBody ToggleReq req) {
-        currentUserService.requirePermission("policy:status:toggle");
+        currentUserService.requireAdmin();
         assertPolicyTableReady();
         var operator = currentUserService.requireCurrentUser();
         sensitiveOperationGuardService.requireConfirmedOperator(operator, req.getConfirmPassword(), "policy_toggle_status", "policyId=" + req.getId());

@@ -21,7 +21,7 @@
       </el-form-item>
     </el-form>
 
-    <el-table :data="requests" v-loading="loading" style="width: 100%">
+    <el-table :data="requests" v-loading="loading" style="width: 100%" empty-text="暂无记录">
       <el-table-column prop="id" label="申请ID" width="120" />
       <el-table-column prop="module" label="模块" width="120" />
       <el-table-column prop="action" label="动作" width="120" />
@@ -35,13 +35,13 @@
           <el-button
             size="small"
             type="success"
-            :disabled="!canReview || scope.row.status !== 'pending'"
+            :disabled="!canReview || scope.row.status !== 'pending' || isSelfRequest(scope.row)"
             @click="review(scope.row, true)"
           >通过</el-button>
           <el-button
             size="small"
             type="danger"
-            :disabled="!canReview || scope.row.status !== 'pending'"
+            :disabled="!canReview || scope.row.status !== 'pending' || isSelfRequest(scope.row)"
             @click="review(scope.row, false)"
           >拒绝</el-button>
         </template>
@@ -114,6 +114,7 @@ const submitForm = ref({ module: 'ROLE', action: 'ADD', targetId: null, payloadJ
 
 const canSubmit = computed(() => canSubmitGovernanceChange(getSession()?.user));
 const canReview = computed(() => canReviewGovernanceChange(getSession()?.user));
+const currentUserId = computed(() => getSession()?.user?.id);
 
 const rules = {
   module: [{ required: true, message: '模块不能为空', trigger: 'change' }],
@@ -139,6 +140,11 @@ function openSubmit() {
   }
   submitForm.value = { module: 'ROLE', action: 'ADD', targetId: null, payloadJson: '' };
   showSubmit.value = true;
+}
+
+function isSelfRequest(row) {
+  if (!row) return false;
+  return String(row.requesterId ?? '') === String(currentUserId.value ?? '');
 }
 
 async function fetchRequests() {
@@ -172,6 +178,7 @@ async function submitRequest() {
     try {
       const prompt = await ElMessageBox.prompt('请输入当前治理管理员密码确认发起', '敏感操作二次校验', {
         inputType: 'password',
+        inputAttributes: { autocomplete: 'current-password', autofocus: 'autofocus' },
         inputPlaceholder: '请输入密码',
         inputValidator: value => (!!value && value.trim().length > 0) || '密码不能为空',
         confirmButtonText: '确认提交',
@@ -207,6 +214,10 @@ async function review(row, approve) {
     ElMessage.error('当前身份无治理变更复核权限');
     return;
   }
+  if (isSelfRequest(row)) {
+    ElMessage.warning('当前账号不能复核自己提交的治理变更');
+    return;
+  }
   let note = '';
   try {
     const notePrompt = await ElMessageBox.prompt(`请输入${approve ? '通过' : '拒绝'}备注`, '复核备注', {
@@ -224,6 +235,7 @@ async function review(row, approve) {
   try {
     const pwdPrompt = await ElMessageBox.prompt('请输入当前账号密码确认复核操作', '敏感操作二次校验', {
       inputType: 'password',
+      inputAttributes: { autocomplete: 'current-password', autofocus: 'autofocus' },
       inputPlaceholder: '请输入密码',
       inputValidator: value => (!!value && value.trim().length > 0) || '密码不能为空',
       confirmButtonText: '确认',

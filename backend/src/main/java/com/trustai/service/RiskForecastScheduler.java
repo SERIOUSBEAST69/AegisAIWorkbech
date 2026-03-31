@@ -9,7 +9,6 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -111,12 +110,31 @@ public class RiskForecastScheduler {
                     e.getMessage());
         }
 
-        // 降级：移动平均
-        double avg = history.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
-        double rounded = Math.round(avg * 100.0) / 100.0;
-        List<Double> fallback = Collections.nCopies(HORIZON, rounded);
-        return new ForecastResult(fallback, "moving_average_fallback", history,
-                "Python 微服务不可用，已降级至移动平均预测");
+        // 降级：基于最近窗口斜率的确定性趋势外推（避免水平直线）
+        List<Double> fallback = buildTrendFallback(history, HORIZON);
+        return new ForecastResult(fallback, "trend_fallback", history,
+            "Python 微服务不可用，已降级至趋势外推预测");
+    }
+
+    private List<Double> buildTrendFallback(List<Double> history, int horizon) {
+        if (history == null || history.isEmpty()) {
+            return Collections.nCopies(horizon, 0.0);
+        }
+        int window = Math.min(7, history.size());
+        List<Double> tail = history.subList(history.size() - window, history.size());
+        double start = tail.get(0);
+        double end = tail.get(tail.size() - 1);
+        double slope = tail.size() <= 1 ? 0.0 : (end - start) / (tail.size() - 1);
+        double baseline = history.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
+        double last = history.get(history.size() - 1);
+
+        List<Double> out = new ArrayList<>();
+        for (int i = 1; i <= horizon; i++) {
+            double candidate = Math.max(0.0, last + slope * i);
+            double smooth = (candidate * 0.7) + (baseline * 0.3);
+            out.add(Math.round(smooth * 100.0) / 100.0);
+        }
+        return out;
     }
 
     /**
@@ -127,6 +145,7 @@ public class RiskForecastScheduler {
      */
     private List<Double> loadHistory() {
         LocalDate from = LocalDate.now().minusDays(HISTORY_DAYS);
+        LocalDate to = LocalDate.now();
         Date fromDate = Date.from(from.atStartOfDay(ZoneId.systemDefault()).toInstant());
 
         List<RiskEvent> events = riskEventService.list(
@@ -134,10 +153,6 @@ public class RiskForecastScheduler {
                         .ge(RiskEvent::getCreateTime, fromDate)
                         .orderByAsc(RiskEvent::getCreateTime)
         );
-        if (events.isEmpty()) {
-            return List.of();
-        }
-
         // 按日聚合
         Map<LocalDate, Long> counts = new LinkedHashMap<>();
         for (RiskEvent event : events) {
@@ -147,10 +162,12 @@ public class RiskForecastScheduler {
             counts.put(day, counts.getOrDefault(day, 0L) + 1);
         }
 
-        return counts.entrySet().stream()
-                .sorted(Map.Entry.comparingByKey())
-                .map(e -> e.getValue().doubleValue())
-                .collect(Collectors.toList());
+        // 构造完整的逐日时序（无事件日补 0），避免输入过于稀疏导致预测退化为近似水平。
+        List<Double> dense = new ArrayList<>();
+        for (LocalDate day = from; !day.isAfter(to); day = day.plusDays(1)) {
+            dense.add(counts.getOrDefault(day, 0L).doubleValue());
+        }
+        return dense;
     }
 
     // ── DTO ────────────────────────────────────────────────────────────────────
