@@ -5,6 +5,7 @@ import com.trustai.entity.AiCallLog;
 import com.trustai.entity.AiModel;
 import com.trustai.service.AiCallAuditService;
 import com.trustai.service.AiModelService;
+import com.trustai.service.CurrentUserService;
 import com.trustai.utils.R;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,13 +22,15 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Locale;
+import java.util.Set;
 
 /**
- * AI 服务风险评级 API（仅官方11个模型，基于真实近30天调用日志）。
+ * AI 服务风险评级 API（仅官方可信5个模型，基于真实近30天调用日志）。
  */
 @RestController
 @RequestMapping("/api/ai-risk")
@@ -37,8 +40,16 @@ public class AiRiskRatingController {
 
     @Autowired private AiModelService aiModelService;
     @Autowired private AiCallAuditService aiCallAuditService;
+    @Autowired private CurrentUserService currentUserService;
 
     private static final String WINDOW_LABEL = "近30天";
+    private static final Set<String> TRUSTED_SERVICE_IDS = new LinkedHashSet<>(List.of(
+        "tongyi",
+        "wenxin",
+        "deepseek",
+        "doubao",
+        "hunyuan"
+    ));
 
     /**
      * 获取所有已收录 AI 服务的风险评级摘要列表。
@@ -105,7 +116,10 @@ public class AiRiskRatingController {
 
     private Map<String, Object> buildRiskList() {
         LocalDateTime from = LocalDateTime.now().minusDays(30);
-        List<AiCallLog> logs = aiCallAuditService.list(new QueryWrapper<AiCallLog>().ge("create_time", from));
+        Long companyId = currentUserService.requireCurrentUser().getCompanyId();
+        List<AiCallLog> logs = safeListAiCallLogs(new QueryWrapper<AiCallLog>()
+            .eq(companyId != null, "company_id", companyId)
+            .ge("create_time", from));
 
         Map<String, List<AiCallLog>> logsByCode = new HashMap<>();
         for (AiCallLog log : logs) {
@@ -117,7 +131,7 @@ public class AiRiskRatingController {
         Map<String, AiModel> official = new LinkedHashMap<>();
         for (AiModel model : aiModelService.lambdaQuery().eq(AiModel::getStatus, "enabled").list()) {
             String officialId = officialId(model);
-            if (officialId != null && !official.containsKey(officialId)) {
+            if (officialId != null && TRUSTED_SERVICE_IDS.contains(officialId) && !official.containsKey(officialId)) {
                 official.put(officialId, model);
             }
         }
@@ -140,24 +154,52 @@ public class AiRiskRatingController {
 
     private Map<String, Object> buildRiskDetail(String serviceId) {
         LocalDateTime from = LocalDateTime.now().minusDays(30);
+        Long companyId = currentUserService.requireCurrentUser().getCompanyId();
         List<AiModel> models = aiModelService.lambdaQuery().eq(AiModel::getStatus, "enabled").list();
         AiModel hit = null;
         String officialKey = null;
         for (AiModel model : models) {
             String key = officialId(model);
-            if (key != null && key.equals(serviceId)) {
+            if (key != null && TRUSTED_SERVICE_IDS.contains(key) && key.equals(serviceId)) {
                 hit = model;
                 officialKey = key;
                 break;
             }
         }
-        if (hit == null) return null;
+        if (hit == null) {
+            if (!TRUSTED_SERVICE_IDS.contains(serviceId)) {
+                return null;
+            }
+            officialKey = serviceId;
+            hit = fallbackTrustedModel(serviceId);
+        }
 
-        List<AiCallLog> logs = aiCallAuditService.list(new QueryWrapper<AiCallLog>()
+        List<AiCallLog> logs = safeListAiCallLogs(new QueryWrapper<AiCallLog>()
+            .eq(companyId != null, "company_id", companyId)
             .eq("model_code", hit.getModelCode())
             .ge("create_time", from));
 
         return buildServiceDetail(officialKey, hit, logs);
+    }
+
+    private List<AiCallLog> safeListAiCallLogs(QueryWrapper<AiCallLog> wrapper) {
+        try {
+            return aiCallAuditService.list(wrapper);
+        } catch (Exception ex) {
+            log.warn("[AiRisk] 调用日志不可用，降级为0样本评分: {}", ex.getMessage());
+            return List.of();
+        }
+    }
+
+    private AiModel fallbackTrustedModel(String officialId) {
+        AiModel model = new AiModel();
+        model.setModelCode(officialId);
+        model.setModelName(officialId);
+        model.setProvider(officialId);
+        model.setModelType("chat");
+        model.setRiskLevel("medium");
+        model.setStatus("enabled");
+        return model;
     }
 
     private Map<String, Object> buildServiceSummary(String officialId, AiModel model, List<AiCallLog> logs) {
@@ -190,8 +232,9 @@ public class AiRiskRatingController {
         detail.put("recommendations", rs.recommendation);
 
         Map<String, Object> scores = new LinkedHashMap<>();
-        scores.put("base_risk", scoreNode(rs.baseRisk, 60, "模型固有风险（按模型风险级别映射）"));
-        scores.put("usage_volume", scoreNode(rs.usageRisk, 15, WINDOW_LABEL + "调用量风险因子"));
+        scores.put("base_risk", scoreNode(rs.baseRisk, 40, "模型固有风险（按模型风险级别映射）"));
+        scores.put("privacy_exposure", scoreNode(rs.privacyExposureRisk, 15, "隐私暴露风险（按模型服务特征映射）"));
+        scores.put("usage_volume", scoreNode(rs.usageRisk, 20, WINDOW_LABEL + "调用量风险因子"));
         scores.put("failure_rate", scoreNode(rs.failureRisk, 15, WINDOW_LABEL + "失败率风险因子"));
         scores.put("latency", scoreNode(rs.latencyRisk, 10, WINDOW_LABEL + "高延时风险因子"));
         detail.put("scores", scores);
@@ -210,9 +253,15 @@ public class AiRiskRatingController {
 
     private RiskSnapshot calculateRisk(AiModel model, List<AiCallLog> logs) {
         int baseRisk = switch (normalize(model.getRiskLevel())) {
-            case "high", "高" -> 45;
-            case "medium", "中" -> 28;
-            default -> 15;
+            case "high", "高" -> 34;
+            case "medium", "中" -> 24;
+            default -> 14;
+        };
+        int privacyExposureRisk = switch (officialId(model)) {
+            case "hunyuan", "deepseek" -> 12;
+            case "doubao" -> 10;
+            case "wenxin" -> 9;
+            default -> 8;
         };
 
         int totalCalls = logs == null ? 0 : logs.size();
@@ -227,11 +276,11 @@ public class AiRiskRatingController {
         double failRate = totalCalls == 0 ? 0.0 : (double) failure / totalCalls;
         long avgDuration = totalCalls == 0 ? 0L : durationSum / totalCalls;
 
-        int usageRisk = Math.min(15, (int) Math.round(Math.min(totalCalls, 80) / 80.0 * 15));
+        int usageRisk = Math.min(20, (int) Math.round(Math.min(totalCalls, 120) / 120.0 * 20));
         int failureRisk = Math.min(15, (int) Math.round(failRate * 15));
         int latencyRisk = avgDuration > 2500 ? 10 : (avgDuration > 1500 ? 6 : (avgDuration > 900 ? 3 : 0));
 
-        int total = Math.min(100, baseRisk + usageRisk + failureRisk + latencyRisk);
+        int total = Math.min(100, baseRisk + privacyExposureRisk + usageRisk + failureRisk + latencyRisk);
         String level = total >= 70 ? "high" : (total >= 40 ? "medium" : "low");
 
         List<String> tags = new ArrayList<>();
@@ -243,7 +292,7 @@ public class AiRiskRatingController {
             ? "建议限制高风险场景调用并加强提示词与输出审计。"
             : (total >= 40 ? "建议持续观察失败率与延时波动，按需收紧调用配额。" : "风险可控，保持常态化审计与调用监控。");
 
-        return new RiskSnapshot(baseRisk, usageRisk, failureRisk, latencyRisk, total, level, tags, recommendation);
+        return new RiskSnapshot(baseRisk, privacyExposureRisk, usageRisk, failureRisk, latencyRisk, total, level, tags, recommendation);
     }
 
     private String categoryFromType(String modelType) {
@@ -265,14 +314,8 @@ public class AiRiskRatingController {
             case "tongyi" -> "🟢";
             case "wenxin" -> "🔵";
             case "deepseek" -> "🧠";
-            case "gaoding" -> "🎨";
-            case "modelwhale" -> "🐋";
-            case "jimeng" -> "✨";
             case "doubao" -> "🫘";
-            case "spark" -> "🔥";
-            case "kimi" -> "🌙";
             case "hunyuan" -> "🌀";
-            case "zhipu" -> "🔷";
             default -> "🤖";
         };
     }
@@ -319,6 +362,7 @@ public class AiRiskRatingController {
 
     private record RiskSnapshot(
         int baseRisk,
+        int privacyExposureRisk,
         int usageRisk,
         int failureRisk,
         int latencyRisk,

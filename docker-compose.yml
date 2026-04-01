@@ -179,6 +179,9 @@ services:
       VITE_PROXY_TARGET: http://aegisai-backend:8080
     ports:
       - "3000:5173"
+    volumes:
+      - ./:/app
+      - /app/node_modules
     depends_on:
       aegisai-backend:
         condition: service_started

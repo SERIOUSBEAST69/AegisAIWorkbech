@@ -6,9 +6,14 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.util.Collection;
 import java.util.Collections;
+import java.util.List;
+import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.stereotype.Component;
@@ -35,8 +40,11 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             Claims claims = jwtUtil.parse(token);
             String username = claims.getSubject();
             Long uid = claims.get("uid", Long.class);
-            JwtPrincipal principal = new JwtPrincipal(uid, username);
-            UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(principal, null, Collections.emptyList());
+            Long cid = claims.get("cid", Long.class);
+            Object permsClaim = claims.get("perms");
+            Collection<GrantedAuthority> authorities = extractAuthorities(permsClaim);
+            JwtPrincipal principal = new JwtPrincipal(uid, username, cid);
+            UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(principal, null, authorities);
             auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
             SecurityContextHolder.getContext().setAuthentication(auth);
             chain.doFilter(request, response);
@@ -46,5 +54,16 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             // Protected endpoints are still rejected by SecurityConfig entry point.
             chain.doFilter(request, response);
         }
+    }
+
+    private Collection<GrantedAuthority> extractAuthorities(Object permsClaim) {
+        if (!(permsClaim instanceof List<?> list)) {
+            return Collections.emptyList();
+        }
+        return list.stream()
+            .map(item -> item == null ? "" : String.valueOf(item).trim())
+            .filter(StringUtils::hasText)
+            .map(SimpleGrantedAuthority::new)
+            .collect(Collectors.toSet());
     }
 }

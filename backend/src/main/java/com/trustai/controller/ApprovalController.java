@@ -133,6 +133,8 @@ public class ApprovalController {
         try {
             User currentUser = currentUserService.requireCurrentUser();
             String roleCode = currentUserService.currentRoleCode();
+            enforceDataAdminDutyForApproval(currentUser, roleCode);
+            enforceBusinessOwnerDutyForApproval(currentUser, roleCode, "reject");
             ApprovalRequest before = approvalRequestService.getOne(
                 companyScopeService.withCompany(new QueryWrapper<ApprovalRequest>()).eq("id", req.getRequestId())
             );
@@ -165,6 +167,8 @@ public class ApprovalController {
             if (!APPROVE_STATUS.contains(req.getStatus())) return R.error(40000, "不支持的状态");
             User currentUser = currentUserService.requireCurrentUser();
             String roleCode = currentUserService.currentRoleCode();
+            enforceDataAdminDutyForApproval(currentUser, roleCode);
+            enforceBusinessOwnerDutyForApproval(currentUser, roleCode, "approve");
             ApprovalRequest request = approvalRequestService.getOne(
                 companyScopeService.withCompany(new QueryWrapper<ApprovalRequest>()).eq("id", req.getRequestId())
             );
@@ -188,6 +192,8 @@ public class ApprovalController {
         currentUserService.requireAnyRole("ADMIN", "DATA_ADMIN", "BUSINESS_OWNER");
         User currentUser = currentUserService.requireCurrentUser();
         String roleCode = currentUserService.currentRoleCode();
+        enforceDataAdminDutyForApproval(currentUser, roleCode);
+        enforceBusinessOwnerDutyForApproval(currentUser, roleCode, "todo");
         List<ApprovalRequest> todos = approvalRequestService.todo(currentUser.getId());
         Long companyId = companyScopeService.requireCompanyId();
         todos = todos.stream()
@@ -280,6 +286,29 @@ public class ApprovalController {
             return currentUser.getId() != null && currentUser.getId().equals(request.getApplicantId());
         }
         return canOperateRequest(roleCode, request, currentUser);
+    }
+
+    private void enforceDataAdminDutyForApproval(User currentUser, String roleCode) {
+        if (!ROLE_DATA_ADMIN.equalsIgnoreCase(roleCode) || currentUser == null) {
+            return;
+        }
+        String username = currentUser.getUsername() == null ? "" : currentUser.getUsername().trim().toLowerCase();
+        if ("dataadmin_2".equals(username)) {
+            throw new BizException(40300, "数据管理员二号为资产维护岗，不可执行审批处置");
+        }
+    }
+
+    private void enforceBusinessOwnerDutyForApproval(User currentUser, String roleCode, String action) {
+        if (!ROLE_BUSINESS_OWNER.equalsIgnoreCase(roleCode) || currentUser == null) {
+            return;
+        }
+        String username = currentUser.getUsername() == null ? "" : currentUser.getUsername().trim().toLowerCase();
+        if ("bizowner_2".equals(username) && "reject".equals(action)) {
+            throw new BizException(40300, "业务负责人二号为授权放行岗，不可执行驳回");
+        }
+        if ("bizowner_3".equals(username) && "approve".equals(action)) {
+            throw new BizException(40300, "业务负责人三号为风险复核岗，不可执行通过");
+        }
     }
 
     private String resolveRequestType(ApprovalRequest request) {

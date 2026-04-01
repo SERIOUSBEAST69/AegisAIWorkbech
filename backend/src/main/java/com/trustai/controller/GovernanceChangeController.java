@@ -78,9 +78,13 @@ public class GovernanceChangeController {
     }
 
     @PostMapping("/submit")
-    @PreAuthorize("@currentUserService.hasRole('ADMIN')")
+    @PreAuthorize("@currentUserService.hasRole('ADMIN') || @currentUserService.hasPermission('govern:change:create')")
     public R<?> submit(@Valid @RequestBody SubmitReq req) {
-        User requester = sensitiveOperationGuardService.requireConfirmedAdmin(req.getConfirmPassword(), "governance_change_submit", req.getModule() + ":" + req.getAction());
+        User requester = currentUserService.requireCurrentUser();
+        if (!(currentUserService.hasRole("ADMIN") || currentUserService.hasPermission("govern:change:create"))) {
+            throw new BizException(40300, "当前身份无权发起治理变更");
+        }
+        sensitiveOperationGuardService.requireConfirmedOperator(requester, req.getConfirmPassword(), "governance_change_submit", req.getModule() + ":" + req.getAction());
         GovernanceChangeRequest request = new GovernanceChangeRequest();
         request.setCompanyId(companyScopeService.requireCompanyId());
         request.setModule(normalize(req.getModule()));
@@ -99,7 +103,7 @@ public class GovernanceChangeController {
     }
 
     @GetMapping("/page")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS') || @currentUserService.hasAnyPermission('govern:change:view','govern:change:review')")
     public R<Map<String, Object>> page(@RequestParam(defaultValue = "1") int page,
                                        @RequestParam(defaultValue = "10") int pageSize,
                                        @RequestParam(required = false) String status,
@@ -123,11 +127,12 @@ public class GovernanceChangeController {
     }
 
     @PostMapping("/approve")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS') || @currentUserService.hasPermission('govern:change:review')")
     public R<?> approve(@Valid @RequestBody ApproveReq req) {
         User approver = currentUserService.requireCurrentUser();
         String approverRole = resolveRoleCode(approver);
-        if (!("ADMIN".equalsIgnoreCase(approverRole) || "SECOPS".equalsIgnoreCase(approverRole))) {
+        if (!("ADMIN".equalsIgnoreCase(approverRole) || "SECOPS".equalsIgnoreCase(approverRole)
+            || currentUserService.hasPermission("govern:change:review"))) {
             throw new BizException(40300, "当前身份无权复核权限变更");
         }
         sensitiveOperationGuardService.requireConfirmedOperator(approver, req.getConfirmPassword(), "governance_change_approve", "requestId=" + req.getRequestId());

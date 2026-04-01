@@ -112,7 +112,7 @@
       <div class="panel-head">
         <div>
           <div class="card-header">治理脉冲趋势</div>
-          <p class="panel-subtitle">风险事件、审计留痕、AI 调用量与成本全部来自数据库聚合结果。</p>
+          <p class="panel-subtitle">风险事件、审计留痕、AI 调用量与成本全部来自数据库聚合结果。{{ trendEvidenceText }}</p>
         </div>
         <div class="panel-actions">
           <button class="mini-refresh-btn" :disabled="forecastRefreshing" @click="refreshForecastNow">
@@ -300,10 +300,15 @@ function createEmptyOverview() {
       aiCallSeries: [],
       costSeries: [],
       forecastNextDay: 0,
+      riskEventSampleCount: 0,
+      auditLogSampleCount: 0,
+      modelStatSampleCount: 0,
+      trendWindowDays: 7,
     },
     riskDistribution: [],
     todos: [],
     feeds: [],
+    _dataSource: 'real_db',
   };
 }
 
@@ -652,6 +657,16 @@ const statCards = computed(() => overview.value.metrics.map(item => ({
   icon: metricVisualMap[item.key]?.icon || 'DataAnalysis',
   color: metricVisualMap[item.key]?.color || 'var(--color-primary)'
 })));
+const trendEvidenceText = computed(() => {
+  const trend = overview.value?.trend || {};
+  const days = Number(trend.trendWindowDays || 7);
+  const riskSamples = Number(trend.riskEventSampleCount || 0);
+  const auditSamples = Number(trend.auditLogSampleCount || 0);
+  const modelSamples = Number(trend.modelStatSampleCount || 0);
+  const source = String(overview.value?._dataSource || 'real_db').toLowerCase();
+  const sourceLabel = source === 'real_db' ? '真实DB' : '降级源';
+  return `数据窗${days}天 · 风险样本${riskSamples} · 审计样本${auditSamples} · 调用样本${modelSamples} · ${sourceLabel}`;
+});
 const heroHeadline = computed(() => {
   const prefix = 'Aegis Workbench';
   const headline = String(overview.value.headline || prefix).trim();

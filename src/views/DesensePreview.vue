@@ -14,7 +14,7 @@
         <el-form-item label="手机号规则（保留前3后4：138****1234）">
           <el-switch v-model="config.phone.enabled" :disabled="readOnly" active-text="启用" inactive-text="关闭" />
         </el-form-item>
-        <el-form-item label="身份证规则（保留前6后4：110101*********123X）">
+        <el-form-item label="身份证规则（保留前6后4：110101********123X）">
           <el-switch v-model="config.idCard.enabled" :disabled="readOnly" active-text="启用" inactive-text="关闭" />
         </el-form-item>
         <el-form-item label="邮箱规则（用户名中间隐藏：te****st@qq.com）">
@@ -24,7 +24,15 @@
 
       <div class="panel-actions">
         <el-button :loading="loading" @click="loadConfig">读取配置</el-button>
-        <el-button v-if="!readOnly" type="primary" :loading="saving" @click="saveConfig">保存下发</el-button>
+        <el-button
+          v-if="!readOnly"
+          type="primary"
+          :disabled="!isDirty || saving || loading"
+          :loading="saving"
+          @click="saveConfig"
+        >
+          {{ saving ? '下发中' : '保存下发' }}
+        </el-button>
       </div>
     </el-card>
 
@@ -40,7 +48,7 @@
       <div class="format-note">
         <p>格式说明：</p>
         <p>1. 手机号：保留前3位、后4位，中间****</p>
-        <p>2. 身份证号：保留前6位、后4位，中间*********</p>
+        <p>2. 身份证号：保留前6位、后4位，中间********</p>
         <p>3. 邮箱：用户名中间隐藏为****，保留后缀</p>
       </div>
     </el-card>
@@ -59,6 +67,7 @@ const readOnly = computed(() => !isGovernanceAdmin(userStore.userInfo));
 
 const loading = ref(false);
 const saving = ref(false);
+const initialConfigSnapshot = ref('');
 const previewInput = ref('手机号13812341234，身份证11010119900101123X，邮箱test@qq.com');
 const config = ref({
   globalEnabled: true,
@@ -83,7 +92,7 @@ function applyPhoneMask(text) {
 }
 
 function applyIdCardMask(text) {
-  return text.replace(/(\d{6})\d{9}(\d{3}[\dXx])/g, '$1*********$2');
+  return text.replace(/(\d{6})\d{8}(\d{3}[\dXx])/g, '$1********$2');
 }
 
 function applyEmailMask(text) {
@@ -107,11 +116,25 @@ const previewOutput = computed(() => {
   return output;
 });
 
+function snapshotConfig(value) {
+  return JSON.stringify({
+    desenseGlobalEnabled: value.globalEnabled,
+    desenseRules: {
+      phone: { enabled: value.phone.enabled },
+      idCard: { enabled: value.idCard.enabled },
+      email: { enabled: value.email.enabled },
+    },
+  });
+}
+
+const isDirty = computed(() => snapshotConfig(config.value) !== initialConfigSnapshot.value);
+
 async function loadConfig() {
   loading.value = true;
   try {
     const data = await desenseApi.getGlobalConfig();
     config.value = normalizeConfig(data);
+    initialConfigSnapshot.value = snapshotConfig(config.value);
   } catch (error) {
     ElMessage.error(error?.message || '加载脱敏配置失败');
   } finally {
@@ -129,11 +152,12 @@ async function saveConfig() {
       desenseGlobalEnabled: config.value.globalEnabled,
       desenseRules: {
         phone: { enabled: config.value.phone.enabled, pattern: '(1\\d{2})\\d{4}(\\d{4})', format: '$1****$2' },
-        idCard: { enabled: config.value.idCard.enabled, pattern: '(\\d{6})\\d{9}(\\d{3}[\\dXx])', format: '$1*********$2' },
+        idCard: { enabled: config.value.idCard.enabled, pattern: '(\\d{6})\\d{8}(\\d{3}[\\dXx])', format: '$1********$2' },
         email: { enabled: config.value.email.enabled, pattern: '([A-Za-z0-9._%+-]{2})([A-Za-z0-9._%+-]*)([A-Za-z0-9._%+-]{2})@([A-Za-z0-9.-]+\\.[A-Za-z]{2,})', format: '$1****$3@$4' },
       },
     };
     await desenseApi.saveGlobalConfig(payload);
+    initialConfigSnapshot.value = snapshotConfig(config.value);
     ElMessage.success('全局脱敏规则已保存并下发');
   } catch (error) {
     ElMessage.error(error?.message || '保存脱敏配置失败');

@@ -15,7 +15,9 @@ import java.time.LocalDateTime;
 public class AiCallLog {
     @TableId(type = IdType.AUTO)
     private Long id;
+    private Long companyId;
     private Long userId;
+    private String username;
     private Long dataAssetId;
     private Long modelId;
     private String modelCode;

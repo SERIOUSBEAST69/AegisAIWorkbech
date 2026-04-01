@@ -5,6 +5,7 @@ import com.trustai.client.AiInferenceClient;
 import com.trustai.entity.RiskEvent;
 import com.trustai.entity.SecurityEvent;
 import com.trustai.entity.User;
+import com.trustai.exception.BizException;
 import com.trustai.service.CompanyScopeService;
 import com.trustai.service.CurrentUserService;
 import com.trustai.service.EventHubService;
@@ -101,6 +102,7 @@ public class AnomalyController {
     @PostMapping("/check")
     @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','DATA_ADMIN','AI_BUILDER','BUSINESS_OWNER','EMPLOYEE')")
     public R<Map<String, Object>> check(@RequestBody(required = false) Map<String, Object> payload) {
+        enforceAiBuilderDuty("check");
         if (payload == null || payload.isEmpty()) {
             return R.error("请求体不能为空");
         }
@@ -125,6 +127,7 @@ public class AnomalyController {
     @GetMapping("/events")
     @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','EXECUTIVE','SECOPS','DATA_ADMIN','AI_BUILDER','BUSINESS_OWNER','EMPLOYEE')")
     public R<Map<String, Object>> events() {
+        enforceAiBuilderDuty("events");
         Set<String> companyUsers = new HashSet<>(companyScopeService.companyUsernames());
         try {
             Map<String, Object> result = aiInferenceClient.anomalyEvents();
@@ -157,6 +160,7 @@ public class AnomalyController {
     @GetMapping("/status")
     @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','EXECUTIVE','SECOPS','DATA_ADMIN','AI_BUILDER','BUSINESS_OWNER','EMPLOYEE')")
     public R<Map<String, Object>> status() {
+        enforceAiBuilderDuty("status");
         try {
             Map<String, Object> result = aiInferenceClient.anomalyStatus();
             return R.ok(result);
@@ -273,6 +277,20 @@ public class AnomalyController {
         String level = normalizeRisk(item.getLevel());
         String status = String.valueOf(item.getStatus() == null ? "" : item.getStatus()).toLowerCase();
         return "high".equals(level) || "critical".equals(level) || "open".equals(status);
+    }
+
+    private void enforceAiBuilderDuty(String action) {
+        if (!currentUserService.hasRole("AI_BUILDER")) {
+            return;
+        }
+        User current = currentUserService.requireCurrentUser();
+        String username = current.getUsername() == null ? "" : current.getUsername().trim().toLowerCase();
+        if ("aibuilder_2".equals(username) && "events".equals(action)) {
+            throw new BizException(40300, "AI开发者二号为提示工程岗，不可访问异常事件复核视图");
+        }
+        if ("aibuilder_3".equals(username) && "check".equals(action)) {
+            throw new BizException(40300, "AI开发者三号为模型审计岗，不可执行实时检测提交");
+        }
     }
 
     private String normalizeRisk(String value) {

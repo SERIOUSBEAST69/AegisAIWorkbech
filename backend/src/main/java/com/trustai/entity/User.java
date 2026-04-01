@@ -1,9 +1,11 @@
 package com.trustai.entity;
 
 import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import java.util.Date;
+import java.util.List;
 
 @Data
 @TableName("sys_user")
@@ -24,6 +26,7 @@ public class User {
     private String organizationType;
     private String loginType;
     private String wechatOpenId;
+    private String jobTitle;
     private String phone;
     private String email;
     private Integer status;
@@ -33,4 +36,7 @@ public class User {
     private Date lastPolicyPullTime;
     private Date createTime;
     private Date updateTime;
+
+    @TableField(exist = false)
+    private List<Long> roleIds;
 }

@@ -27,16 +27,17 @@ import ThreatMonitor from '../views/ThreatMonitor.vue';
 import { getSession, hasActiveSession } from '../utils/auth';
 import { canAccessPath } from '../utils/persona';
 import { isEmployeeUser } from '../utils/employeePolicy';
+import { hasPermissionByUser } from '../utils/permission';
 
 const routes = [
   { path: '/login', name: 'Login', component: Login, meta: { public: true, depth: 0 } },
   { path: '/', name: 'Home', component: Home, meta: { depth: 1 } },
-  { path: '/data-asset', name: 'DataAsset', component: DataAsset, meta: { depth: 2 } },
-  { path: '/audit-log', name: 'AuditLog', component: AuditLog, meta: { depth: 2 } },
-  { path: '/audit-report', name: 'AuditReport', component: AuditReport, meta: { depth: 2 } },
-  { path: '/user-manage', name: 'UserManage', component: UserManage, meta: { depth: 3 } },
-  { path: '/role-manage', name: 'RoleManage', component: RoleManage, meta: { depth: 3 } },
-  { path: '/permission-manage', name: 'PermissionManage', component: PermissionManage, meta: { depth: 3 } },
+  { path: '/data-asset', name: 'DataAsset', component: DataAsset, meta: { depth: 2, permission: 'menu:data_asset' } },
+  { path: '/audit-log', name: 'AuditLog', component: AuditLog, meta: { depth: 2, permission: 'audit:log:view' } },
+  { path: '/audit-report', name: 'AuditReport', component: AuditReport, meta: { depth: 2, permission: 'audit:report:view' } },
+  { path: '/user-manage', name: 'UserManage', component: UserManage, meta: { depth: 3, permission: 'user:manage' } },
+  { path: '/role-manage', name: 'RoleManage', component: RoleManage, meta: { depth: 3, permission: 'role:manage' } },
+  { path: '/permission-manage', name: 'PermissionManage', component: PermissionManage, meta: { depth: 3, permission: 'permission:manage' } },
   { path: '/operations-command', name: 'SecurityCommand', component: SecurityCommand, meta: { depth: 3 } },
   { path: '/ops-observability', name: 'OpsObservability', component: OpsObservability, meta: { depth: 3 } },
   { path: '/approval-manage', name: 'ApprovalManage', component: ApprovalManage, meta: { depth: 3 } },
@@ -68,8 +69,11 @@ router.beforeEach((to, from, next) => {
   }
 
   const session = getSession();
+  if (to.meta?.permission && !hasPermissionByUser(session?.user, to.meta.permission)) {
+    return next('/');
+  }
   if (!canAccessPath(to.path, session?.user)) {
-    return next(isEmployeeUser(session?.user) ? '/ai/anomaly' : '/');
+    return next(isEmployeeUser(session?.user) ? '/shadow-ai' : '/');
   }
 
   // 根据路由深度自动设置转场方向（供 usePageTransition 读取）

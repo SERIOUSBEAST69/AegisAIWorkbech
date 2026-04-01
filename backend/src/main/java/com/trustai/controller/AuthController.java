@@ -19,7 +19,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.ArrayList;
+import java.util.Objects;
 import java.util.UUID;
+import java.util.Set;
 import lombok.Data;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,6 +37,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -88,9 +91,9 @@ public class AuthController {
             demoAccount("业务负责人C", "bizowner_3", "Passw0rd!")
         ),
         "EMPLOYEE", List.of(
-            demoAccount("员工账号A", "employee", "Passw0rd!"),
-            demoAccount("员工账号B", "employee_2", "Passw0rd!"),
-            demoAccount("员工账号C", "employee_3", "Passw0rd!")
+            demoAccount("员工账号A", "employee1", "Passw0rd!"),
+            demoAccount("员工账号B", "employee2", "Passw0rd!"),
+            demoAccount("员工账号C", "employee3", "Passw0rd!")
         )
     );
 
@@ -166,10 +169,8 @@ public class AuthController {
     }
 
     @GetMapping("/registration-options")
-    public R<?> registrationOptions() {
-        List<Map<String, String>> identities = ROLE_LABELS.entrySet().stream()
-            .map(entry -> option(entry.getKey(), entry.getValue()))
-            .toList();
+    public R<?> registrationOptions(@RequestParam(required = false) Long companyId) {
+        List<Map<String, Object>> identities = resolveSelfRegisterIdentities(companyId);
         List<Map<String, String>> organizations = List.of(
             option("enterprise", "企业"),
             option("school", "学校"),
@@ -207,9 +208,11 @@ public class AuthController {
     }
 
     private SessionResp buildSession(User user, boolean includeToken) {
-        String token = includeToken ? jwtUtil.generateToken(user.getUsername(), user.getId(), user.getCompanyId()) : null;
+        Set<String> permissions = currentUserService.permissionCodesOfUser(user);
+        List<String> permissionCodes = permissions.stream().sorted().toList();
+        String token = includeToken ? jwtUtil.generateToken(user.getUsername(), user.getId(), user.getCompanyId(), permissionCodes) : null;
         user.setPassword(null);
-        return new SessionResp(token, toProfile(user), true, System.currentTimeMillis());
+        return new SessionResp(token, toProfile(user, permissionCodes), true, System.currentTimeMillis());
     }
 
     private User findUserByUsername(String username) {
@@ -295,15 +298,20 @@ public class AuthController {
 
     private User createUser(RegisterReq req, String loginType) {
         if (!StringUtils.hasText(req.getRoleCode())) {
-            throw new BizException(40000, "请选择身份");
+            if (req.getRoleId() == null) {
+                throw new BizException(40000, "请选择身份");
+            }
         }
 
         String accountType = resolveAccountType(req);
         boolean realAccount = ACCOUNT_TYPE_REAL.equals(accountType);
         Long companyId = resolveCompanyId(req, accountType);
-        Role role = resolveOrCreateRoleForCompany(req.getRoleCode(), companyId);
+        Role role = resolveRegisterRole(req, companyId);
         if (role == null) {
             throw new BizException(40000, "身份不存在，请联系管理员");
+        }
+        if (!Boolean.TRUE.equals(role.getAllowSelfRegister())) {
+            throw new BizException(40000, "该身份不允许自助注册");
         }
 
         String username = resolveUsername(req, loginType);
@@ -347,6 +355,69 @@ public class AuthController {
         user.setUpdateTime(new Date());
         userService.save(user);
         return user;
+    }
+
+    private Role resolveRegisterRole(RegisterReq req, Long companyId) {
+        if (req.getRoleId() != null) {
+            Role role = roleService.getById(req.getRoleId());
+            if (role != null && Objects.equals(role.getCompanyId(), companyId)) {
+                return role;
+            }
+            return null;
+        }
+        return resolveOrCreateRoleForCompany(req.getRoleCode(), companyId);
+    }
+
+    private List<Map<String, Object>> resolveSelfRegisterIdentities(Long companyId) {
+        if (companyId == null || companyId <= 0L) {
+            companyId = 1L;
+        }
+        List<Map<String, Object>> dynamic = roleService.lambdaQuery()
+            .eq(Role::getCompanyId, companyId)
+            .eq(Role::getAllowSelfRegister, true)
+            .orderByAsc(Role::getId)
+            .list()
+            .stream()
+            .map(this::roleOption)
+            .toList();
+        if (!dynamic.isEmpty()) {
+            return dynamic;
+        }
+        final Long fallbackCompanyId = companyId;
+        return ROLE_LABELS.entrySet().stream()
+            .filter(entry -> isDefaultSelfRegisterRole(entry.getKey()))
+            .map(entry -> defaultRoleOption(entry.getKey(), entry.getValue(), fallbackCompanyId))
+            .toList();
+    }
+
+    private boolean isDefaultSelfRegisterRole(String roleCode) {
+        if (!StringUtils.hasText(roleCode)) {
+            return false;
+        }
+        String code = roleCode.trim().toUpperCase();
+        return "EMPLOYEE".equals(code) || "AI_BUILDER".equals(code) || "BUSINESS_OWNER".equals(code);
+    }
+
+    private Map<String, Object> roleOption(Role role) {
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("id", role.getId());
+        item.put("code", role.getCode());
+        item.put("label", role.getName());
+        return item;
+    }
+
+    private Map<String, Object> defaultRoleOption(String code, String label, Long companyId) {
+        Map<String, Object> item = new LinkedHashMap<>();
+        Role role = roleService.lambdaQuery()
+            .eq(Role::getCompanyId, companyId)
+            .eq(Role::getCode, code)
+            .orderByAsc(Role::getId)
+            .last("LIMIT 1")
+            .one();
+        item.put("id", role == null ? null : role.getId());
+        item.put("code", code);
+        item.put("label", label);
+        return item;
     }
 
     private String resolveAccountType(RegisterReq req) {
@@ -506,6 +577,10 @@ public class AuthController {
     }
 
     private UserProfileDTO toProfile(User user) {
+        return toProfile(user, currentUserService.permissionCodesOfUser(user).stream().sorted().toList());
+    }
+
+    private UserProfileDTO toProfile(User user, List<String> permissionCodes) {
         Role role = currentUserService.getCurrentRole(user);
         String resolvedRoleCode = role == null ? null : role.getCode();
         String resolvedRoleName = role == null ? null : role.getName();
@@ -530,6 +605,8 @@ public class AuthController {
             .loginType(user.getLoginType())
             .roleName(resolvedRoleName)
             .roleCode(resolvedRoleCode)
+            .permissionCodes(permissionCodes)
+            .roleIds(currentUserService.currentRoleIds(user).stream().sorted().toList())
             .deviceId(user.getDeviceId())
             .lastActiveAt(user.getUpdateTime() == null ? null : user.getUpdateTime().toInstant().atZone(java.time.ZoneId.systemDefault()).toLocalDateTime())
             .build();
@@ -576,8 +653,8 @@ public class AuthController {
         private String nickname;
         private String companyName;
         private String accountType;
-        @NotBlank(message = "身份不能为空")
         private String roleCode;
+        private Long roleId;
         private String organizationType;
         private String department;
         private String phone;

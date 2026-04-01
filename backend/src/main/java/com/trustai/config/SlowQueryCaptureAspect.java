@@ -58,25 +58,41 @@ public class SlowQueryCaptureAspect {
                 }
 
                 if (elapsed >= slowQueryThresholdMs * 2) {
-                    GovernanceEvent event = new GovernanceEvent();
-                    event.setCompanyId(1L);
-                    event.setEventType("SLOW_QUERY_ALERT");
-                    event.setSourceModule("observability");
-                    event.setSeverity(elapsed >= slowQueryThresholdMs * 4 ? "high" : "medium");
-                    event.setStatus("pending");
-                    event.setTitle("慢查询告警");
-                    event.setDescription(method + " 耗时 " + elapsed + "ms");
-                    event.setSourceEventId("slow-query:" + System.currentTimeMillis());
-                    event.setAttackType("query_regression");
-                    event.setPolicyVersion(1L);
-                    event.setPayloadJson(String.valueOf(Map.of("elapsedMs", elapsed, "argsDigest", argsDigest)));
-                    event.setEventTime(now);
-                    event.setCreateTime(now);
-                    event.setUpdateTime(now);
-                    try {
-                        governanceEventService.save(event);
-                    } catch (Exception ex) {
-                        log.debug("Failed to create slow query governance event: {}", ex.getMessage());
+                    Long actorId = jdbcTemplate.query(
+                        "SELECT id FROM sys_user WHERE company_id = ? AND username IN ('secops','admin','employee1') ORDER BY CASE username WHEN 'secops' THEN 1 WHEN 'admin' THEN 2 WHEN 'employee1' THEN 3 ELSE 9 END LIMIT 1",
+                        ps -> ps.setLong(1, 1L),
+                        rs -> rs.next() ? rs.getLong(1) : null
+                    );
+                    String actorName = actorId == null ? null : jdbcTemplate.query(
+                        "SELECT username FROM sys_user WHERE id = ? LIMIT 1",
+                        ps -> ps.setLong(1, actorId),
+                        rs -> rs.next() ? rs.getString(1) : null
+                    );
+                    if (actorId == null || actorName == null) {
+                        log.debug("Skip slow query governance event due to missing traceable actor");
+                    } else {
+                        GovernanceEvent event = new GovernanceEvent();
+                        event.setCompanyId(1L);
+                        event.setUserId(actorId);
+                        event.setUsername(actorName);
+                        event.setEventType("SLOW_QUERY_ALERT");
+                        event.setSourceModule("observability");
+                        event.setSeverity(elapsed >= slowQueryThresholdMs * 4 ? "high" : "medium");
+                        event.setStatus("pending");
+                        event.setTitle("慢查询告警");
+                        event.setDescription(method + " 耗时 " + elapsed + "ms");
+                        event.setSourceEventId("slow-query:" + System.currentTimeMillis());
+                        event.setAttackType("query_regression");
+                        event.setPolicyVersion(1L);
+                        event.setPayloadJson(String.valueOf(Map.of("elapsedMs", elapsed, "argsDigest", argsDigest)));
+                        event.setEventTime(now);
+                        event.setCreateTime(now);
+                        event.setUpdateTime(now);
+                        try {
+                            governanceEventService.save(event);
+                        } catch (Exception ex) {
+                            log.debug("Failed to create slow query governance event: {}", ex.getMessage());
+                        }
                     }
                 }
             }

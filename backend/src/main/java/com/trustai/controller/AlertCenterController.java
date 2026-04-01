@@ -76,6 +76,7 @@ public class AlertCenterController {
         @RequestParam(required = false) String keyword,
         @RequestParam(required = false) Long userId
     ) {
+        enforceExecutiveDuty("list");
         User current = currentUserService.requireCurrentUser();
         QueryWrapper<GovernanceEvent> qw = companyScopeService.withCompany(new QueryWrapper<>());
         if (StringUtils.hasText(eventType)) {
@@ -115,12 +116,14 @@ public class AlertCenterController {
     @GetMapping("/stats")
     @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','EXECUTIVE','SECOPS','DATA_ADMIN','AI_BUILDER','BUSINESS_OWNER','EMPLOYEE')")
     public R<Map<String, Object>> stats() {
+        enforceExecutiveDuty("stats");
         return R.ok(statsCore(currentUserService.requireCurrentUser()));
     }
 
     @GetMapping("/{id}")
     @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','EXECUTIVE','SECOPS','DATA_ADMIN','AI_BUILDER','BUSINESS_OWNER','EMPLOYEE')")
     public R<Map<String, Object>> detail(@PathVariable Long id) {
+        enforceExecutiveDuty("detail");
         GovernanceEvent event = getScopedEvent(id);
         Map<String, Object> payload = parsePayload(event.getPayloadJson());
         Map<String, Object> data = new LinkedHashMap<>();
@@ -133,6 +136,7 @@ public class AlertCenterController {
     @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','EXECUTIVE','SECOPS','DATA_ADMIN','AI_BUILDER','BUSINESS_OWNER','EMPLOYEE')")
     public R<Map<String, Object>> related(@PathVariable Long id,
                                           @RequestParam(defaultValue = "20") int limit) {
+        enforceExecutiveDuty("related");
         GovernanceEvent event = getScopedEvent(id);
         QueryWrapper<GovernanceEvent> qw = companyScopeService.withCompany(new QueryWrapper<GovernanceEvent>())
             .eq("user_id", event.getUserId())
@@ -159,6 +163,7 @@ public class AlertCenterController {
     public R<Map<String, Object>> userHistory(@RequestParam(required = false) Long userId,
                                               @RequestParam(required = false) String username,
                                               @RequestParam(defaultValue = "30") int limit) {
+        enforceExecutiveDuty("user-history");
         User current = currentUserService.requireCurrentUser();
         Long targetUserId = current.getId();
         String targetUsername = current.getUsername();
@@ -211,6 +216,20 @@ public class AlertCenterController {
         return R.ok(data);
     }
 
+    private void enforceExecutiveDuty(String action) {
+        User current = currentUserService.requireCurrentUser();
+        String username = current.getUsername() == null ? "" : current.getUsername().trim().toLowerCase();
+        if (!username.startsWith("executive")) {
+            return;
+        }
+        if ("executive_2".equals(username) && !"stats".equals(action)) {
+            throw new BizException(40300, "管理层二号为总览决策岗，仅可访问统计总览");
+        }
+        if ("executive_3".equals(username) && "user-history".equals(action)) {
+            throw new BizException(40300, "管理层三号不具备个人历史明细查询权限");
+        }
+    }
+
     @PostMapping("/dispose")
     @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
     public R<Map<String, Object>> dispose(@RequestBody DisposeReq req) {
@@ -224,6 +243,7 @@ public class AlertCenterController {
         boolean isShadow = "SHADOW_AI_ALERT".equalsIgnoreCase(event.getEventType());
 
         String nextStatus = StringUtils.hasText(req.getStatus()) ? req.getStatus().toLowerCase(Locale.ROOT) : "reviewing";
+        enforceSecopsDuty(operator, nextStatus);
         if (isShadow) {
             if ("blocked".equals(nextStatus) && !isAdmin) {
                 throw new BizException(40300, "仅治理管理员可执行影子AI拉黑处置");
@@ -293,6 +313,20 @@ public class AlertCenterController {
         data.put("event", event);
         data.put("validation", validation);
         return R.ok(data);
+    }
+
+    private void enforceSecopsDuty(User operator, String targetStatus) {
+        if (operator == null || !currentUserService.hasRole("SECOPS")) {
+            return;
+        }
+        String normalizedStatus = targetStatus == null ? "reviewing" : targetStatus.trim().toLowerCase(Locale.ROOT);
+        String username = operator.getUsername() == null ? "" : operator.getUsername().trim().toLowerCase(Locale.ROOT);
+        if ("secops_2".equals(username) && "blocked".equals(normalizedStatus)) {
+            throw new BizException(40300, "安全运维二号仅负责误报复核，不可执行阻断");
+        }
+        if ("secops_3".equals(username) && "ignored".equals(normalizedStatus)) {
+            throw new BizException(40300, "安全运维三号仅负责阻断处置，不可标记误报");
+        }
     }
 
     private GovernanceEvent getScopedEvent(Long id) {

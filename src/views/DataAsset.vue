@@ -25,7 +25,7 @@
     </section>
 
     <section class="asset-grid">
-      <el-card class="upload-card">
+      <el-card v-if="canWriteAsset" class="upload-card">
         <template #header>
           <div class="card-header">
             <div>
@@ -49,17 +49,47 @@
             </el-select>
           </el-form-item>
           <el-form-item label="敏感等级">
-            <el-segmented v-model="uploadForm.sensitivityLevel" :options="sensitivityOptions" />
+            <el-select v-model="uploadForm.sensitivityLevel" clearable placeholder="请手动选择或留空后使用系统推荐">
+              <el-option v-for="item in sensitivityOptions" :key="item" :label="item" :value="item" />
+            </el-select>
           </el-form-item>
           <el-form-item label="治理说明">
             <el-input v-model="uploadForm.description" type="textarea" :rows="4" placeholder="描述这批数据的业务背景、来源或治理要求" />
           </el-form-item>
           <el-form-item label="数据文件">
-            <input class="file-input" type="file" @change="handleFileChange" />
+            <input ref="fileInputRef" class="file-input" type="file" @change="handleFileChange" />
             <div class="file-tip">{{ selectedFile ? `已选择：${selectedFile.name}` : '请选择需要纳管的数据文件' }}</div>
           </el-form-item>
-          <el-button type="primary" class="full-width" :loading="uploading" @click="uploadAsset">上传并纳管</el-button>
+          <el-alert
+            v-if="recommendedSensitivityLevel"
+            type="info"
+            :closable="false"
+            show-icon
+            :title="`推荐等级：${recommendedSensitivityLevel}（可在资产清单中确认或调整）`"
+            style="margin-bottom: 12px;"
+          />
+          <el-button
+            type="primary"
+            class="full-width"
+            :loading="uploading"
+            :disabled="!selectedFile || uploading"
+            @click="uploadAsset"
+          >
+            {{ uploading ? '上传中' : '上传并纳管' }}
+          </el-button>
         </el-form>
+      </el-card>
+
+      <el-card v-else class="upload-card">
+        <template #header>
+          <div class="card-header">
+            <div>
+              <strong>上传治理数据</strong>
+              <p>当前身份仅可查看资产清单，不具备上传或修改权限。</p>
+            </div>
+          </div>
+        </template>
+        <el-empty description="暂无可执行操作" :image-size="72" />
       </el-card>
 
       <el-card class="table-card">
@@ -72,7 +102,7 @@
             <div class="toolbar-actions">
               <el-input v-model="query.name" placeholder="搜索资产名称" clearable @keyup.enter="fetchAssets" />
               <el-button type="primary" :loading="loading" @click="fetchAssets">查询</el-button>
-              <el-button @click="openAdd">手工登记</el-button>
+              <el-button v-if="canWriteAsset" @click="openAdd">手工登记</el-button>
             </div>
           </div>
         </template>
@@ -83,17 +113,21 @@
               <div class="cell nowrap">{{ scope.row.id }}</div>
             </template>
           </el-table-column>
-          <el-table-column prop="name" label="名称" min-width="180" />
+          <el-table-column prop="name" label="名称" min-width="180">
+            <template #default="scope">{{ normalizeDisplayText(scope.row.name) }}</template>
+          </el-table-column>
           <el-table-column prop="type" label="类型" width="110" />
           <el-table-column prop="sensitivityLevel" label="敏感等级" width="110" />
-          <el-table-column prop="description" label="治理摘要" min-width="350" show-overflow-tooltip />
+          <el-table-column prop="description" label="治理摘要" min-width="350" show-overflow-tooltip>
+            <template #default="scope">{{ normalizeDisplayText(scope.row.description) }}</template>
+          </el-table-column>
           <el-table-column prop="location" label="位置 / 来源" min-width="220" show-overflow-tooltip />
           <el-table-column prop="createTime" label="创建时间" min-width="170" />
-          <el-table-column label="操作" width="240" fixed="right">
+          <el-table-column v-if="canWriteAsset || canDeleteAsset" label="操作" width="240" fixed="right">
             <template #default="scope">
               <el-button size="small" type="primary" plain @click="viewAssetDetail(scope.row.id)">详情</el-button>
-              <el-button size="small" @click="editAsset(scope.row)">编辑</el-button>
-              <el-button size="small" type="danger" @click="deleteAsset(scope.row.id)">删除</el-button>
+              <el-button v-if="canWriteAsset" size="small" @click="editAsset(scope.row)">编辑</el-button>
+              <el-button v-if="canDeleteAsset" size="small" type="danger" @click="deleteAsset(scope.row.id)">删除</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -132,14 +166,14 @@
       <el-skeleton :loading="detailLoading" :rows="6" animated>
         <div v-if="detailData" class="detail-grid">
           <div><strong>ID：</strong>{{ detailData.id }}</div>
-          <div><strong>名称：</strong>{{ detailData.name }}</div>
+          <div><strong>名称：</strong>{{ normalizeDisplayText(detailData.name) }}</div>
           <div><strong>类型：</strong>{{ detailData.type }}</div>
           <div><strong>敏感等级：</strong>{{ detailData.sensitivityLevel }}</div>
           <div><strong>位置：</strong>{{ detailData.location }}</div>
           <div><strong>负责人：</strong>{{ detailData.ownerId }}</div>
           <div><strong>创建时间：</strong>{{ detailData.createTime }}</div>
           <div><strong>更新时间：</strong>{{ detailData.updateTime }}</div>
-          <div class="detail-span"><strong>治理摘要：</strong>{{ detailData.description || '—' }}</div>
+          <div class="detail-span"><strong>治理摘要：</strong>{{ normalizeDisplayText(detailData.description) || '—' }}</div>
           <div class="detail-span"><strong>调用次数：</strong>{{ detailData.callCount ?? 0 }}</div>
         </div>
       </el-skeleton>
@@ -151,7 +185,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import request from '../api/request';
 import { useUserStore } from '../store/user';
@@ -165,17 +199,32 @@ const showEdit = ref(false);
 const showDetail = ref(false);
 const saving = ref(false);
 const selectedFile = ref(null);
+const fileInputRef = ref(null);
 const detailData = ref(null);
 const detailLoading = ref(false);
+const recommendedSensitivityLevel = ref('');
 
 const query = ref({ name: '' });
 const addForm = ref({ name: '', type: '', sensitivityLevel: 'medium', location: '', description: '' });
 const editForm = ref({});
-const uploadForm = ref({ assetName: '', type: '', sensitivityLevel: 'medium', description: '' });
+const uploadForm = ref({ assetName: '', type: '', sensitivityLevel: '', description: '' });
 const addFormRef = ref();
 const editFormRef = ref();
 
 const operatorName = computed(() => userStore.displayName || userStore.userInfo?.username || '当前用户');
+const roleCode = computed(() => String(userStore.userInfo?.roleCode || '').toUpperCase());
+const username = computed(() => String(userStore.userInfo?.username || '').toLowerCase());
+const isDataAdmin = computed(() => roleCode.value === 'DATA_ADMIN');
+const canWriteAsset = computed(() => {
+  if (roleCode.value === 'ADMIN') return true;
+  if (!isDataAdmin.value) return false;
+  return username.value !== 'dataadmin_3';
+});
+const canDeleteAsset = computed(() => {
+  if (roleCode.value === 'ADMIN') return true;
+  if (!isDataAdmin.value) return false;
+  return username.value === 'dataadmin';
+});
 const sensitivityOptions = ['low', 'medium', 'high', 'critical'];
 const rules = {
   name: [{ required: true, message: '名称不能为空', trigger: 'blur' }],
@@ -184,6 +233,7 @@ const rules = {
 };
 
 async function fetchAssets() {
+  if (loading.value) return;
   loading.value = true;
   try {
     const res = await request.get('/data-asset/list', { params: query.value });
@@ -203,12 +253,14 @@ function openAdd() {
 function handleFileChange(event) {
   const [file] = event.target.files || [];
   selectedFile.value = file || null;
+  recommendedSensitivityLevel.value = '';
   if (file && !uploadForm.value.assetName) {
     uploadForm.value.assetName = file.name.replace(/\.[^.]+$/, '');
   }
 }
 
 async function uploadAsset() {
+  if (uploading.value) return;
   if (!selectedFile.value) {
     ElMessage.warning('请先选择要上传的数据文件');
     return;
@@ -221,13 +273,25 @@ async function uploadAsset() {
     if (uploadForm.value.type) formData.append('type', uploadForm.value.type);
     if (uploadForm.value.sensitivityLevel) formData.append('sensitivityLevel', uploadForm.value.sensitivityLevel);
     if (uploadForm.value.description) formData.append('description', uploadForm.value.description);
-    await request.post('/data-asset/upload', formData, {
+    const uploadResult = await request.post('/data-asset/upload', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
-    ElMessage.success('上传成功，已进入治理链路');
+
+    const recommended = uploadResult?.recommendedSensitivityLevel || uploadResult?.recommendedLevel || '';
+    recommendedSensitivityLevel.value = recommended;
+    if (recommended) {
+      ElMessage.success(`上传成功，推荐等级：${recommended}`);
+    } else {
+      ElMessage.success('上传成功，已进入治理链路');
+    }
+
     selectedFile.value = null;
-    uploadForm.value = { assetName: '', type: '', sensitivityLevel: 'medium', description: '' };
+    if (fileInputRef.value) {
+      fileInputRef.value.value = '';
+    }
+    uploadForm.value = { assetName: '', type: '', sensitivityLevel: '', description: '' };
     await fetchAssets();
+    await syncCurrentUser();
   } catch (err) {
     ElMessage.error(err?.message || '上传失败');
   } finally {
@@ -303,7 +367,30 @@ async function viewAssetDetail(id) {
   }
 }
 
-fetchAssets();
+function normalizeDisplayText(text) {
+  if (!text) return text;
+  return String(text)
+    .replace(/\[\s*DEMO(?:-SEED)?\s*\]/gi, '')
+    .replace(/\bDEMO[_-]?SEED\b/gi, '')
+    .replace(/\bDEMO[_-]?\d{4,}\b/gi, '')
+    .replace(/^\s*[_-]+\s*/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+async function syncCurrentUser() {
+  try {
+    const profile = await request.get('/auth/me');
+    userStore.setUser(profile?.user || profile || {});
+  } catch {
+    // Ignore profile refresh errors; existing session context stays available.
+  }
+}
+
+onMounted(async () => {
+  await syncCurrentUser();
+  await fetchAssets();
+});
 </script>
 
 <style scoped>

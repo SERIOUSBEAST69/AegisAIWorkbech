@@ -14,6 +14,8 @@ public class Role {
     private String name;
     private String code;
     private String description;
+    private Boolean allowSelfRegister;
+    private Boolean isSystem;
     private Date createTime;
     private Date updateTime;
 }

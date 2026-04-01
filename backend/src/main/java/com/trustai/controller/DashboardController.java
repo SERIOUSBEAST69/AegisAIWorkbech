@@ -530,6 +530,10 @@ public class DashboardController {
                                       List<AuditLog> auditLogs,
                                       List<ModelCallStat> modelStats) {
         WorkbenchOverviewDTO.Trend trend = new WorkbenchOverviewDTO.Trend();
+        trend.setRiskEventSampleCount((long) riskEvents.size());
+        trend.setAuditLogSampleCount((long) auditLogs.size());
+        trend.setModelStatSampleCount((long) modelStats.size());
+        trend.setTrendWindowDays(7);
         Map<LocalDate, Long> riskByDay = riskEvents.stream()
             .filter(item -> item.getCreateTime() != null)
             .collect(Collectors.groupingBy(item -> toLocalDate(item.getCreateTime()), Collectors.counting()));

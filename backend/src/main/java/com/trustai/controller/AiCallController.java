@@ -8,7 +8,9 @@ import com.trustai.utils.R;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.trustai.exception.BizException;
 import com.trustai.entity.AiCallLog;
+import com.trustai.entity.User;
 import com.trustai.service.AiCallAuditService;
+import com.trustai.service.CurrentUserService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -32,12 +34,16 @@ public class AiCallController {
     private final AiService aiService;
     private final RateLimiterService rateLimiterService;
     private final AiCallAuditService aiCallAuditService;
+    private final CurrentUserService currentUserService;
 
     @PostMapping("/call")
     public R<AiCallResponse> call(@RequestBody @Valid AiCallRequest request, Principal principal, HttpServletRequest httpRequest) {
-        Long userId = principal == null ? null : 0L; // TODO: 从登录上下文获取真实用户ID
+        User currentUser = currentUserService.requireCurrentUser();
+        Long userId = currentUser.getId();
+        Long companyId = currentUser.getCompanyId();
+        String username = currentUser.getUsername();
         String ip = httpRequest.getRemoteAddr();
-        return R.ok(aiService.chat(request, userId, ip));
+        return R.ok(aiService.chat(request, userId, companyId, username, ip));
     }
 
     @PostMapping("/quota/reset/{modelCode}")
@@ -51,7 +57,11 @@ public class AiCallController {
     @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
     public R<?> monitorSummary() {
         try {
-            List<AiCallLog> logs = aiCallAuditService.list(new QueryWrapper<AiCallLog>().orderByDesc("create_time").last("limit 500"));
+            Long companyId = currentUserService.requireCurrentUser().getCompanyId();
+            List<AiCallLog> logs = aiCallAuditService.list(new QueryWrapper<AiCallLog>()
+                .eq(companyId != null, "company_id", companyId)
+                .orderByDesc("create_time")
+                .last("limit 500"));
             Map<String, MonitorRow> map = new HashMap<>();
             for (AiCallLog log : logs) {
                 MonitorRow row = map.computeIfAbsent(log.getModelCode(), k -> new MonitorRow(k, log.getProvider()));
@@ -71,9 +81,12 @@ public class AiCallController {
     @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
     public R<?> monitorTrend() {
         try {
-            LocalDate today = LocalDate.now();
+            Long companyId = currentUserService.requireCurrentUser().getCompanyId();
             Map<String, TrendRow> trend = new HashMap<>();
-            List<AiCallLog> logs = aiCallAuditService.list(new QueryWrapper<AiCallLog>().orderByDesc("create_time").last("limit 1000"));
+            List<AiCallLog> logs = aiCallAuditService.list(new QueryWrapper<AiCallLog>()
+                .eq(companyId != null, "company_id", companyId)
+                .orderByDesc("create_time")
+                .last("limit 1000"));
             for (AiCallLog log : logs) {
                 if (log.getCreateTime() == null) continue;
                 LocalDate d = log.getCreateTime().toLocalDate();
@@ -98,7 +111,10 @@ public class AiCallController {
         int safePage = Math.max(1, page);
         int safePageSize = Math.max(1, Math.min(100, pageSize));
         int offset = (safePage - 1) * safePageSize;
-        List<AiCallLog> all = aiCallAuditService.list(new QueryWrapper<AiCallLog>().orderByDesc("create_time"));
+        Long companyId = currentUserService.requireCurrentUser().getCompanyId();
+        List<AiCallLog> all = aiCallAuditService.list(new QueryWrapper<AiCallLog>()
+            .eq(companyId != null, "company_id", companyId)
+            .orderByDesc("create_time"));
         int total = all.size();
         int to = Math.min(total, offset + safePageSize);
         List<AiCallLog> list = offset >= total ? List.of() : all.subList(offset, to);

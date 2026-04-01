@@ -31,23 +31,28 @@
       <div class="legend-items">
         <div class="legend-item">
           <span class="legend-dot" style="background:#f53f3f"></span>
-          <strong>隐私政策 ×30</strong>
-          <span>是否默认使用数据训练模型</span>
+          <strong>模型固有风险 ×40</strong>
+          <span>依据模型风险分级与稳定性基线</span>
         </div>
         <div class="legend-item">
           <span class="legend-dot" style="background:#fa8c16"></span>
-          <strong>数据存储地 ×25</strong>
-          <span>境外存储风险更高（数据出境合规）</span>
+          <strong>隐私暴露风险 ×15</strong>
+          <span>依据模型服务特征评估隐私暴露面</span>
         </div>
         <div class="legend-item">
           <span class="legend-dot" style="background:#52c41a"></span>
-          <strong>安全认证 ×20</strong>
-          <span>ISO 27001 / SOC2 / 等保三级认证</span>
+          <strong>调用量风险 ×20</strong>
+          <span>调用越高，风险敞口越大</span>
         </div>
         <div class="legend-item">
           <span class="legend-dot" style="background:#722ed1"></span>
-          <strong>历史泄露 ×25</strong>
-          <span>历史数据安全事件记录</span>
+          <strong>失败率风险 ×15</strong>
+          <span>失败率越高，异常行为概率越高</span>
+        </div>
+        <div class="legend-item">
+          <span class="legend-dot" style="background:#2f54eb"></span>
+          <strong>延时风险 ×10</strong>
+          <span>高延时可能触发超时重试与泄露放大</span>
         </div>
       </div>
     </div>
@@ -294,10 +299,11 @@ function categoryLabel(cat) {
 
 function dimLabel(key) {
   return {
-    trains_on_data: '🔵 隐私政策（数据训练）',
-    data_location:  '🟠 数据存储地',
-    security_cert:  '🟢 安全认证',
-    breach_history: '🔴 历史泄露事件',
+    base_risk: '🔴 模型固有风险',
+    privacy_exposure: '🟠 隐私暴露风险',
+    usage_volume:  '🟢 调用量风险',
+    failure_rate: '🟣 失败率风险',
+    latency: '🔵 延时风险',
   }[key] || key;
 }
 

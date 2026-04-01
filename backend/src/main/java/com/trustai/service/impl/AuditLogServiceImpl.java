@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.trustai.config.RabbitConfig;
 import com.trustai.document.AuditLogDocument;
 import com.trustai.entity.AuditLog;
+import com.trustai.exception.BizException;
 import com.trustai.mapper.AuditLogMapper;
 import com.trustai.repository.AuditLogEsRepository;
 import com.trustai.service.AuditLogService;
@@ -20,7 +21,10 @@ import org.springframework.data.elasticsearch.core.query.Criteria;
 import org.springframework.data.elasticsearch.core.query.CriteriaQuery;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
+import org.springframework.jdbc.core.JdbcTemplate;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
@@ -39,19 +43,127 @@ public class AuditLogServiceImpl extends ServiceImpl<AuditLogMapper, AuditLog> i
 	private final RabbitTemplate rabbitTemplate;
 	private final ObjectProvider<AuditLogEsRepository> auditLogEsRepositoryProvider;
 	private final ObjectProvider<ElasticsearchOperations> elasticsearchOperationsProvider;
+	private final JdbcTemplate jdbcTemplate;
 
 	@Override
 	public boolean save(AuditLog entity) {
+		validateAuditActor(entity);
 		boolean db = super.save(entity);
+		appendAuditHashChain(entity);
 		sendAsync(entity);
 		return db;
 	}
 
 	@Override
 	public boolean saveAudit(AuditLog log) {
+		validateAuditActor(log);
 		boolean db = super.save(log);
+		appendAuditHashChain(log);
 		sendAsync(log);
 		return db;
+	}
+
+	private void validateAuditActor(AuditLog entity) {
+		if (entity == null || entity.getUserId() == null || entity.getUserId() <= 0) {
+			throw new BizException(40000, "审计日志必须绑定已存在账号");
+		}
+		Integer exists = jdbcTemplate.queryForObject(
+			"SELECT COUNT(1) FROM sys_user WHERE id = ?",
+			Integer.class,
+			entity.getUserId()
+		);
+		if (exists == null || exists == 0) {
+			throw new BizException(40000, "审计日志 user_id 无效");
+		}
+	}
+
+	private void appendAuditHashChain(AuditLog logEntity) {
+		if (logEntity == null || logEntity.getId() == null) {
+			return;
+		}
+		try {
+			Integer exists = jdbcTemplate.queryForObject(
+				"SELECT COUNT(1) FROM audit_hash_chain WHERE audit_log_id = ?",
+				Integer.class,
+				logEntity.getId()
+			);
+			if (exists != null && exists > 0) {
+				return;
+			}
+
+			Long companyId = resolveCompanyId(logEntity.getUserId());
+			if (companyId == null || companyId <= 0L) {
+				return;
+			}
+
+			String prevHash = jdbcTemplate.query(
+				"SELECT current_hash FROM audit_hash_chain WHERE company_id = ? ORDER BY id DESC LIMIT 1",
+				ps -> ps.setLong(1, companyId),
+				rs -> rs.next() ? rs.getString(1) : null
+			);
+			String currentHash = sha256(buildChainPayload(logEntity, companyId, prevHash));
+
+			jdbcTemplate.update(
+				"INSERT INTO audit_hash_chain(company_id, audit_log_id, prev_hash, current_hash, create_time) VALUES(?, ?, ?, ?, CURRENT_TIMESTAMP)",
+				companyId,
+				logEntity.getId(),
+				prevHash,
+				currentHash
+			);
+		} catch (Exception ex) {
+			log.warn("append audit hash chain failed for logId={}", logEntity.getId(), ex);
+		}
+	}
+
+	private Long resolveCompanyId(Long userId) {
+		if (userId == null) {
+			return null;
+		}
+		return jdbcTemplate.query(
+			"SELECT company_id FROM sys_user WHERE id = ? LIMIT 1",
+			ps -> ps.setLong(1, userId),
+			rs -> rs.next() ? rs.getObject(1, Long.class) : null
+		);
+	}
+
+	private String buildChainPayload(AuditLog logEntity, Long companyId, String prevHash) {
+		return String.join("|",
+			String.valueOf(companyId),
+			String.valueOf(logEntity.getId()),
+			String.valueOf(logEntity.getUserId()),
+			safe(logEntity.getOperation()),
+			safe(normalizeEpochMillis(logEntity.getOperationTime())),
+			safe(logEntity.getInputOverview()),
+			safe(logEntity.getOutputOverview()),
+			safe(logEntity.getResult()),
+			safe(prevHash)
+		);
+	}
+
+	private String normalizeEpochMillis(Date operationTime) {
+		if (operationTime == null) {
+			return null;
+		}
+		long secondAligned = (operationTime.getTime() / 1000L) * 1000L;
+		return String.valueOf(secondAligned);
+	}
+
+	private String sha256(String text) {
+		try {
+			MessageDigest digest = MessageDigest.getInstance("SHA-256");
+			byte[] bytes = digest.digest(text.getBytes(StandardCharsets.UTF_8));
+			StringBuilder hex = new StringBuilder();
+			for (byte b : bytes) {
+				hex.append(String.format("%02x", b));
+			}
+			return hex.toString();
+		} catch (Exception ex) {
+			throw new IllegalStateException("sha256 compute failed", ex);
+		}
+	}
+
+	private String safe(String value) {
+		return value == null ? "" : value;
 	}
 
 	private void sendAsync(AuditLog log) {

@@ -29,8 +29,8 @@
       <el-table-column prop="filePath" label="文件路径" min-width="240"/>
       <el-table-column label="操作" width="180" fixed="right">
         <template #default="scope">
-          <el-button size="small" type="danger" :disabled="scope.row.status==='blocked'" @click="block(scope.row.id)">阻断</el-button>
-          <el-button size="small" :disabled="scope.row.status==='ignored'" @click="ignore(scope.row.id)">忽略</el-button>
+          <el-button size="small" type="danger" :disabled="scope.row.status==='blocked' || !canBlock" @click="block(scope.row.id)">阻断</el-button>
+          <el-button size="small" :disabled="scope.row.status==='ignored' || !canIgnore" @click="ignore(scope.row.id)">忽略</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -38,9 +38,15 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import request from '../api/request';
+import { useUserStore } from '../store/user';
+import { canBlockThreatEvent, canIgnoreThreatEvent } from '../utils/roleBoundary';
+
+const userStore = useUserStore();
+const canBlock = computed(() => canBlockThreatEvent(userStore.userInfo));
+const canIgnore = computed(() => canIgnoreThreatEvent(userStore.userInfo));
 
 const loading = ref(false);
 const events = ref([]);

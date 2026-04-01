@@ -23,6 +23,7 @@ public class CompanySchemaInitializer implements CommandLineRunner {
     public void run(String... args) {
         ensureCompanyTable();
         ensureUnifiedEventTables();
+        ensureUserRoleTable();
         ensureUserRecycleBinTable();
         ensureGovernanceChangeTables();
         ensureCompanyColumns();
@@ -55,7 +56,12 @@ public class CompanySchemaInitializer implements CommandLineRunner {
         ensureIndex("client_report", "idx_client_report_company_scan", "company_id, scan_time");
         ensureIndex("client_report", "idx_client_report_company_client_scan", "company_id, client_id, scan_time");
         ensureIndex("client_scan_queue", "idx_client_queue_company_download", "company_id, download_time");
+        ensureIndex("ai_call_log", "idx_ai_call_company_time", "company_id, create_time");
+        ensureIndex("ai_call_log", "idx_ai_call_company_user_time", "company_id, user_id, create_time");
         ensureIndex("permission", "idx_permission_company_code", "company_id, code");
+        ensureIndex("role", "idx_role_company_code", "company_id, code");
+        ensureIndex("user_role", "idx_user_role_user", "user_id");
+        ensureIndex("user_role", "idx_user_role_role", "role_id");
         ensureIndex("governance_event", "idx_governance_company", "company_id");
         ensureIndex("governance_event", "idx_governance_user", "user_id");
         ensureIndex("governance_event", "idx_governance_type", "event_type");
@@ -68,6 +74,18 @@ public class CompanySchemaInitializer implements CommandLineRunner {
         ensureIndex("user_recycle_bin", "idx_user_recycle_user", "user_id");
         ensureIndex("governance_change_request", "idx_gov_change_company_status", "company_id, status, create_time");
         ensureIndex("sod_conflict_rule", "idx_sod_company_scene", "company_id, scenario, enabled");
+    }
+
+    private void ensureUserRoleTable() {
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS user_role (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    role_id BIGINT NOT NULL,
+                    create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """);
     }
 
     private void ensureUserRecycleBinTable() {
@@ -216,27 +234,32 @@ public class CompanySchemaInitializer implements CommandLineRunner {
         ensureColumn("sys_user", "organization_type", "VARCHAR(64)");
         ensureColumn("sys_user", "login_type", "VARCHAR(32)");
         ensureColumn("sys_user", "wechat_open_id", "VARCHAR(128)");
+        ensureColumn("sys_user", "job_title", "VARCHAR(128)");
         ensureColumn("sys_user", "account_type", "VARCHAR(20)");
         ensureColumn("sys_user", "account_status", "VARCHAR(20)");
         ensureColumn("sys_user", "approved_by", "BIGINT");
         ensureColumn("sys_user", "reject_reason", "VARCHAR(255)");
         ensureColumn("sys_user", "approved_at", "TIMESTAMP");
         ensureColumn("sys_user", "last_policy_pull_time", "TIMESTAMP");
-        ensureColumn("role", "company_id", "BIGINT");
-        ensureColumn("permission", "company_id", "BIGINT");
-        ensureColumn("data_asset", "company_id", "BIGINT");
-        ensureColumn("risk_event", "company_id", "BIGINT");
-        ensureColumn("security_event", "company_id", "BIGINT");
+        ensureColumn("role", "company_id", "BIGINT NOT NULL");
+        ensureColumn("role", "allow_self_register", "BOOLEAN DEFAULT FALSE");
+        ensureColumn("role", "is_system", "BOOLEAN DEFAULT FALSE");
+        ensureColumn("permission", "company_id", "BIGINT NOT NULL");
+        ensureColumn("data_asset", "company_id", "BIGINT NOT NULL");
+        ensureColumn("risk_event", "company_id", "BIGINT NOT NULL");
+        ensureColumn("security_event", "company_id", "BIGINT NOT NULL");
         ensureColumn("security_event", "policy_version", "BIGINT");
-        ensureColumn("approval_request", "company_id", "BIGINT");
+        ensureColumn("approval_request", "company_id", "BIGINT NOT NULL");
         ensureColumn("approval_request", "process_instance_id", "VARCHAR(64)");
         ensureColumn("approval_request", "task_id", "VARCHAR(64)");
-        ensureColumn("subject_request", "company_id", "BIGINT");
-        ensureColumn("compliance_policy", "company_id", "BIGINT");
-        ensureColumn("client_report", "company_id", "BIGINT");
+        ensureColumn("subject_request", "company_id", "BIGINT NOT NULL");
+        ensureColumn("compliance_policy", "company_id", "BIGINT NOT NULL");
+        ensureColumn("client_report", "company_id", "BIGINT NOT NULL");
         ensureColumn("client_report", "ip_address", "VARCHAR(64)");
-        ensureColumn("client_scan_queue", "company_id", "BIGINT");
-        ensureColumn("privacy_event", "company_id", "BIGINT");
+        ensureColumn("client_scan_queue", "company_id", "BIGINT NOT NULL");
+        ensureColumn("ai_call_log", "company_id", "BIGINT NOT NULL");
+        ensureColumn("ai_call_log", "username", "VARCHAR(128)");
+        ensureColumn("privacy_event", "company_id", "BIGINT NOT NULL");
         ensureColumn("privacy_event", "policy_version", "BIGINT");
         ensureColumn("privacy_event", "severity", "VARCHAR(20)");
     }
@@ -321,6 +344,8 @@ public class CompanySchemaInitializer implements CommandLineRunner {
             jdbcTemplate.update("UPDATE compliance_policy SET company_id = 1 WHERE company_id IS NULL");
             jdbcTemplate.update("UPDATE client_report SET company_id = 1 WHERE company_id IS NULL");
             jdbcTemplate.update("UPDATE client_scan_queue SET company_id = 1 WHERE company_id IS NULL");
+            jdbcTemplate.update("UPDATE ai_call_log l LEFT JOIN sys_user u ON l.user_id = u.id SET l.company_id = COALESCE(l.company_id, u.company_id, 1)");
+            jdbcTemplate.update("UPDATE ai_call_log l LEFT JOIN sys_user u ON l.user_id = u.id SET l.username = COALESCE(l.username, u.username) WHERE l.username IS NULL OR l.username = ''");
             jdbcTemplate.update("UPDATE privacy_event SET company_id = 1 WHERE company_id IS NULL");
             jdbcTemplate.update("UPDATE security_event SET policy_version = 1 WHERE policy_version IS NULL");
             jdbcTemplate.update("UPDATE privacy_event SET policy_version = 1 WHERE policy_version IS NULL");

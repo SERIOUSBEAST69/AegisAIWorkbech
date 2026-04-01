@@ -3,16 +3,17 @@
     <el-card class="card-glass">
       <div class="card-header">数据主体权利工单</div>
       <el-form :inline="true" @submit.prevent ref="formRef" :model="form" :rules="rules">
-        <el-form-item label="用户ID" prop="userId"><el-input v-model="form.userId" /></el-form-item>
+        <el-form-item v-if="showUserIdField" label="用户ID" prop="userId"><el-input v-model="form.userId" /></el-form-item>
         <el-form-item label="类型" prop="type">
           <el-select v-model="form.type" style="width:140px">
             <el-option label="查询" value="access" />
             <el-option label="导出" value="export" />
-            <el-option label="删除" value="delete" />
+            <el-option v-if="canSelectDeleteType" label="删除" value="delete" />
           </el-select>
         </el-form-item>
         <el-form-item label="备注" prop="comment"><el-input v-model="form.comment" style="width:220px" /></el-form-item>
-        <el-button type="primary" :loading="saving" @click="create">提交申请</el-button>
+        <el-button v-if="canCreateRequest" type="primary" :loading="saving" @click="create">提交申请</el-button>
+        <span v-else class="hint-text">当前账号仅可查看工单</span>
       </el-form>
       <el-table :data="list" class="page-table" style="margin-top:12px" v-loading="loading" empty-text="暂无记录">
         <el-table-column prop="id" label="ID" width="250">
@@ -33,13 +34,16 @@
         <el-table-column prop="handlerId" label="处理人" />
         <el-table-column label="处理" width="220">
           <template #default="scope">
-            <el-select v-model="scope.row.status" size="small" style="width:140px" @change="update(scope.row)">
-              <el-option label="pending" value="pending" />
-              <el-option label="processing" value="processing" />
-              <el-option label="done" value="done" />
-              <el-option label="rejected" value="rejected" />
-            </el-select>
-            <el-button size="small" type="danger" @click="remove(scope.row.id)" style="margin-left:8px">删除</el-button>
+            <template v-if="canProcessRequest">
+              <el-select v-model="scope.row.status" size="small" style="width:140px" @change="update(scope.row)">
+                <el-option label="pending" value="pending" />
+                <el-option label="processing" value="processing" />
+                <el-option label="done" value="done" />
+                <el-option label="rejected" value="rejected" />
+              </el-select>
+              <el-button v-if="canDeleteRequest" size="small" type="danger" @click="remove(scope.row.id)" style="margin-left:8px">删除</el-button>
+            </template>
+            <span v-else class="hint-text">仅运营角色可处理</span>
           </template>
         </el-table-column>
       </el-table>
@@ -48,10 +52,17 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import request from '../api/request';
 import { useUserStore } from '../store/user';
+import {
+  canCreateSubjectRequest,
+  canCreateSubjectRequestType,
+  canDeleteSubjectRequest,
+  canProcessSubjectRequest,
+  hasAnyRole,
+} from '../utils/roleBoundary';
 function getSafeComment(comment) {
   return String(comment || '');
 }
@@ -66,6 +77,12 @@ const rules = {
   type: [{ required: true, message: '类型不能为空', trigger: 'change' }],
   comment: [{ required: true, message: '备注不能为空', trigger: 'blur' }]
 };
+const currentUser = computed(() => userStore.userInfo || {});
+const showUserIdField = computed(() => hasAnyRole(currentUser.value, ['ADMIN', 'DATA_ADMIN', 'BUSINESS_OWNER']));
+const canCreateRequest = computed(() => canCreateSubjectRequest(currentUser.value));
+const canSelectDeleteType = computed(() => canCreateSubjectRequestType(currentUser.value, 'delete'));
+const canProcessRequest = computed(() => canProcessSubjectRequest(currentUser.value));
+const canDeleteRequest = computed(() => canDeleteSubjectRequest(currentUser.value));
 
 function removeRequestFromList(id) {
   list.value = list.value.filter(item => item.id !== id);
@@ -87,6 +104,14 @@ async function load() {
 }
 
 async function create() {
+  if (!canCreateRequest.value) {
+    ElMessage.warning('当前账号仅可查看工单');
+    return;
+  }
+  if (!canCreateSubjectRequestType(currentUser.value, form.value.type)) {
+    ElMessage.warning('当前账号不可提交该类型工单');
+    return;
+  }
   if (!formRef.value) return;
   formRef.value.validate(async valid => {
     if (!valid) return;
@@ -149,6 +174,7 @@ if (!form.value.userId && userStore.userInfo?.id) {
 <style scoped>
 .page-grid { display: grid; gap: 16px; }
 .card-header { font-weight: 600; margin-bottom: 12px; color: var(--color-text); }
+.hint-text { color: var(--color-text-secondary); font-size: 12px; }
 
 :deep(.page-table) {
   --el-table-bg-color: transparent;

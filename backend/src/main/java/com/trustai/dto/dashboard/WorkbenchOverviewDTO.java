@@ -52,6 +52,14 @@ public class WorkbenchOverviewDTO {
         private List<Long> aiCallSeries = new ArrayList<>();
         private List<Long> costSeries = new ArrayList<>();
         private Long forecastNextDay = 0L;
+        /** 风险事件样本数（查询窗口内命中记录数） */
+        private Long riskEventSampleCount = 0L;
+        /** 审计日志样本数（查询窗口内命中记录数） */
+        private Long auditLogSampleCount = 0L;
+        /** 模型调用统计样本数（查询窗口内命中记录数） */
+        private Long modelStatSampleCount = 0L;
+        /** 趋势窗口天数，当前固定为 7 天 */
+        private Integer trendWindowDays = 7;
     }
 
     @Data

@@ -5,6 +5,7 @@ import com.trustai.entity.Permission;
 import com.trustai.entity.Role;
 import com.trustai.entity.RolePermission;
 import com.trustai.entity.User;
+import com.trustai.entity.UserRole;
 import com.trustai.exception.BizException;
 import java.util.Objects;
 import java.util.Arrays;
@@ -29,6 +30,7 @@ public class CurrentUserService {
     private final RoleService roleService;
     private final RolePermissionService rolePermissionService;
     private final PermissionService permissionService;
+    private final UserRoleService userRoleService;
 
     public User requireCurrentUser() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
@@ -92,6 +94,12 @@ public class CurrentUserService {
                 return resolved;
             }
         }
+        for (Long roleId : currentRoleIds(user)) {
+            Role resolved = roleService.getById(roleId);
+            if (resolved != null && Objects.equals(resolved.getCompanyId(), user.getCompanyId())) {
+                return resolved;
+            }
+        }
         if ("admin".equalsIgnoreCase(user.getUsername())) {
             return roleService.lambdaQuery()
                 .eq(Role::getCode, ADMIN_ROLE_CODE)
@@ -131,10 +139,10 @@ public class CurrentUserService {
         try {
             User user = requireCurrentUser();
             Role role = getCurrentRole(user);
-            if (role == null || role.getId() == null) {
+            if (role == null && currentRoleIds(user).isEmpty()) {
                 return false;
             }
-            Set<String> codes = currentPermissionCodes(role.getId(), user.getCompanyId());
+            Set<String> codes = permissionCodesOfUser(user);
             return codes.contains(permissionCode.trim().toLowerCase());
         } catch (Exception ex) {
             return false;
@@ -148,10 +156,10 @@ public class CurrentUserService {
         try {
             User user = requireCurrentUser();
             Role role = getCurrentRole(user);
-            if (role == null || role.getId() == null) {
+            if (role == null && currentRoleIds(user).isEmpty()) {
                 return false;
             }
-            Set<String> codes = currentPermissionCodes(role.getId(), user.getCompanyId());
+            Set<String> codes = permissionCodesOfUser(user);
             return Arrays.stream(permissionCodes)
                 .filter(StringUtils::hasText)
                 .map(code -> code.trim().toLowerCase())
@@ -175,6 +183,47 @@ public class CurrentUserService {
 
     public boolean isEmployeeUser() {
         return EMPLOYEE_ROLE_CODE.equalsIgnoreCase(currentRoleCode());
+    }
+
+    public Set<String> permissionCodesOfCurrentUser() {
+        return permissionCodesOfUser(requireCurrentUser());
+    }
+
+    public Set<String> permissionCodesOfUser(User user) {
+        if (user == null) {
+            return Set.of();
+        }
+        Set<Long> roleIds = currentRoleIds(user);
+        if (roleIds.isEmpty()) {
+            return Set.of();
+        }
+        Set<String> codes = new HashSet<>();
+        for (Long roleId : roleIds) {
+            codes.addAll(currentPermissionCodes(roleId, user.getCompanyId()));
+        }
+        return codes;
+    }
+
+    public Set<Long> currentRoleIds(User user) {
+        Set<Long> roleIds = new HashSet<>();
+        if (user == null) {
+            return roleIds;
+        }
+        if (user.getRoleId() != null) {
+            roleIds.add(user.getRoleId());
+        }
+        if (user.getId() != null) {
+            try {
+                for (UserRole userRole : userRoleService.lambdaQuery().eq(UserRole::getUserId, user.getId()).list()) {
+                    if (userRole.getRoleId() != null) {
+                        roleIds.add(userRole.getRoleId());
+                    }
+                }
+            } catch (Exception ignored) {
+                // user_role may not exist in some legacy environments.
+            }
+        }
+        return roleIds;
     }
 
     private Set<String> currentPermissionCodes(Long roleId, Long companyId) {

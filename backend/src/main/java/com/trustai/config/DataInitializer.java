@@ -2,8 +2,11 @@ package com.trustai.config;
 
 import com.trustai.entity.Role;
 import com.trustai.entity.User;
+import com.trustai.entity.AuditLog;
+import com.trustai.service.AuditLogService;
 import com.trustai.service.RoleService;
 import com.trustai.service.UserService;
+import java.util.Calendar;
 import java.util.Date;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -50,9 +53,9 @@ public class DataInitializer implements CommandLineRunner {
         new UserSeed("bizowner", "业务负责人", "BUSINESS_OWNER", "业务创新部", "13800138005", "bizowner@aegisai.com", "wx_bizowner", DEFAULT_PASSWORD),
         new UserSeed("bizowner_2", "业务负责人二号", "BUSINESS_OWNER", "业务创新部", "13800138055", "bizowner2@aegisai.com", "wx_bizowner2", DEFAULT_PASSWORD),
         new UserSeed("bizowner_3", "业务负责人三号", "BUSINESS_OWNER", "业务创新部", "13800138056", "bizowner3@aegisai.com", "wx_bizowner3", DEFAULT_PASSWORD),
-        new UserSeed("employee", "普通员工", "EMPLOYEE", "业务一线", "13800138006", "employee@aegisai.com", "wx_employee", DEFAULT_PASSWORD),
-        new UserSeed("employee_2", "普通员工二号", "EMPLOYEE", "业务一线", "13800138066", "employee2@aegisai.com", "wx_employee2", DEFAULT_PASSWORD),
-        new UserSeed("employee_3", "普通员工三号", "EMPLOYEE", "业务一线", "13800138067", "employee3@aegisai.com", "wx_employee3", DEFAULT_PASSWORD)
+        new UserSeed("employee1", "普通员工一号", "EMPLOYEE", "业务一线", "13800138006", "employee1@aegisai.com", "wx_employee1", DEFAULT_PASSWORD),
+        new UserSeed("employee2", "普通员工二号", "EMPLOYEE", "业务一线", "13800138066", "employee2@aegisai.com", "wx_employee2", DEFAULT_PASSWORD),
+        new UserSeed("employee3", "普通员工三号", "EMPLOYEE", "业务一线", "13800138067", "employee3@aegisai.com", "wx_employee3", DEFAULT_PASSWORD)
     );
 
     @Autowired
@@ -63,19 +66,246 @@ public class DataInitializer implements CommandLineRunner {
     private PasswordEncoder passwordEncoder;
     @Autowired
     private JdbcTemplate jdbcTemplate;
+    @Autowired
+    private AuditLogService auditLogService;
 
     @Value("${app.seed.demo-data:false}")
     private boolean seedDemoData;
 
     @Override
     public void run(String... args) {
+        enforceTrustedAiModelBaseline();
         Map<String, Role> roleMap = ensureDefaultRoles(DEFAULT_COMPANY_ID);
         for (UserSeed seed : BASELINE_USERS) {
             ensureUser(DEFAULT_COMPANY_ID, seed, roleMap.get(seed.roleCode()));
         }
+        seedEnterpriseDataAssets(DEFAULT_COMPANY_ID);
+        seedTraceableObservabilityBaseline(DEFAULT_COMPANY_ID);
+        repairHistoricalTraceability(DEFAULT_COMPANY_ID);
         if (seedDemoData) {
             seedGovernanceAdminDemoData(DEFAULT_COMPANY_ID, roleMap);
         }
+    }
+
+    private void seedTraceableObservabilityBaseline(Long companyId) {
+        if (!tableExists("model_call_stat") || !tableExists("audit_log") || !tableExists("risk_event")) {
+            return;
+        }
+        List<User> users = userService.lambdaQuery().eq(User::getCompanyId, companyId).list();
+        if (users.isEmpty()) {
+            return;
+        }
+        Map<String, User> userByName = new LinkedHashMap<>();
+        for (User user : users) {
+            userByName.put(String.valueOf(user.getUsername()).toLowerCase(Locale.ROOT), user);
+        }
+        List<User> actors = users.stream().filter(user -> !"employee1".equalsIgnoreCase(user.getUsername())).toList();
+        if (actors.isEmpty()) {
+            actors = users;
+        }
+
+        Date now = new Date();
+        for (int dayOffset = 13; dayOffset >= 0; dayOffset--) {
+            Date day = new Date(now.getTime() - dayOffset * 24L * 3600_000L);
+            Date dayStart = atStartOfDay(day);
+            Date dayEnd = new Date(dayStart.getTime() + 24L * 3600_000L);
+            User actor = actors.get(dayOffset % actors.size());
+
+            Integer dailyAuditCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(1) FROM audit_log WHERE user_id = ? AND operation_time >= ? AND operation_time < ?",
+                Integer.class,
+                actor.getId(),
+                dayStart,
+                dayEnd
+            );
+            if (dailyAuditCount == null || dailyAuditCount == 0) {
+                AuditLog log = new AuditLog();
+                log.setUserId(actor.getId());
+                log.setOperation("demo_observability_baseline");
+                log.setOperationTime(day);
+                log.setInputOverview("companyId=" + companyId + ", actor=" + actor.getUsername());
+                log.setOutputOverview("seed=trend-baseline");
+                log.setResult("success");
+                log.setRiskLevel(dayOffset % 4 == 0 ? "MEDIUM" : "LOW");
+                log.setCreateTime(day);
+                auditLogService.saveAudit(log);
+            }
+
+            Integer dailyModelStats = jdbcTemplate.queryForObject(
+                "SELECT COUNT(1) FROM model_call_stat WHERE user_id = ? AND date >= ? AND date < ?",
+                Integer.class,
+                actor.getId(),
+                dayStart,
+                dayEnd
+            );
+            if (dailyModelStats == null || dailyModelStats == 0) {
+                Long modelId = querySingleLong(
+                    "SELECT id FROM ai_model WHERE LOWER(provider) IN ('qwen','wenxin','deepseek','doubao','hunyuan') ORDER BY id ASC LIMIT 1"
+                );
+                jdbcTemplate.update(
+                    "INSERT INTO model_call_stat(model_id, user_id, date, call_count, total_latency_ms, cost_cents) VALUES(?, ?, ?, ?, ?, ?)",
+                    modelId,
+                    actor.getId(),
+                    day,
+                    6 + (dayOffset % 5),
+                    6000L + dayOffset * 200L,
+                    80 + dayOffset * 5
+                );
+            }
+
+            Integer dailyRisk = jdbcTemplate.queryForObject(
+                "SELECT COUNT(1) FROM risk_event WHERE company_id = ? AND create_time >= ? AND create_time < ?",
+                Integer.class,
+                companyId,
+                dayStart,
+                dayEnd
+            );
+            if (dailyRisk == null || dailyRisk == 0) {
+                Long relatedAudit = querySingleLong(
+                    "SELECT a.id FROM audit_log a JOIN sys_user u ON a.user_id = u.id WHERE u.company_id = ? ORDER BY a.id DESC LIMIT 1",
+                    companyId
+                );
+                jdbcTemplate.update(
+                    "INSERT INTO risk_event(company_id, type, level, related_log_id, audit_log_ids, status, handler_id, process_log, create_time, update_time) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    companyId,
+                    dayOffset % 2 == 0 ? "ABNORMAL_ACCESS" : "PRIVACY_VIOLATION",
+                    dayOffset % 5 == 0 ? "HIGH" : "MEDIUM",
+                    relatedAudit,
+                    relatedAudit == null ? "" : String.valueOf(relatedAudit),
+                    dayOffset % 4 == 0 ? "已处理" : "待处理",
+                    actor.getId(),
+                    "观测基线事件，主体=" + actor.getUsername(),
+                    day,
+                    day
+                );
+            }
+        }
+    }
+
+    private Date atStartOfDay(Date value) {
+        Calendar cal = Calendar.getInstance();
+        cal.setTime(value);
+        cal.set(Calendar.HOUR_OF_DAY, 0);
+        cal.set(Calendar.MINUTE, 0);
+        cal.set(Calendar.SECOND, 0);
+        cal.set(Calendar.MILLISECOND, 0);
+        return cal.getTime();
+    }
+
+    private void repairHistoricalTraceability(Long companyId) {
+        if (!tableExists("governance_event")) {
+            return;
+        }
+        List<User> users = userService.lambdaQuery().eq(User::getCompanyId, companyId).list();
+        if (users.isEmpty()) {
+            return;
+        }
+        Map<String, User> byName = new LinkedHashMap<>();
+        for (User user : users) {
+            byName.put(String.valueOf(user.getUsername()).toLowerCase(Locale.ROOT), user);
+        }
+        User admin = byName.getOrDefault("admin", users.get(0));
+        User secops = byName.getOrDefault("secops", admin);
+
+        List<Map<String, Object>> brokenEvents = jdbcTemplate.queryForList(
+            "SELECT id, source_module FROM governance_event WHERE company_id = ? AND (user_id IS NULL OR username IS NULL OR LOWER(username) IN ('system','anonymous','匿名'))",
+            companyId
+        );
+        for (Map<String, Object> row : brokenEvents) {
+            Long id = ((Number) row.get("id")).longValue();
+            String module = String.valueOf(row.getOrDefault("source_module", ""));
+            User target = (module.contains("security") || module.contains("shadow") || module.contains("observability")) ? secops : admin;
+
+            jdbcTemplate.update(
+                "UPDATE governance_event SET user_id = ?, username = ?, update_time = CURRENT_TIMESTAMP WHERE id = ?",
+                target.getId(),
+                target.getUsername(),
+                id
+            );
+
+            AuditLog trace = new AuditLog();
+            trace.setUserId(admin.getId());
+            trace.setOperation("traceability_repair");
+            trace.setOperationTime(new Date());
+            trace.setInputOverview("governanceEventId=" + id + ", module=" + module);
+            trace.setOutputOverview("bindUser=" + target.getUsername());
+            trace.setResult("success");
+            trace.setRiskLevel("MEDIUM");
+            trace.setCreateTime(new Date());
+            auditLogService.saveAudit(trace);
+        }
+    }
+
+    private void seedEnterpriseDataAssets(Long companyId) {
+        if (!tableExists("data_asset")) {
+            return;
+        }
+        Long dataAdminId = querySingleLong(
+            "SELECT id FROM sys_user WHERE company_id = ? AND username = ? ORDER BY id ASC LIMIT 1",
+            companyId,
+            "dataadmin"
+        );
+        Long adminId = querySingleLong(
+            "SELECT id FROM sys_user WHERE company_id = ? AND username = ? ORDER BY id ASC LIMIT 1",
+            companyId,
+            "admin"
+        );
+        Long defaultOwnerId = dataAdminId != null ? dataAdminId : adminId;
+
+        List<EnterpriseAssetSeed> seeds = List.of(
+            new EnterpriseAssetSeed("客户主数据平台", "table", "critical", "mysql://dwh/customer_master", "已纳管", "{\"upstream\":[\"crm_user\",\"mdm_profile\"]}", 21),
+            new EnterpriseAssetSeed("研发代码仓库镜像", "file", "high", "git://code.internal/core-services", "已纳管", "{\"upstream\":[\"gitlab\",\"ci_artifacts\"]}", 20),
+            new EnterpriseAssetSeed("用户行为事件日志", "table", "high", "hdfs://lake/ods/user_behavior", "扫描中", "{\"upstream\":[\"app_sdk\",\"web_tracker\"]}", 18),
+            new EnterpriseAssetSeed("模型训练样本集", "file", "high", "s3://ml-platform/training/samples", "已纳管", "{\"upstream\":[\"label_platform\",\"feature_store\"]}", 17),
+            new EnterpriseAssetSeed("财务流水总账", "table", "critical", "oracle://finance/gl_transaction", "已纳管", "{\"upstream\":[\"erp\",\"settlement\"]}", 15),
+            new EnterpriseAssetSeed("电子合同归档库", "document", "critical", "oss://legal/contracts/archives", "扫描中", "{\"upstream\":[\"contract_center\"]}", 14),
+            new EnterpriseAssetSeed("客服会话记录", "document", "high", "es://service/chat_sessions", "已纳管", "{\"upstream\":[\"service_desk\",\"voice2text\"]}", 13),
+            new EnterpriseAssetSeed("组织架构主档", "table", "medium", "mysql://hr/org_structure", "已纳管", "{\"upstream\":[\"hr_core\"]}", 12),
+            new EnterpriseAssetSeed("供应链采购台账", "table", "medium", "postgres://scm/procurement_ledger", "已纳管", "{\"upstream\":[\"supplier_portal\"]}", 11),
+            new EnterpriseAssetSeed("风控规则版本库", "api", "high", "api://risk-engine/rule-repo", "扫描中", "{\"upstream\":[\"risk_console\",\"decision_engine\"]}", 10),
+            new EnterpriseAssetSeed("经营分析指标集", "table", "low", "clickhouse://bi/ops_kpi", "已纳管", "{\"upstream\":[\"bi_etl\",\"ops_report\"]}", 9),
+            new EnterpriseAssetSeed("终端威胁检测记录", "table", "high", "mysql://secops/endpoint_threat", "已纳管", "{\"upstream\":[\"agent_collector\",\"threat_center\"]}", 8)
+        );
+
+        Date now = new Date();
+        for (EnterpriseAssetSeed seed : seeds) {
+            Long exists = querySingleLong(
+                "SELECT id FROM data_asset WHERE company_id = ? AND name = ? ORDER BY id ASC LIMIT 1",
+                companyId,
+                seed.name()
+            );
+            if (exists != null) {
+                continue;
+            }
+
+            Date createTime = new Date(now.getTime() - seed.daysAgo() * 24L * 3600_000L);
+            jdbcTemplate.update(
+                "INSERT INTO data_asset(company_id, name, type, sensitivity_level, location, discovery_time, owner_id, lineage, description, create_time, update_time) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                companyId,
+                seed.name(),
+                seed.type(),
+                seed.sensitivityLevel(),
+                seed.location(),
+                createTime,
+                defaultOwnerId,
+                seed.lineage(),
+                "治理状态：" + seed.governanceStatus() + "；来源系统已完成资产指纹采集。",
+                createTime,
+                createTime
+            );
+        }
+    }
+
+    private void enforceTrustedAiModelBaseline() {
+        if (!tableExists("ai_model")) {
+            return;
+        }
+        jdbcTemplate.update(
+            "UPDATE ai_model SET status = 'disabled' WHERE LOWER(COALESCE(provider,'')) NOT IN ('qwen','wenxin','deepseek','doubao','hunyuan')"
+        );
+        jdbcTemplate.update(
+            "UPDATE ai_model SET status = 'enabled' WHERE LOWER(COALESCE(provider,'')) IN ('qwen','wenxin','deepseek','doubao','hunyuan')"
+        );
     }
 
     private void seedGovernanceAdminDemoData(Long companyId, Map<String, Role> roleMap) {
@@ -90,6 +320,12 @@ public class DataInitializer implements CommandLineRunner {
             return;
         }
         List<PermissionSeed> permissionSeeds = List.of(
+            new PermissionSeed("数据资产菜单", "menu:data_asset", "menu"),
+            new PermissionSeed("数据资产上传", "data_asset:upload", "button"),
+            new PermissionSeed("数据资产删除", "data_asset:delete", "button"),
+            new PermissionSeed("用户管理菜单", "menu:user_manage", "menu"),
+            new PermissionSeed("角色管理菜单", "menu:role_manage", "menu"),
+            new PermissionSeed("权限管理菜单", "menu:permission_manage", "menu"),
             new PermissionSeed("用户管理", "user:manage", "button"),
             new PermissionSeed("角色管理", "role:manage", "button"),
             new PermissionSeed("权限管理", "permission:manage", "button"),
@@ -111,6 +347,7 @@ public class DataInitializer implements CommandLineRunner {
             new PermissionSeed("策略状态切换", "policy:status:toggle", "button"),
             new PermissionSeed("审计日志检索", "audit:log:view", "menu"),
             new PermissionSeed("审计报告查看", "audit:report:view", "menu"),
+            new PermissionSeed("审计报告生成", "audit:report:generate", "button"),
             new PermissionSeed("运维指标查看", "ops:metrics:view", "menu")
         );
 
@@ -144,6 +381,12 @@ public class DataInitializer implements CommandLineRunner {
         }
 
         bindPermissions(roleMap.get("ADMIN"), Arrays.asList(
+            "menu:data_asset",
+            "data_asset:upload",
+            "data_asset:delete",
+            "menu:user_manage",
+            "menu:role_manage",
+            "menu:permission_manage",
             "user:manage",
             "role:manage",
             "permission:manage",
@@ -156,6 +399,7 @@ public class DataInitializer implements CommandLineRunner {
             "approval:operate",
             "policy:view",
             "policy:structure:manage",
+            "audit:report:generate",
             "ops:metrics:view"
         ));
         bindPermissions(roleMap.get("SECOPS"), Arrays.asList(
@@ -176,8 +420,17 @@ public class DataInitializer implements CommandLineRunner {
             "audit:report:view",
             "ops:metrics:view"
         ));
-        bindPermissions(roleMap.get("DATA_ADMIN"), Arrays.asList("approval:view", "approval:operate", "policy:view"));
-        bindPermissions(roleMap.get("BUSINESS_OWNER"), Arrays.asList("approval:view", "approval:operate"));
+        bindPermissions(roleMap.get("DATA_ADMIN"), Arrays.asList(
+            "menu:data_asset",
+            "data_asset:upload",
+            "data_asset:delete",
+            "approval:view",
+            "approval:operate",
+            "policy:view"
+        ));
+        bindPermissions(roleMap.get("BUSINESS_OWNER"), Arrays.asList("approval:view", "approval:operate", "menu:data_asset"));
+        bindPermissions(roleMap.get("AI_BUILDER"), Arrays.asList("menu:data_asset", "approval:view"));
+        bindPermissions(roleMap.get("EMPLOYEE"), Arrays.asList("approval:view"));
     }
 
     private void bindPermissions(Role role, Iterable<String> permissionCodes) {
@@ -213,8 +466,11 @@ public class DataInitializer implements CommandLineRunner {
         if (users.isEmpty()) {
             return;
         }
+        List<User> demoUsers = users.stream()
+            .filter(user -> !"employee1".equalsIgnoreCase(user.getUsername()))
+            .toList();
         Map<String, User> userByName = new LinkedHashMap<>();
-        for (User user : users) {
+        for (User user : demoUsers) {
             userByName.put(String.valueOf(user.getUsername()).toLowerCase(Locale.ROOT), user);
         }
 
@@ -222,14 +478,14 @@ public class DataInitializer implements CommandLineRunner {
         User dataAdmin = userByName.get("dataadmin");
         User bizOwner = userByName.get("bizowner");
         List<User> applicants = new ArrayList<>();
-        for (String key : List.of("employee", "aibuilder", "dataadmin", "bizowner")) {
+        for (String key : List.of("employee1", "aibuilder", "dataadmin", "bizowner")) {
             User user = userByName.get(key);
             if (user != null) {
                 applicants.add(user);
             }
         }
         if (applicants.isEmpty()) {
-            applicants.addAll(users);
+            applicants.addAll(demoUsers);
         }
 
         Integer approvalCount = jdbcTemplate.queryForObject("SELECT COUNT(1) FROM approval_request WHERE company_id = ?", Integer.class, companyId);
@@ -283,7 +539,7 @@ public class DataInitializer implements CommandLineRunner {
             (rs, rowNum) -> rs.getLong(1),
             companyId
         );
-        List<User> actors = users;
+        List<User> actors = demoUsers.isEmpty() ? users : demoUsers;
 
         for (int i = existingAudit; i < targetAudit; i++) {
             User actor = actors.get(i % actors.size());
@@ -365,6 +621,16 @@ public class DataInitializer implements CommandLineRunner {
             Integer govCount = jdbcTemplate.queryForObject("SELECT COUNT(1) FROM governance_event WHERE company_id = ?", Integer.class, companyId);
             int targetGov = 120;
             int existingGov = govCount == null ? 0 : govCount;
+            Long adminId = querySingleLong(
+                "SELECT id FROM sys_user WHERE company_id = ? AND username = 'admin' ORDER BY id ASC LIMIT 1",
+                companyId
+            );
+            Long secopsId = querySingleLong(
+                "SELECT id FROM sys_user WHERE company_id = ? AND username = 'secops' ORDER BY id ASC LIMIT 1",
+                companyId
+            );
+            Long fallbackId = secopsId != null ? secopsId : adminId;
+            String fallbackName = secopsId != null ? "secops" : "admin";
             for (int i = existingGov; i < targetGov; i++) {
                 String severity = i % 10 == 0 ? "high" : (i % 3 == 0 ? "medium" : "low");
                 String status = i % 4 == 0 ? "blocked" : (i % 4 == 1 ? "resolved" : "pending");
@@ -373,8 +639,8 @@ public class DataInitializer implements CommandLineRunner {
                 jdbcTemplate.update(
                     "INSERT INTO governance_event(company_id, user_id, username, event_type, source_module, severity, status, title, description, source_event_id, attack_type, policy_version, payload_json, handler_id, dispose_note, event_time, disposed_at, create_time, update_time) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     companyId,
-                    null,
-                    "system",
+                    fallbackId,
+                    fallbackName,
                     eventType,
                     "governance-center",
                     severity,
@@ -406,10 +672,13 @@ public class DataInitializer implements CommandLineRunner {
         int targetSubject = 48;
         int existingSubject = subjectCount == null ? 0 : subjectCount;
         List<User> users = userService.lambdaQuery().eq(User::getCompanyId, companyId).list();
-        if (!users.isEmpty()) {
+        List<User> demoUsers = users.stream()
+            .filter(user -> !"employee1".equalsIgnoreCase(user.getUsername()))
+            .toList();
+        if (!demoUsers.isEmpty()) {
             Date now = new Date();
             for (int i = existingSubject; i < targetSubject; i++) {
-                User user = users.get(i % users.size());
+                User user = demoUsers.get(i % demoUsers.size());
                 String type = i % 3 == 0 ? "access" : (i % 3 == 1 ? "export" : "delete");
                 String status = i % 4 == 0 ? "done" : (i % 4 == 1 ? "processing" : "pending");
                 Date createTime = new Date(now.getTime() - (long) (targetSubject - i) * 7200_000L);
@@ -487,7 +756,12 @@ public class DataInitializer implements CommandLineRunner {
             .eq(Role::getCode, code)
             .list();
         Role existing = pickRole(existingRoles);
+        boolean allowSelfRegister = allowSelfRegister(code);
         if (existing != null) {
+            existing.setIsSystem(true);
+            existing.setAllowSelfRegister(allowSelfRegister);
+            existing.setUpdateTime(new Date());
+            roleService.updateById(existing);
             return existing;
         }
         Role role = new Role();
@@ -495,10 +769,17 @@ public class DataInitializer implements CommandLineRunner {
         role.setName(name);
         role.setCode(code);
         role.setDescription("系统默认角色: " + name);
+        role.setIsSystem(true);
+        role.setAllowSelfRegister(allowSelfRegister);
         role.setCreateTime(new Date());
         role.setUpdateTime(new Date());
         roleService.save(role);
         return role;
+    }
+
+    private boolean allowSelfRegister(String roleCode) {
+        String code = String.valueOf(roleCode == null ? "" : roleCode).toUpperCase(Locale.ROOT);
+        return "EMPLOYEE".equals(code) || "AI_BUILDER".equals(code) || "BUSINESS_OWNER".equals(code);
     }
 
     private void ensureUser(Long companyId, UserSeed seed, Role role) {
@@ -522,6 +803,7 @@ public class DataInitializer implements CommandLineRunner {
         user.setDeviceId(seed.username() + "-device");
         user.setOrganizationType("enterprise");
         user.setDepartment(seed.department());
+        user.setJobTitle(resolveJobTitle(seed.roleCode(), seed.username()));
         user.setPhone(seed.phone());
         user.setEmail(seed.email());
         user.setLoginType("password");
@@ -553,6 +835,20 @@ public class DataInitializer implements CommandLineRunner {
             .orElse(null);
     }
 
+    private String resolveJobTitle(String roleCode, String username) {
+        String role = String.valueOf(roleCode == null ? "" : roleCode).toUpperCase(Locale.ROOT);
+        return switch (role) {
+            case "ADMIN" -> username.contains("reviewer") ? "治理复核专员" : (username.contains("ops") ? "治理运营专员" : "治理管理员");
+            case "SECOPS" -> username.endsWith("_2") ? "威胁处置工程师" : (username.endsWith("_3") ? "安全审计复核员" : "终端告警运营");
+            case "DATA_ADMIN" -> username.endsWith("_2") ? "数据分级专员" : (username.endsWith("_3") ? "数据血缘管理员" : "数据治理管理员");
+            case "AI_BUILDER" -> username.endsWith("_2") ? "模型联调工程师" : (username.endsWith("_3") ? "提示工程工程师" : "AI应用开发工程师");
+            case "BUSINESS_OWNER" -> username.endsWith("_2") ? "业务风险协同负责人" : (username.endsWith("_3") ? "业务流程负责人" : "业务线负责人");
+            case "EXECUTIVE" -> username.endsWith("_2") ? "经营分析管理层" : (username.endsWith("_3") ? "合规治理管理层" : "企业管理层");
+            case "EMPLOYEE" -> username.endsWith("1") ? "业务执行专员（真实上报测试）" : "业务执行专员";
+            default -> "平台成员";
+        };
+    }
+
     private record UserSeed(
         String username,
         String realName,
@@ -568,5 +864,15 @@ public class DataInitializer implements CommandLineRunner {
         String name,
         String code,
         String type
+    ) {}
+
+    private record EnterpriseAssetSeed(
+        String name,
+        String type,
+        String sensitivityLevel,
+        String location,
+        String governanceStatus,
+        String lineage,
+        long daysAgo
     ) {}
 }

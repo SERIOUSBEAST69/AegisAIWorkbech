@@ -53,6 +53,7 @@ service.interceptors.request.use(config => {
     '/auth/register',
     '/auth/phone-code',
     '/auth/registration-options',
+    '/public/roles',
     '/security/cross-site/status',
   ]);
   if (token && !authBypassPaths.has(requestPath)) {

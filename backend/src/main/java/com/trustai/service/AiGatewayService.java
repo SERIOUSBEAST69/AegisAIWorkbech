@@ -11,6 +11,7 @@ import com.trustai.entity.AiModel;
 import com.trustai.entity.AuditLog;
 import com.trustai.entity.RiskEvent;
 import com.trustai.entity.SecurityEvent;
+import com.trustai.entity.User;
 import com.trustai.exception.BizException;
 import org.springframework.stereotype.Service;
 
@@ -38,6 +39,13 @@ import java.util.stream.Collectors;
 public class AiGatewayService {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final List<String> TRUSTED_AI_MODEL_KEYS = List.of(
+        "qwen", "tongyi", "通义",
+        "wenxin", "ernie", "文心",
+        "deepseek",
+        "doubao", "豆包",
+        "hunyuan", "混元", "tencent"
+    );
     private final HttpClient httpClient = HttpClient.newHttpClient();
 
     private final AiCallAuditService aiCallAuditService;
@@ -48,6 +56,7 @@ public class AiGatewayService {
     private final RiskEventService riskEventService;
     private final AuditLogService auditLogService;
     private final CompanyScopeService companyScopeService;
+    private final CurrentUserService currentUserService;
     private final PrivacyShieldConfigService privacyShieldConfigService;
 
     public AiGatewayService(AiCallAuditService aiCallAuditService,
@@ -58,6 +67,7 @@ public class AiGatewayService {
                             RiskEventService riskEventService,
                             AuditLogService auditLogService,
                             CompanyScopeService companyScopeService,
+                            CurrentUserService currentUserService,
                             PrivacyShieldConfigService privacyShieldConfigService) {
         this.aiCallAuditService = aiCallAuditService;
         this.aiModelService = aiModelService;
@@ -67,6 +77,7 @@ public class AiGatewayService {
         this.riskEventService = riskEventService;
         this.auditLogService = auditLogService;
         this.companyScopeService = companyScopeService;
+        this.currentUserService = currentUserService;
         this.privacyShieldConfigService = privacyShieldConfigService;
     }
 
@@ -90,7 +101,7 @@ public class AiGatewayService {
         Instant begin = Instant.now();
         AiModel model = aiModelService.lambdaQuery().eq(AiModel::getModelCode, req.getModel()).one();
         if (!isOfficialModel(model)) {
-            throw new BizException(40000, "仅允许使用官方11个AI目录中的模型");
+            throw new BizException(40000, "仅允许使用官方可信5个AI目录中的模型");
         }
         aiModelAccessGuardService.validate(model, req.getAssetId(), req.getAccessReason(), mergeMessages(req.getMessages()));
 
@@ -160,17 +171,12 @@ public class AiGatewayService {
         String name = normalizeLower(model.getModelName());
         String provider = normalizeLower(model.getProvider());
         String code = normalizeLower(model.getModelCode());
-        return (name.contains("通义") || provider.contains("aliyun") || provider.contains("qwen") || code.contains("qwen"))
-            || (name.contains("文心") || provider.contains("baidu") || code.contains("wenxin") || code.contains("ernie"))
-            || name.contains("deepseek") || provider.contains("deepseek") || code.contains("deepseek")
-            || name.contains("稿定") || provider.contains("gaoding") || code.contains("gaoding")
-            || name.contains("modelwhale") || provider.contains("modelwhale") || code.contains("modelwhale")
-            || name.contains("即梦") || provider.contains("jimeng") || code.contains("jimeng")
-            || name.contains("豆包") || provider.contains("doubao") || code.contains("doubao")
-            || (name.contains("星火") || provider.contains("ifly") || provider.contains("spark") || code.contains("spark"))
-            || name.contains("kimi") || provider.contains("moonshot") || code.contains("kimi")
-            || (name.contains("混元") || provider.contains("tencent") || provider.contains("hunyuan") || code.contains("hunyuan"))
-            || (name.contains("智谱") || provider.contains("zhipu") || code.contains("chatglm") || code.contains("bigmodel"));
+        for (String key : TRUSTED_AI_MODEL_KEYS) {
+            if (name.contains(key) || provider.contains(key) || code.contains(key)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public Map<String, Object> adversarialMeta() {
@@ -515,7 +521,11 @@ public class AiGatewayService {
 
     private void persistLog(ChatReq req, AiModel model, String provider, Map<String, Object> resp, Instant begin, String status) {
         try {
+            User currentUser = currentUserService.requireCurrentUser();
             AiCallLog log = new AiCallLog();
+            log.setCompanyId(currentUser.getCompanyId());
+            log.setUserId(currentUser.getId());
+            log.setUsername(currentUser.getUsername());
             log.setModelCode(req.getModel());
             if (model != null) log.setModelId(model.getId());
             log.setProvider(provider);

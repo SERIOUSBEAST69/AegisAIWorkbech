@@ -6,6 +6,7 @@ import com.trustai.entity.User;
 import com.trustai.service.CompanyScopeService;
 import com.trustai.service.CurrentUserService;
 import com.trustai.service.SubjectRequestService;
+import com.trustai.service.UserService;
 import com.trustai.utils.R;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
@@ -34,10 +35,16 @@ public class SubjectRequestController {
     @Autowired
     private CompanyScopeService companyScopeService;
 
+    @Autowired
+    private UserService userService;
+
     private static final Set<String> ALLOWED_STATUS = new HashSet<>(Arrays.asList("pending", "processing", "done", "rejected"));
     private static final Set<String> FINAL_STATUS = new HashSet<>(Arrays.asList("done", "rejected"));
     private static final Set<String> ALLOWED_TYPE = new HashSet<>(Arrays.asList("access", "export", "delete"));
     private static final Set<String> OPERATOR_ROLES = new HashSet<>(Arrays.asList("ADMIN", "DATA_ADMIN", "BUSINESS_OWNER"));
+    private static final String EMPLOYEE_FULL = "employee1";
+    private static final String EMPLOYEE_LIMITED = "employee2";
+    private static final String EMPLOYEE_VIEW_ONLY = "employee3";
 
     @GetMapping("/list")
     @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN','BUSINESS_OWNER','EMPLOYEE')")
@@ -60,12 +67,38 @@ public class SubjectRequestController {
     @PostMapping("/create")
     @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN','BUSINESS_OWNER','EMPLOYEE')")
     public R<?> create(@RequestBody @Validated ApplyReq req) {
-        if (!ALLOWED_TYPE.contains(req.getType())) return R.error(40000, "不支持的类型");
+        String type = req.getType() == null ? "" : req.getType().trim().toLowerCase();
+        if (!ALLOWED_TYPE.contains(type)) return R.error(40000, "不支持的类型");
         User currentUser = currentUserService.requireCurrentUser();
+        Long companyId = companyScopeService.requireCompanyId();
+        String roleCode = currentUserService.currentRoleCode();
+
+        if ("EMPLOYEE".equalsIgnoreCase(roleCode)) {
+            R<?> deny = validateEmployeeCreateDuty(currentUser, type);
+            if (deny != null) {
+                return deny;
+            }
+        }
+
+        Long effectiveUserId = currentUser.getId();
+        if (req.getUserId() != null) {
+            if (!"ADMIN".equalsIgnoreCase(roleCode)) {
+                return R.error(40300, "仅治理管理员可代他人创建主体请求");
+            }
+            User target = userService.lambdaQuery()
+                .eq(User::getCompanyId, companyId)
+                .eq(User::getId, req.getUserId())
+                .one();
+            if (target == null) {
+                return R.error(40300, "目标用户不属于当前公司");
+            }
+            effectiveUserId = target.getId();
+        }
+
         SubjectRequest entity = new SubjectRequest();
-        entity.setCompanyId(companyScopeService.requireCompanyId());
-        entity.setUserId(req.getUserId() == null ? currentUser.getId() : req.getUserId());
-        entity.setType(req.getType());
+        entity.setCompanyId(companyId);
+        entity.setUserId(effectiveUserId);
+        entity.setType(type);
         entity.setComment(req.getComment());
         entity.setStatus("pending");
         Date now = new Date();
@@ -75,18 +108,40 @@ public class SubjectRequestController {
         return R.ok(entity);
     }
 
+    private R<?> validateEmployeeCreateDuty(User currentUser, String requestType) {
+        String username = currentUser == null || currentUser.getUsername() == null
+            ? ""
+            : currentUser.getUsername().trim().toLowerCase();
+        if (EMPLOYEE_VIEW_ONLY.equals(username)) {
+            return R.error(40300, "当前员工账号仅可查看工单");
+        }
+        if (EMPLOYEE_LIMITED.equals(username) && "delete".equals(requestType)) {
+            return R.error(40300, "当前员工账号不可提交删除类主体请求");
+        }
+        if (!EMPLOYEE_FULL.equals(username) && !EMPLOYEE_LIMITED.equals(username) && "delete".equals(requestType)) {
+            return R.error(40300, "当前员工账号不可提交删除类主体请求");
+        }
+        return null;
+    }
+
     @PostMapping("/process")
-    @PreAuthorize("@currentUserService.hasRole('ADMIN')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN','BUSINESS_OWNER')")
     public R<?> process(@RequestBody @Validated ProcessReq req) {
         SubjectRequest sr = subjectRequestService.getById(req.getId());
         if (sr == null || !java.util.Objects.equals(sr.getCompanyId(), companyScopeService.requireCompanyId())) {
             return R.error(40400, "工单不存在或不在当前公司");
         }
-        if (!ALLOWED_STATUS.contains(req.getStatus())) return R.error(40000, "不支持的状态");
+        String targetStatus = req.getStatus() == null ? "" : req.getStatus().trim().toLowerCase();
+        if (!ALLOWED_STATUS.contains(targetStatus)) return R.error(40000, "不支持的状态");
         if (FINAL_STATUS.contains(sr.getStatus())) return R.error(40000, "已完结的工单不可再次处理");
+        if (!canTransit(sr.getStatus(), targetStatus)) return R.error(40000, "状态流转不合法");
         if (req.getHandlerId() == null) return R.error(40000, "处理人不能为空");
-        sr.setStatus(req.getStatus());
-        sr.setHandlerId(req.getHandlerId());
+        User currentUser = currentUserService.requireCurrentUser();
+        if (!req.getHandlerId().equals(currentUser.getId())) {
+            return R.error(40300, "处理人必须为当前登录账号");
+        }
+        sr.setStatus(targetStatus);
+        sr.setHandlerId(currentUser.getId());
         sr.setResult(req.getResult());
         sr.setUpdateTime(new Date());
         subjectRequestService.updateById(sr);
@@ -94,7 +149,7 @@ public class SubjectRequestController {
     }
 
     @PostMapping("/delete")
-    @PreAuthorize("@currentUserService.hasRole('ADMIN')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN','BUSINESS_OWNER')")
     public R<?> delete(@RequestBody @Validated IdReq req) {
         SubjectRequest existing = subjectRequestService.getOne(
             companyScopeService.withCompany(new QueryWrapper<SubjectRequest>()).eq("id", req.getId())
@@ -107,6 +162,21 @@ public class SubjectRequestController {
             return R.error(40000, "工单删除失败，请刷新后重试");
         }
         return R.okMsg("删除成功");
+    }
+
+    private boolean canTransit(String source, String target) {
+        String from = source == null ? "pending" : source.trim().toLowerCase();
+        String to = target == null ? "" : target.trim().toLowerCase();
+        if (FINAL_STATUS.contains(from)) {
+            return false;
+        }
+        if ("pending".equals(from)) {
+            return "processing".equals(to) || "rejected".equals(to);
+        }
+        if ("processing".equals(from)) {
+            return "done".equals(to) || "rejected".equals(to);
+        }
+        return false;
     }
 
     public static class ApplyReq {

@@ -129,9 +129,22 @@
           </el-row>
 
           <div class="check-actions">
-            <el-button type="primary" :loading="checking" style="width:100%" @click="submitCheck">
+            <el-button
+              v-if="canSubmitAnomaly"
+              type="primary"
+              :loading="checking"
+              style="width:100%"
+              @click="submitCheck"
+            >
               🔍 检测异常
             </el-button>
+            <el-alert
+              v-else
+              title="当前账号职责为模型审计岗，仅可查看事件，不可提交实时检测"
+              type="warning"
+              :closable="false"
+              show-icon
+            />
             <el-button v-if="!isEmployeeView" type="default" @click="fillScenario('late_night')">⚡ 演示：深夜代码</el-button>
             <el-button v-if="!isEmployeeView" type="default" @click="fillScenario('new_ai')">⚡ 演示：新AI服务</el-button>
           </div>
@@ -166,14 +179,17 @@
         <div class="panel-title-row">
           <div class="panel-title">📋 异常事件日志</div>
           <div class="panel-actions">
-            <el-switch v-model="anomalyOnly" active-text="仅显示异常" size="small" @change="loadEvents" />
-            <el-button size="small" :loading="eventsLoading" @click="loadEvents">
+            <el-switch v-if="canAccessAnomalyEvents" v-model="anomalyOnly" active-text="仅显示异常" size="small" @change="loadEvents" />
+            <el-button v-if="canAccessAnomalyEvents" size="small" :loading="eventsLoading" @click="loadEvents">
               <el-icon><Refresh /></el-icon>
             </el-button>
           </div>
         </div>
 
-        <div v-if="eventsLoading" class="events-loading">
+        <div v-if="!canAccessAnomalyEvents" class="events-empty">
+          当前账号职责为提示工程岗，仅可执行检测提交，不可访问异常事件复核视图。
+        </div>
+        <div v-else-if="eventsLoading" class="events-loading">
           <el-icon class="spin"><Loading /></el-icon> 加载中...
         </div>
         <div v-else-if="events.length === 0" class="events-empty">
@@ -227,13 +243,16 @@ import { ElMessage } from 'element-plus';
 import { Refresh, Loading } from '@element-plus/icons-vue';
 import request from '../api/request';
 import { useUserStore } from '../store/user';
+import { canRunAnomalyCheck, canViewAnomalyEvents } from '../utils/roleBoundary';
 
 // ── 常量 ──────────────────────────────────────────────────────────────────────
 const DEPARTMENTS = ['研发', '销售', 'HR', '法务', '财务'];
 const AI_SERVICES = [
-  'ChatGPT', 'Claude', 'Gemini', 'GitHub Copilot',
-  '文心一言', '通义千问', '豆包', 'Kimi',
-  'Perplexity', 'Ollama',
+  '通义千问',
+  '文心一言',
+  'DeepSeek',
+  '豆包',
+  '腾讯混元',
 ];
 
 const userStore = useUserStore();
@@ -252,7 +271,7 @@ const checkResult = ref(null);
 const checkForm = ref({
   employee_id: 'EMP_R0001',
   department:  '研发',
-  ai_service:  'ChatGPT',
+  ai_service:  '通义千问',
   hour_of_day: 14,
   day_of_week: 1,
   message_length: 300,
@@ -277,6 +296,8 @@ const recentAnomalyCount = computed(() =>
   events.value.filter(e => e.is_anomaly).length
 );
 const isEmployeeView = computed(() => String(userStore.userInfo?.roleCode || '').toUpperCase() === 'EMPLOYEE');
+const canSubmitAnomaly = computed(() => canRunAnomalyCheck(userStore.userInfo));
+const canAccessAnomalyEvents = computed(() => canViewAnomalyEvents(userStore.userInfo));
 
 // ── API ───────────────────────────────────────────────────────────────────────
 async function loadStatus() {
@@ -295,6 +316,10 @@ async function loadStatus() {
 }
 
 async function loadEvents() {
+  if (!canAccessAnomalyEvents.value) {
+    events.value = [];
+    return;
+  }
   eventsLoading.value = true;
   try {
     const params = anomalyOnly.value ? '?anomaly_only=true&limit=50' : '?limit=50';
@@ -330,7 +355,9 @@ async function submitCheck() {
       ElMessage.success('行为正常');
     }
     // 刷新事件列表
-    await loadEvents();
+    if (canAccessAnomalyEvents.value) {
+      await loadEvents();
+    }
   } catch (e) {
     ElMessage.error(e?.message || '检测失败，请确认 Python 推理服务已启动且模型已训练');
   } finally {
@@ -391,7 +418,9 @@ onMounted(async () => {
     checkForm.value.department = userStore.userInfo?.department || checkForm.value.department;
   }
   await loadStatus();
-  await loadEvents();
+  if (canAccessAnomalyEvents.value) {
+    await loadEvents();
+  }
 });
 </script>
 

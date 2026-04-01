@@ -82,7 +82,7 @@ public class SecurityEventController {
      * @param keyword  关键字（匹配 filePath / hostname / employeeId）
      */
     @GetMapping("/events")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS') || @currentUserService.hasAnyPermission('security:event:view','security:event:handle')")
     public R<Map<String, Object>> events(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int pageSize,
@@ -90,7 +90,9 @@ public class SecurityEventController {
             @RequestParam(required = false) String severity,
             @RequestParam(required = false) String keyword) {
 
-        currentUserService.requireAnyRole("ADMIN", "SECOPS");
+        if (!currentUserService.hasAnyRole("ADMIN", "SECOPS")) {
+            currentUserService.requireAnyPermission("security:event:view", "security:event:handle");
+        }
 
         String normalizedStatus = status == null ? null : status.trim().toLowerCase();
         String normalizedSeverity = severity == null ? null : severity.trim().toLowerCase();
@@ -143,9 +145,12 @@ public class SecurityEventController {
      * <p>将指定事件状态改为 "blocked"。
      */
     @PostMapping("/block")
-    @PreAuthorize("@currentUserService.hasRole('SECOPS')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS') || @currentUserService.hasPermission('security:event:handle')")
     public R<?> block(@RequestBody IdReq req) {
-        currentUserService.requireAnyRole("SECOPS");
+        if (!currentUserService.hasAnyRole("ADMIN", "SECOPS")) {
+            currentUserService.requirePermission("security:event:handle");
+        }
+        enforceSecopsDuty("block");
         SecurityEvent event = securityEventService.getOne(companyScopeService.withCompany(new QueryWrapper<SecurityEvent>()).eq("id", req.getId()));
         if (event == null) {
             return R.error(40400, "事件不存在");
@@ -167,9 +172,12 @@ public class SecurityEventController {
      * <p>将指定事件状态改为 "ignored"。
      */
     @PostMapping("/ignore")
-    @PreAuthorize("@currentUserService.hasRole('SECOPS')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS') || @currentUserService.hasPermission('security:event:handle')")
     public R<?> ignore(@RequestBody IdReq req) {
-        currentUserService.requireAnyRole("SECOPS");
+        if (!currentUserService.hasAnyRole("ADMIN", "SECOPS")) {
+            currentUserService.requirePermission("security:event:handle");
+        }
+        enforceSecopsDuty("ignore");
         SecurityEvent event = securityEventService.getOne(companyScopeService.withCompany(new QueryWrapper<SecurityEvent>()).eq("id", req.getId()));
         if (event == null) {
             return R.error(40400, "事件不存在");
@@ -199,13 +207,17 @@ public class SecurityEventController {
             return R.error(40100, "客户端令牌无效");
         }
 
+        if (event.getEmployeeId() == null || event.getEmployeeId().isBlank()) {
+            return R.error(40000, "employeeId 不能为空");
+        }
+
         Long companyId = null;
-        User reporter = null;
-        if (event.getEmployeeId() != null && !event.getEmployeeId().isBlank()) {
-            reporter = userService.lambdaQuery().eq(User::getUsername, event.getEmployeeId()).one();
-            if (reporter != null) {
-                companyId = reporter.getCompanyId();
-            }
+        User reporter = userService.lambdaQuery()
+            .eq(User::getUsername, event.getEmployeeId())
+            .eq(headerCompanyId != null, User::getCompanyId, headerCompanyId)
+            .one();
+        if (reporter != null) {
+            companyId = reporter.getCompanyId();
         }
         if (headerCompanyId != null) {
             if (companyId != null && !headerCompanyId.equals(companyId)) {
@@ -213,10 +225,11 @@ public class SecurityEventController {
             }
             companyId = headerCompanyId;
         }
-        if (companyId == null) {
-            return R.error(40100, "缺少合法 companyId");
+        if (companyId == null || reporter == null) {
+            return R.error(40000, "无法绑定合法账号与企业");
         }
         event.setCompanyId(companyId);
+        event.setEmployeeId(reporter.getUsername());
         if (event.getEventTime() == null) {
             event.setEventTime(new Date());
         }
@@ -233,37 +246,43 @@ public class SecurityEventController {
         event.setCreateTime(new Date());
         event.setUpdateTime(new Date());
         securityEventService.save(event);
-        User boundUser = null;
-        if (reporter != null && companyId.equals(reporter.getCompanyId())) {
-            boundUser = reporter;
-        } else if (event.getEmployeeId() != null && !event.getEmployeeId().isBlank()) {
-            boundUser = userService.lambdaQuery().eq(User::getCompanyId, companyId).eq(User::getUsername, event.getEmployeeId()).one();
-        }
-        eventHubService.ingestSecurityEvent(event, boundUser, Map.of(
+        var governanceEvent = eventHubService.ingestSecurityEvent(event, reporter, Map.of(
             "eventType", event.getEventType() == null ? "" : event.getEventType(),
             "filePath", event.getFilePath() == null ? "" : event.getFilePath(),
             "targetAddr", event.getTargetAddr() == null ? "" : event.getTargetAddr(),
             "source", event.getSource() == null ? "" : event.getSource()
         ));
         Long newId = event.getId();
-        return R.ok(newId != null ? Map.of("id", newId) : Map.of());
+        if (newId == null) {
+            return R.ok(Map.of());
+        }
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("id", newId);
+        data.put("governanceEventId", governanceEvent == null ? null : governanceEvent.getId());
+        data.put("subjectUserId", reporter.getId());
+        return R.ok(data);
     }
 
     // ── 检测规则 ────────────────────────────────────────────────────────────────
 
     /** GET /api/security/rules — 查询所有检测规则 */
     @GetMapping("/rules")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS') || @currentUserService.hasAnyPermission('security:rule:manage','security:event:view')")
     public R<List<SecurityDetectionRule>> rules() {
-        currentUserService.requireAnyRole("ADMIN", "SECOPS");
+        if (!currentUserService.hasAnyRole("ADMIN", "SECOPS")) {
+            currentUserService.requireAnyPermission("security:rule:manage", "security:event:view");
+        }
         return R.ok(ruleService.list(new QueryWrapper<SecurityDetectionRule>().orderByAsc("id")));
     }
 
     /** POST /api/security/rules — 新增或更新检测规则 */
     @PostMapping("/rules")
-    @PreAuthorize("@currentUserService.hasRole('ADMIN')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS') || @currentUserService.hasPermission('security:rule:manage')")
     public R<?> saveRule(@RequestBody SecurityDetectionRule rule) {
-        currentUserService.requireAnyRole("ADMIN");
+        if (!currentUserService.hasAnyRole("ADMIN", "SECOPS")) {
+            currentUserService.requirePermission("security:rule:manage");
+        }
+        enforceSecopsDuty("rule_manage");
         if (rule.getCreateTime() == null) rule.setCreateTime(new Date());
         rule.setUpdateTime(new Date());
         ruleService.saveOrUpdate(rule);
@@ -272,20 +291,49 @@ public class SecurityEventController {
 
     /** DELETE /api/security/rules/{id} — 删除检测规则 */
     @DeleteMapping("/rules/{id}")
-    @PreAuthorize("@currentUserService.hasRole('ADMIN')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS') || @currentUserService.hasPermission('security:rule:manage')")
     public R<?> deleteRule(@PathVariable Long id) {
-        currentUserService.requireAnyRole("ADMIN");
+        if (!currentUserService.hasAnyRole("ADMIN", "SECOPS")) {
+            currentUserService.requirePermission("security:rule:manage");
+        }
+        enforceSecopsDuty("rule_manage");
         ruleService.removeById(id);
         return R.okMsg("删除成功");
+    }
+
+    private void enforceSecopsDuty(String action) {
+        User current = currentUserService.requireCurrentUser();
+        if (!currentUserService.hasRole("SECOPS")) {
+            return;
+        }
+        String username = current.getUsername() == null ? "" : current.getUsername().trim().toLowerCase();
+        if ("secops_2".equals(username)) {
+            if ("block".equals(action) || "rule_manage".equals(action)) {
+                throw new com.trustai.exception.BizException(40300, "当前账号职责不允许执行阻断或规则管理");
+            }
+            return;
+        }
+        if ("secops_3".equals(username)) {
+            if ("ignore".equals(action) || "rule_manage".equals(action)) {
+                throw new com.trustai.exception.BizException(40300, "当前账号职责不允许执行误报标记或规则管理");
+            }
+            return;
+        }
+        if ("secops".equals(username)) {
+            return;
+        }
+        throw new com.trustai.exception.BizException(40300, "未知安全运维账号职责，禁止执行高风险操作");
     }
 
     // ── 统计摘要 ────────────────────────────────────────────────────────────────
 
     /** GET /api/security/stats — 事件统计摘要 */
     @GetMapping("/stats")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS') || @currentUserService.hasAnyPermission('security:event:view','security:event:handle')")
     public R<Map<String, Object>> stats() {
-        currentUserService.requireAnyRole("ADMIN", "SECOPS");
+        if (!currentUserService.hasAnyRole("ADMIN", "SECOPS")) {
+            currentUserService.requireAnyPermission("security:event:view", "security:event:handle");
+        }
         User currentUser = currentUserService.requireCurrentUser();
         boolean employeeOnly = currentUserService.isEmployeeUser();
 

@@ -42,9 +42,6 @@ class PermissionMatrixIntegrationTest {
     @MockBean(name = "privacyShieldSchemaInitializer")
     private CommandLineRunner privacyShieldSchemaInitializerRunner;
 
-    @MockBean(name = "companySchemaInitializer")
-    private CommandLineRunner companySchemaInitializerRunner;
-
     @MockBean(name = "awardSchemaInitializer")
     private CommandLineRunner awardSchemaInitializerRunner;
 
@@ -69,14 +66,14 @@ class PermissionMatrixIntegrationTest {
         JsonNode secopsResp = getJson("/api/risk-event/list", secopsToken, status().isOk());
         assertEquals(20000, secopsResp.path("code").asInt());
 
-        String employeeToken = loginAndGetToken("employee", "Passw0rd!");
+        String employeeToken = loginEmployeeToken();
         JsonNode employeeResp = getJson("/api/risk-event/list", employeeToken, status().isForbidden());
         assertEquals(40300, employeeResp.path("code").asInt());
     }
 
     @Test
     void employeeCanListOwnApprovalsButCannotAccessOperatorTodo() throws Exception {
-        String employeeToken = loginAndGetToken("employee", "Passw0rd!");
+        String employeeToken = loginEmployeeToken();
         JsonNode ownListResp = getJson("/api/approval/list", employeeToken, status().isOk());
         assertEquals(20000, ownListResp.path("code").asInt());
 
@@ -95,6 +92,14 @@ class PermissionMatrixIntegrationTest {
         String token = loginResp.path("data").path("token").asText();
         assertTrue(token != null && !token.isBlank());
         return token;
+    }
+
+    private String loginEmployeeToken() throws Exception {
+        try {
+            return loginAndGetToken("employee1", "Passw0rd!");
+        } catch (AssertionError ignored) {
+            return loginAndGetToken("employee", "Passw0rd!");
+        }
     }
 
     private JsonNode postJson(String path, String token, Object body, org.springframework.test.web.servlet.ResultMatcher matcher) throws Exception {

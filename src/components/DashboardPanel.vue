@@ -78,9 +78,10 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount, computed } from 'vue';
+import { ref, onMounted, onBeforeUnmount } from 'vue';
 import * as echarts from 'echarts';
 import { Warning, TrendCharts, DataAnalysis, Monitor } from '@element-plus/icons-vue';
+import request from '../api/request';
 
 const timeRange = ref('24h');
 const refreshing = ref(false);
@@ -98,74 +99,81 @@ const metrics = ref([
   {
     key: 'threats',
     label: '威胁检测',
-    value: '1,234',
-    trend: 12.5,
+    value: '0',
+    trend: 0,
     color: 'danger',
     icon: Warning
   },
   {
     key: 'ai_calls',
     label: 'AI调用次数',
-    value: '45,678',
-    trend: 8.3,
+    value: '0',
+    trend: 0,
     color: 'primary',
     icon: TrendCharts
   },
   {
     key: 'risk_events',
     label: '风险事件',
-    value: '567',
-    trend: -5.2,
+    value: '0',
+    trend: 0,
     color: 'warning',
     icon: DataAnalysis
   },
   {
     key: 'system_health',
     label: '系统健康度',
-    value: '98.5%',
-    trend: 0.5,
+    value: '0%',
+    trend: 0,
     color: 'success',
     icon: Monitor
   }
 ]);
 
-const alerts = ref([
-  {
-    id: 1,
-    level: 'critical',
-    title: '检测到异常AI调用',
-    description: '用户admin在短时间内频繁调用敏感模型',
-    time: '2分钟前'
-  },
-  {
-    id: 2,
-    level: 'warning',
-    title: '数据泄露风险',
-    description: '检测到可能包含敏感信息的响应',
-    time: '15分钟前'
-  },
-  {
-    id: 3,
-    level: 'info',
-    title: '系统自动备份完成',
-    description: '数据库备份已成功完成',
-    time: '1小时前'
-  },
-  {
-    id: 4,
-    level: 'warning',
-    title: 'API响应延迟',
-    description: '部分API响应时间超过阈值',
-    time: '2小时前'
-  },
-  {
-    id: 5,
-    level: 'info',
-    title: '用户登录异常',
-    description: '检测到异地登录尝试',
-    time: '3小时前'
-  }
-]);
+const alerts = ref([]);
+const trendLabels = ref([]);
+const riskSeries = ref([]);
+const auditSeries = ref([]);
+const aiModelSummary = ref([]);
+const riskDistribution = ref([]);
+const healthDimensions = ref([]);
+
+function toFixedRate(value) {
+  const num = Number(value || 0);
+  return Number.isFinite(num) ? Math.round(num * 10) / 10 : 0;
+}
+
+function computeTrend(series) {
+  if (!Array.isArray(series) || series.length < 2) return 0;
+  const last = Number(series[series.length - 1] || 0);
+  const prev = Number(series[series.length - 2] || 0);
+  if (!Number.isFinite(last) || !Number.isFinite(prev)) return 0;
+  if (prev === 0) return last > 0 ? 100 : 0;
+  return toFixedRate(((last - prev) / prev) * 100);
+}
+
+function formatMetricValue(value) {
+  return Number(value || 0).toLocaleString('zh-CN');
+}
+
+function formatTime(ts) {
+  if (!ts) return '-';
+  const date = new Date(ts);
+  if (Number.isNaN(date.getTime())) return '-';
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+}
+
+function normalizeAlertLevel(level) {
+  const val = String(level || '').toLowerCase();
+  if (val === 'critical' || val === 'high') return 'critical';
+  if (val === 'medium' || val === 'warning') return 'warning';
+  return 'info';
+}
 
 function getAlertIcon(level) {
   const icons = {
@@ -203,7 +211,7 @@ function initThreatChart() {
     xAxis: {
       type: 'category',
       boundaryGap: false,
-      data: ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00', '24:00'],
+      data: trendLabels.value,
       axisLine: { lineStyle: { color: 'rgba(255, 255, 255, 0.2)' } },
       axisLabel: { color: 'rgba(255, 255, 255, 0.6)' }
     },
@@ -218,7 +226,7 @@ function initThreatChart() {
         name: '威胁检测',
         type: 'line',
         smooth: true,
-        data: [120, 132, 101, 134, 90, 230, 210],
+        data: riskSeries.value,
         areaStyle: {
           color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
             { offset: 0, color: 'rgba(255, 99, 132, 0.3)' },
@@ -232,7 +240,7 @@ function initThreatChart() {
         name: '风险事件',
         type: 'line',
         smooth: true,
-        data: [220, 182, 191, 234, 290, 330, 310],
+        data: auditSeries.value,
         areaStyle: {
           color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
             { offset: 0, color: 'rgba(54, 162, 235, 0.3)' },
@@ -266,7 +274,7 @@ function initAiUsageChart() {
     },
     xAxis: {
       type: 'category',
-      data: ['周一', '周二', '周三', '周四', '周五', '周六', '周日'],
+      data: aiModelSummary.value.map(item => item.modelCode || 'unknown'),
       axisLine: { lineStyle: { color: 'rgba(255, 255, 255, 0.2)' } },
       axisLabel: { color: 'rgba(255, 255, 255, 0.6)' }
     },
@@ -280,7 +288,7 @@ function initAiUsageChart() {
       {
         name: '调用次数',
         type: 'bar',
-        data: [5200, 6320, 7010, 7340, 8900, 6300, 7200],
+        data: aiModelSummary.value.map(item => Number(item.total || 0)),
         itemStyle: {
           color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
             { offset: 0, color: '#5f87ff' },
@@ -338,12 +346,19 @@ function initRiskDistChart() {
         labelLine: {
           show: false
         },
-        data: [
-          { value: 1048, name: '高危', itemStyle: { color: '#ff6384' } },
-          { value: 735, name: '中危', itemStyle: { color: '#ff9f40' } },
-          { value: 580, name: '低危', itemStyle: { color: '#ffcd56' } },
-          { value: 484, name: '信息', itemStyle: { color: '#4bc0c0' } }
-        ]
+        data: riskDistribution.value.map(item => ({
+          value: Number(item.value || 0),
+          name: item.level || '未知',
+          itemStyle: {
+            color: item.level === '高危'
+              ? '#ff6384'
+              : item.level === '中危'
+                ? '#ff9f40'
+                : item.level === '低危'
+                  ? '#ffcd56'
+                  : '#4bc0c0'
+          }
+        }))
       }
     ]
   };
@@ -362,14 +377,10 @@ function initHealthChart() {
       textStyle: { color: '#fff' }
     },
     radar: {
-      indicator: [
-        { name: '系统性能', max: 100 },
-        { name: '安全性', max: 100 },
-        { name: '可用性', max: 100 },
-        { name: '响应速度', max: 100 },
-        { name: '数据完整性', max: 100 },
-        { name: '监控覆盖', max: 100 }
-      ],
+      indicator: healthDimensions.value.map(item => ({
+        name: item.label || '指标',
+        max: 100
+      })),
       splitArea: {
         areaStyle: {
           color: ['rgba(95, 135, 255, 0.05)', 'rgba(95, 135, 255, 0.1)']
@@ -392,7 +403,7 @@ function initHealthChart() {
         type: 'radar',
         data: [
           {
-            value: [95, 98, 99, 92, 97, 94],
+            value: healthDimensions.value.map(item => Number(item.score || 0)),
             name: '当前状态',
             areaStyle: {
               color: new echarts.graphic.RadialGradient(0.5, 0.5, 1, [
@@ -410,11 +421,94 @@ function initHealthChart() {
   healthChart.setOption(option);
 }
 
-function refreshData() {
+async function refreshData() {
   refreshing.value = true;
-  setTimeout(() => {
+  try {
+    const daysMap = { '24h': 1, '7d': 7, '30d': 30 };
+    const days = daysMap[timeRange.value] || 7;
+
+    const [bundle, alertPage, alertOverview, aiSummary] = await Promise.all([
+      request.get('/dashboard/home-bundle'),
+      request.get('/alert-center/list', { params: { page: 1, pageSize: 20 } }),
+      request.get('/alert-center/stats'),
+      request.get('/ai/monitor/summary')
+    ]);
+
+    const workbench = bundle?.workbench || {};
+    const trend = workbench?.trend || {};
+    const trustPulse = bundle?.trustPulse || {};
+
+    trendLabels.value = Array.isArray(trend.labels) ? trend.labels : [];
+    riskSeries.value = Array.isArray(trend.riskSeries) ? trend.riskSeries.map(v => Number(v || 0)) : [];
+    auditSeries.value = Array.isArray(trend.auditSeries) ? trend.auditSeries.map(v => Number(v || 0)) : [];
+    const aiCallSeries = Array.isArray(trend.aiCallSeries) ? trend.aiCallSeries.map(v => Number(v || 0)) : [];
+
+    aiModelSummary.value = Array.isArray(aiSummary) ? aiSummary : [];
+    riskDistribution.value = Array.isArray(workbench.riskDistribution) ? workbench.riskDistribution : [];
+    healthDimensions.value = Array.isArray(trustPulse.dimensions) ? trustPulse.dimensions : [];
+
+    const stats = alertOverview || {};
+    const threatsCount = Number(stats.pending || 0) + Number(stats.critical || 0) + Number(stats.high || 0);
+    const totalAiCalls = aiCallSeries.reduce((sum, item) => sum + Number(item || 0), 0);
+    const totalRiskEvents = riskSeries.value.reduce((sum, item) => sum + Number(item || 0), 0);
+    const healthScore = Number(trustPulse.score || 0);
+
+    metrics.value = [
+      {
+        key: 'threats',
+        label: '威胁检测',
+        value: formatMetricValue(threatsCount),
+        trend: computeTrend(riskSeries.value),
+        color: 'danger',
+        icon: Warning
+      },
+      {
+        key: 'ai_calls',
+        label: 'AI调用次数',
+        value: formatMetricValue(totalAiCalls),
+        trend: computeTrend(aiCallSeries),
+        color: 'primary',
+        icon: TrendCharts
+      },
+      {
+        key: 'risk_events',
+        label: '风险事件',
+        value: formatMetricValue(totalRiskEvents),
+        trend: computeTrend(auditSeries.value),
+        color: 'warning',
+        icon: DataAnalysis
+      },
+      {
+        key: 'system_health',
+        label: '系统健康度',
+        value: `${toFixedRate(healthScore)}%`,
+        trend: 0,
+        color: 'success',
+        icon: Monitor
+      }
+    ];
+
+    const alertRecords = Array.isArray(alertPage?.list) ? alertPage.list : [];
+    alerts.value = alertRecords.slice(0, Math.max(5, days)).map(item => ({
+      id: item.id,
+      level: normalizeAlertLevel(item?.level || item?.riskLevel),
+      title: item.title || item.eventType || '治理告警',
+      description: item.description || item.sourceModule || '请进入详情查看具体处置建议',
+      time: formatTime(item.eventTime || item.createTime || item.updateTime)
+    }));
+
+    threatChart?.dispose();
+    aiUsageChart?.dispose();
+    riskDistChart?.dispose();
+    healthChart?.dispose();
+    threatChart = null;
+    aiUsageChart = null;
+    riskDistChart = null;
+    healthChart = null;
+    initCharts();
+  } finally {
     refreshing.value = false;
-  }, 1000);
+  }
 }
 
 function handleResize() {
@@ -425,7 +519,7 @@ function handleResize() {
 }
 
 onMounted(() => {
-  initCharts();
+  refreshData();
   window.addEventListener('resize', handleResize);
 });
 

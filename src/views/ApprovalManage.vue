@@ -27,8 +27,8 @@
       <el-table-column prop="approverId" label="审批人ID" />
       <el-table-column label="操作">
         <template #default="scope">
-          <el-button size="small" @click="approve(scope.row, '通过')">通过</el-button>
-          <el-button size="small" type="danger" @click="approve(scope.row, '拒绝')">拒绝</el-button>
+          <el-button v-if="canApprove" size="small" @click="approve(scope.row, '通过')">通过</el-button>
+          <el-button v-if="canReject" size="small" type="danger" @click="approve(scope.row, '拒绝')">拒绝</el-button>
           <el-button size="small" type="warning" @click="remove(scope.row.id)" style="margin-left:6px">删除</el-button>
         </template>
       </el-table-column>
@@ -59,9 +59,15 @@
   </el-card>
 </template>
 <script setup>
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import request from '../api/request';
+import { useUserStore } from '../store/user';
+import { canApproveApprovalFlow, canRejectApprovalFlow } from '../utils/roleBoundary';
+
+const userStore = useUserStore();
+const canApprove = computed(() => canApproveApprovalFlow(userStore.userInfo));
+const canReject = computed(() => canRejectApprovalFlow(userStore.userInfo));
 const approvals = ref([]);
 const loading = ref(false);
 const showAdd = ref(false);

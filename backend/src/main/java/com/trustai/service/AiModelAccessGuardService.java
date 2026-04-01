@@ -232,6 +232,12 @@ public class AiModelAccessGuardService {
         event.setType(type);
         event.setLevel(level);
         event.setStatus("open");
+        if (assetId != null) {
+            DataAsset asset = dataAssetService.getById(assetId);
+            if (asset != null) {
+                event.setHandlerId(asset.getOwnerId());
+            }
+        }
         event.setProcessLog("model:" + (modelCode == null ? "unknown" : modelCode)
                 + " | asset:" + (assetId == null ? "none" : assetId)
                 + " | " + reason);

@@ -378,6 +378,7 @@ async function runScan() {
       backendUrl: config.backendUrl || config.serverUrl,
       companyId: resolveReportCompanyId(),
       clientToken: resolveClientIngressToken(),
+      authenticatedUsername: authState?.authenticated ? authState?.user?.username : null,
     });
     lastScanResult = result;
     console.log(`[Aegis] 扫描完成，发现影子AI：${result.shadowAiCount} 个，风险等级：${result.riskLevel}`);

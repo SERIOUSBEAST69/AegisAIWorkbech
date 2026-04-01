@@ -99,10 +99,12 @@ public class AssetRegisterConsumer {
         // 5. 自动生成风险事件
         String level = ratio > 60 ? "critical" : (ratio > 30 ? "high" : "medium");
         RiskEvent event = new RiskEvent();
+        event.setCompanyId(asset.getCompanyId());
         event.setType("敏感数据扫描");
         event.setLevel(level);
         event.setRelatedLogId(task.getId());
         event.setStatus("open");
+        event.setHandlerId(asset.getOwnerId());
         event.setProcessLog("自动创建，敏感占比" + String.format("%.2f", ratio) + "%");
         event.setCreateTime(new Date());
         event.setUpdateTime(new Date());

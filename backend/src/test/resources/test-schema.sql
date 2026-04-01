@@ -12,6 +12,8 @@ CREATE TABLE IF NOT EXISTS role (
   company_id BIGINT,
   name VARCHAR(50) NOT NULL,
   code VARCHAR(50) NOT NULL,
+  allow_self_register BOOLEAN DEFAULT FALSE,
+  is_system BOOLEAN DEFAULT FALSE,
   description VARCHAR(200),
   create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -54,6 +56,7 @@ CREATE TABLE IF NOT EXISTS sys_user (
   organization_type VARCHAR(50),
   login_type VARCHAR(20) DEFAULT 'password',
   wechat_open_id VARCHAR(120),
+  job_title VARCHAR(128),
   phone VARCHAR(20),
   email VARCHAR(100),
   status INT DEFAULT 1,
@@ -256,6 +259,49 @@ CREATE TABLE IF NOT EXISTS security_event (
   policy_version BIGINT,
   operator_id BIGINT,
   event_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS security_detection_rule (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  sensitive_extensions VARCHAR(512),
+  sensitive_paths VARCHAR(1024),
+  alert_threshold_bytes BIGINT DEFAULT 102400,
+  enabled BOOLEAN DEFAULT TRUE,
+  description VARCHAR(500),
+  create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS client_report (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  company_id BIGINT,
+  client_id VARCHAR(64) NOT NULL,
+  hostname VARCHAR(255),
+  ip_address VARCHAR(64),
+  os_username VARCHAR(255),
+  os_type VARCHAR(32),
+  client_version VARCHAR(32),
+  discovered_services CLOB,
+  shadow_ai_count INT DEFAULT 0,
+  risk_level VARCHAR(20) DEFAULT 'none',
+  scan_time TIMESTAMP,
+  create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS client_scan_queue (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  company_id BIGINT,
+  platform VARCHAR(32) NOT NULL,
+  hostname VARCHAR(255),
+  os_username VARCHAR(255),
+  user_agent VARCHAR(512),
+  status VARCHAR(32) DEFAULT 'queued',
+  scan_result CLOB,
+  download_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

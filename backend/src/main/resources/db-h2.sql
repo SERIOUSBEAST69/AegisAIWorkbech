@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS sys_user (
   organization_type VARCHAR(50),
   login_type VARCHAR(20) DEFAULT 'password',
   wechat_open_id VARCHAR(120),
+  job_title VARCHAR(128),
   phone VARCHAR(20),
   email VARCHAR(100),
   status INT DEFAULT 1,
@@ -125,6 +126,8 @@ CREATE TABLE IF NOT EXISTS role (
   company_id BIGINT,
   name VARCHAR(50) NOT NULL,
   code VARCHAR(50) NOT NULL,
+  allow_self_register BOOLEAN DEFAULT FALSE,
+  is_system BOOLEAN DEFAULT FALSE,
   description VARCHAR(200),
   create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP

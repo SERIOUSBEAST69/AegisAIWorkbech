@@ -16,6 +16,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -31,6 +32,9 @@ class GovernanceAdminAttackResilienceIntegrationTest {
     @Autowired
     private ObjectMapper objectMapper;
 
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
     @MockBean(name = "securitySchemaInitializer")
     private CommandLineRunner securitySchemaInitializerRunner;
 
@@ -45,7 +49,7 @@ class GovernanceAdminAttackResilienceIntegrationTest {
 
     @Test
     void employeeCannotReadGovernanceChangeQueue() throws Exception {
-        String employeeToken = loginAndGetToken("employee", "Passw0rd!");
+        String employeeToken = loginAndGetToken("employee1", "Passw0rd!");
         JsonNode resp = getJson("/api/governance-change/page?page=1&pageSize=10", employeeToken, status().isForbidden());
         assertEquals(40300, resp.path("code").asInt(), resp.toString());
     }
@@ -90,7 +94,73 @@ class GovernanceAdminAttackResilienceIntegrationTest {
     }
 
     @Test
+    void governanceChangeApproveShouldRejectMalformedPayload() throws Exception {
+        String adminToken = loginAndGetToken("admin", "admin");
+        JsonNode submitResp = postJson(
+            "/api/governance-change/submit",
+            adminToken,
+            Map.of(
+                "module", "ROLE",
+                "action", "ADD",
+                "payloadJson", "{bad-json",
+                "confirmPassword", "admin"
+            ),
+            status().isOk()
+        );
+        assertEquals(20000, submitResp.path("code").asInt(), submitResp.toString());
+        long requestId = submitResp.path("data").path("id").asLong();
+        assertTrue(requestId > 0L);
+
+        String secopsToken = loginAndGetToken("secops", "Passw0rd!");
+        JsonNode approveResp = postJson(
+            "/api/governance-change/approve",
+            secopsToken,
+            Map.of("requestId", requestId, "approve", true, "confirmPassword", "Passw0rd!", "note", "malformed payload"),
+            status().isOk()
+        );
+        assertEquals(40000, approveResp.path("code").asInt(), approveResp.toString());
+    }
+
+    @Test
+    void governanceChangeCannotBeApprovedTwice() throws Exception {
+        String adminToken = loginAndGetToken("admin", "admin");
+        String payload = objectMapper.writeValueAsString(Map.of(
+            "name", "重复审批防护角色",
+            "code", "RACE_APPROVE_" + System.currentTimeMillis(),
+            "description", "重复审批回归"
+        ));
+
+        JsonNode submitResp = postJson(
+            "/api/governance-change/submit",
+            adminToken,
+            Map.of("module", "ROLE", "action", "ADD", "payloadJson", payload, "confirmPassword", "admin"),
+            status().isOk()
+        );
+        assertEquals(20000, submitResp.path("code").asInt(), submitResp.toString());
+        long requestId = submitResp.path("data").path("id").asLong();
+        assertTrue(requestId > 0L);
+
+        String secopsToken = loginAndGetToken("secops", "Passw0rd!");
+        JsonNode firstApprove = postJson(
+            "/api/governance-change/approve",
+            secopsToken,
+            Map.of("requestId", requestId, "approve", true, "confirmPassword", "Passw0rd!", "note", "first approve"),
+            status().isOk()
+        );
+        assertEquals(20000, firstApprove.path("code").asInt(), firstApprove.toString());
+
+        JsonNode secondApprove = postJson(
+            "/api/governance-change/approve",
+            secopsToken,
+            Map.of("requestId", requestId, "approve", true, "confirmPassword", "Passw0rd!", "note", "second approve"),
+            status().isOk()
+        );
+        assertEquals(40000, secondApprove.path("code").asInt(), secondApprove.toString());
+    }
+
+    @Test
     void frequentSensitiveDeleteRequestsShouldTriggerFuse() throws Exception {
+        ensurePermissionBindingForUser("admin", "user:manage");
         String adminToken = loginAndGetToken("admin", "admin");
         boolean hitFuse = false;
         for (int i = 0; i < 30; i++) {
@@ -106,6 +176,55 @@ class GovernanceAdminAttackResilienceIntegrationTest {
             }
         }
         assertTrue(hitFuse, "expected sensitive operation fuse to trigger");
+    }
+
+    private void ensurePermissionBindingForUser(String username, String permissionCode) {
+        Long roleId = jdbcTemplate.query(
+            "SELECT role_id FROM sys_user WHERE LOWER(username) = LOWER(?) ORDER BY id ASC LIMIT 1",
+            ps -> ps.setString(1, username),
+            rs -> rs.next() ? rs.getLong(1) : null
+        );
+        if (roleId == null) {
+            throw new IllegalStateException("Role not found for test user: " + username);
+        }
+
+        Long permissionId = jdbcTemplate.query(
+            "SELECT id FROM permission WHERE code = ? ORDER BY id ASC LIMIT 1",
+            ps -> ps.setString(1, permissionCode),
+            rs -> rs.next() ? rs.getLong(1) : null
+        );
+        if (permissionId == null) {
+            jdbcTemplate.update(
+                "INSERT INTO permission(company_id, name, code, type, parent_id, create_time, update_time) VALUES(?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+                1L,
+                permissionCode,
+                permissionCode,
+                "button",
+                null
+            );
+            permissionId = jdbcTemplate.query(
+                "SELECT id FROM permission WHERE code = ? ORDER BY id DESC LIMIT 1",
+                ps -> ps.setString(1, permissionCode),
+                rs -> rs.next() ? rs.getLong(1) : null
+            );
+        }
+        if (permissionId == null) {
+            throw new IllegalStateException("Permission not found for test code: " + permissionCode);
+        }
+
+        final Long boundPermissionId = permissionId;
+
+        Integer exists = jdbcTemplate.query(
+            "SELECT COUNT(1) FROM role_permission WHERE role_id = ? AND permission_id = ?",
+            ps -> {
+                ps.setLong(1, roleId);
+                ps.setLong(2, boundPermissionId);
+            },
+            rs -> rs.next() ? rs.getInt(1) : 0
+        );
+        if (exists == null || exists == 0) {
+            jdbcTemplate.update("INSERT INTO role_permission(role_id, permission_id) VALUES(?, ?)", roleId, boundPermissionId);
+        }
     }
 
     private String loginAndGetToken(String username, String password) throws Exception {

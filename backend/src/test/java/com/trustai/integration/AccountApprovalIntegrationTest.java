@@ -19,6 +19,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -37,14 +38,14 @@ class AccountApprovalIntegrationTest {
     @Autowired
     private UserService userService;
 
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
     @MockBean(name = "securitySchemaInitializer")
     private CommandLineRunner securitySchemaInitializerRunner;
 
     @MockBean(name = "privacyShieldSchemaInitializer")
     private CommandLineRunner privacyShieldSchemaInitializerRunner;
-
-    @MockBean(name = "companySchemaInitializer")
-    private CommandLineRunner companySchemaInitializerRunner;
 
     @MockBean(name = "awardSchemaInitializer")
     private CommandLineRunner awardSchemaInitializerRunner;
@@ -53,16 +54,18 @@ class AccountApprovalIntegrationTest {
     void realAccountMustBeApprovedOrRejectedBeforeLogin() throws Exception {
         String approvableUsername = uniqueUsername("approve");
         String rejectedUsername = uniqueUsername("reject");
+        makeEmployeeRoleSelfRegisterable();
 
         JsonNode adminLoginResp = login("admin", "admin");
         assertEquals(20000, adminLoginResp.path("code").asInt());
         String adminToken = adminLoginResp.path("data").path("token").asText();
-        String adminCompanyName = adminLoginResp.path("data").path("user").path("companyName").asText();
+        String adminCompanyName = resolveCompanyNameByUsername("admin");
         assertTrue(!adminToken.isBlank());
         assertTrue(!adminCompanyName.isBlank());
+        ensureCompanyEmployeeRoleSelfRegister(adminCompanyName);
 
         JsonNode registerPendingResp = registerRealAccount(approvableUsername, adminCompanyName);
-        assertEquals(20000, registerPendingResp.path("code").asInt());
+        assertEquals(20000, registerPendingResp.path("code").asInt(), registerPendingResp.toString());
         assertFalse(registerPendingResp.path("data").path("authenticated").asBoolean());
         assertTrue(registerPendingResp.path("data").path("pendingApproval").asBoolean());
         assertEquals("pending", registerPendingResp.path("data").path("accountStatus").asText());
@@ -82,7 +85,8 @@ class AccountApprovalIntegrationTest {
         assertEquals(20000, activeLoginResp.path("code").asInt());
         assertEquals("active", activeLoginResp.path("data").path("user").path("accountStatus").asText());
 
-        String tenantCompanyName = registerPendingResp.path("data").path("user").path("companyName").asText(adminCompanyName);
+        String tenantCompanyName = resolveCompanyNameById(pendingCompanyId);
+        ensureCompanyEmployeeRoleSelfRegister(tenantCompanyName);
         JsonNode registerRejectedResp = registerRealAccount(rejectedUsername, tenantCompanyName);
         assertEquals(20000, registerRejectedResp.path("code").asInt());
         assertTrue(registerRejectedResp.path("data").path("pendingApproval").asBoolean());
@@ -177,4 +181,63 @@ class AccountApprovalIntegrationTest {
         int value = Math.floorMod(seed.hashCode(), 100_000_000);
         return "139" + String.format("%08d", value);
     }
+
+    private void makeEmployeeRoleSelfRegisterable() {
+        jdbcTemplate.update("UPDATE role SET allow_self_register = TRUE WHERE code = 'EMPLOYEE'");
+    }
+
+    private void ensureCompanyEmployeeRoleSelfRegister(String companyName) {
+        Long companyId = jdbcTemplate.query(
+            "SELECT id FROM company WHERE company_name = ? ORDER BY id ASC LIMIT 1",
+            ps -> ps.setString(1, companyName),
+            rs -> rs.next() ? rs.getLong(1) : null
+        );
+        if (companyId == null) {
+            User admin = userService.lambdaQuery().eq(User::getUsername, "admin").one();
+            companyId = admin == null ? null : admin.getCompanyId();
+        }
+        assertTrue(companyId != null && companyId > 0L);
+        long resolvedCompanyId = companyId;
+
+        Long roleId = jdbcTemplate.query(
+            "SELECT id FROM role WHERE company_id = ? AND code = 'EMPLOYEE' ORDER BY id ASC LIMIT 1",
+            ps -> ps.setLong(1, resolvedCompanyId),
+            rs -> rs.next() ? rs.getLong(1) : null
+        );
+        if (roleId == null) {
+            jdbcTemplate.update(
+                "INSERT INTO role(company_id, name, code, description, allow_self_register, is_system, create_time, update_time) VALUES(?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+                resolvedCompanyId,
+                "普通员工",
+                "EMPLOYEE",
+                "审批测试自动创建",
+                true,
+                false
+            );
+            roleId = jdbcTemplate.query(
+                "SELECT id FROM role WHERE company_id = ? AND code = 'EMPLOYEE' ORDER BY id DESC LIMIT 1",
+                ps -> ps.setLong(1, resolvedCompanyId),
+                rs -> rs.next() ? rs.getLong(1) : null
+            );
+        }
+        assertTrue(roleId != null && roleId > 0L);
+        jdbcTemplate.update("UPDATE role SET allow_self_register = TRUE WHERE id = ?", roleId);
+    }
+
+    private String resolveCompanyNameByUsername(String username) {
+        return jdbcTemplate.query(
+            "SELECT c.company_name FROM sys_user u JOIN company c ON c.id = u.company_id WHERE LOWER(u.username) = LOWER(?) ORDER BY u.id ASC LIMIT 1",
+            ps -> ps.setString(1, username),
+            rs -> rs.next() ? rs.getString(1) : ""
+        );
+    }
+
+    private String resolveCompanyNameById(long companyId) {
+        return jdbcTemplate.query(
+            "SELECT company_name FROM company WHERE id = ? LIMIT 1",
+            ps -> ps.setLong(1, companyId),
+            rs -> rs.next() ? rs.getString(1) : ""
+        );
+    }
+
 }

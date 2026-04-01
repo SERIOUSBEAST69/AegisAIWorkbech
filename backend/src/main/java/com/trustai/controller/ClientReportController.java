@@ -3,12 +3,14 @@ package com.trustai.controller;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.trustai.entity.ClientReport;
 import com.trustai.entity.ClientScanQueue;
+import com.trustai.entity.SecurityEvent;
 import com.trustai.entity.User;
 import com.trustai.service.ClientIngressAuthService;
 import com.trustai.service.ClientReportService;
 import com.trustai.service.ClientScanQueueService;
 import com.trustai.service.CurrentUserService;
 import com.trustai.service.EventHubService;
+import com.trustai.service.SecurityEventService;
 import com.trustai.service.UserService;
 import com.trustai.utils.R;
 import jakarta.servlet.http.HttpServletRequest;
@@ -16,6 +18,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -42,6 +46,7 @@ public class ClientReportController {
     private final EventHubService eventHubService;
     private final UserService userService;
     private final ClientIngressAuthService clientIngressAuthService;
+    private final SecurityEventService securityEventService;
 
     // ── 客户端注册（幂等） ──────────────────────────────────────────────────────
 
@@ -59,8 +64,21 @@ public class ClientReportController {
         if (req.getClientId() == null || req.getClientId().isBlank()) {
             return R.error(40000, "clientId 不能为空");
         }
+        if (req.getOsUsername() == null || req.getOsUsername().isBlank()) {
+            return R.error(40000, "osUsername 不能为空");
+        }
+        if (req.getHostname() == null || req.getHostname().isBlank()) {
+            return R.error(40000, "hostname 不能为空");
+        }
+        if (req.getOsType() == null || req.getOsType().isBlank()) {
+            return R.error(40000, "osType 不能为空");
+        }
 
-        Long companyId = resolveCompanyId(headerCompanyId);
+        User reporter = resolveBoundUser(req.getOsUsername(), headerCompanyId);
+        if (reporter == null || reporter.getCompanyId() == null) {
+            return R.error(40000, "无法绑定合法账号与企业");
+        }
+        Long companyId = reporter.getCompanyId();
 
         long existing = clientReportService.count(
                 new QueryWrapper<ClientReport>()
@@ -71,6 +89,7 @@ public class ClientReportController {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("companyId", companyId);
         result.put("clientId", req.getClientId());
+        result.put("deviceFingerprint", buildDeviceFingerprint(req.getClientId(), req.getHostname(), req.getOsUsername()));
         result.put("registered", existing > 0);
         result.put("serverTime", LocalDateTime.now().toString());
         return R.ok(result);
@@ -92,9 +111,24 @@ public class ClientReportController {
         if (report.getClientId() == null || report.getClientId().isBlank()) {
             return R.error(40000, "clientId 不能为空");
         }
+        if (report.getOsUsername() == null || report.getOsUsername().isBlank()) {
+            return R.error(40000, "osUsername 不能为空");
+        }
+        if (report.getHostname() == null || report.getHostname().isBlank()) {
+            return R.error(40000, "hostname 不能为空");
+        }
+        if (report.getOsType() == null || report.getOsType().isBlank()) {
+            return R.error(40000, "osType 不能为空");
+        }
+
+        User relatedUser = resolveBoundUser(report.getOsUsername(), headerCompanyId);
+        if (relatedUser == null || relatedUser.getCompanyId() == null) {
+            return R.error(40000, "无法绑定合法账号与企业");
+        }
 
         report.setId(null);
-        report.setCompanyId(resolveCompanyId(headerCompanyId));
+        report.setOsUsername(relatedUser.getUsername());
+        report.setCompanyId(relatedUser.getCompanyId());
         report.setIpAddress(resolveClientIp(servletReq));
         if (report.getScanTime() == null) {
             report.setScanTime(LocalDateTime.now());
@@ -106,8 +140,7 @@ public class ClientReportController {
         report.setRiskLevel(calcRiskLevel(report.getShadowAiCount(), report.getDiscoveredServices()));
 
         clientReportService.save(report);
-        User relatedUser = resolveRelatedUser(report);
-        eventHubService.ingestShadowAiEvent(report, relatedUser, Map.of(
+        var governanceEvent = eventHubService.ingestShadowAiEvent(report, relatedUser, Map.of(
             "clientId", String.valueOf(report.getClientId() == null ? "" : report.getClientId()),
             "osUsername", String.valueOf(report.getOsUsername() == null ? "" : report.getOsUsername()),
             "hostname", String.valueOf(report.getHostname() == null ? "" : report.getHostname()),
@@ -117,7 +150,10 @@ public class ClientReportController {
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("id", report.getId());
+        result.put("governanceEventId", governanceEvent == null ? null : governanceEvent.getId());
+        result.put("subjectUserId", relatedUser.getId());
         result.put("accepted", true);
+        result.put("deviceFingerprint", buildDeviceFingerprint(report.getClientId(), report.getHostname(), report.getOsUsername()));
         result.put("riskLevel", report.getRiskLevel());
         return R.ok(result);
     }
@@ -128,14 +164,17 @@ public class ClientReportController {
      * 返回所有客户端的最新一条扫描报告（按 client_id 去重，取最新）。
      */
     @GetMapping("/list")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','EMPLOYEE')")
     public R<List<Map<String, Object>>> list() {
-        currentUserService.requireAnyRole("ADMIN", "SECOPS");
-        Long companyId = currentUserService.requireCurrentUser().getCompanyId();
+        currentUserService.requireAnyRole("ADMIN", "SECOPS", "EMPLOYEE");
+        User currentUser = currentUserService.requireCurrentUser();
+        Long companyId = currentUser.getCompanyId();
+        boolean employeeOnly = currentUserService.hasRole("EMPLOYEE");
         // 取全部报告，按 clientId 分组，每组保留最新一条
         List<ClientReport> all = clientReportService.list(
             new QueryWrapper<ClientReport>()
                 .eq(companyId != null, "company_id", companyId)
+                .eq(employeeOnly, "os_username", currentUser.getUsername())
                 .orderByDesc("scan_time")
         );
 
@@ -153,6 +192,7 @@ public class ClientReportController {
             row.put("id", latest.getId());
             row.put("clientId", latest.getClientId());
             row.put("deviceIdentifier", latest.getClientId());
+            row.put("deviceFingerprint", buildDeviceFingerprint(latest.getClientId(), latest.getHostname(), latest.getOsUsername()));
             row.put("hostname", latest.getHostname());
             row.put("osUsername", latest.getOsUsername());
             row.put("ipAddress", latest.getIpAddress());
@@ -164,6 +204,7 @@ public class ClientReportController {
             row.put("shadowAiCount", latest.getShadowAiCount());
             row.put("riskLevel", latest.getRiskLevel());
             row.put("scanTime", latest.getScanTime());
+            row.put("dispositionStatus", resolveDispositionStatus(latest));
             payload.add(row);
         }
 
@@ -174,13 +215,16 @@ public class ClientReportController {
      * 查询指定客户端的历史报告（最近 50 条）。
      */
     @GetMapping("/history")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','EMPLOYEE')")
     public R<List<ClientReport>> history(@RequestParam String clientId) {
-        currentUserService.requireAnyRole("ADMIN", "SECOPS");
-        Long companyId = currentUserService.requireCurrentUser().getCompanyId();
+        currentUserService.requireAnyRole("ADMIN", "SECOPS", "EMPLOYEE");
+        User currentUser = currentUserService.requireCurrentUser();
+        Long companyId = currentUser.getCompanyId();
+        boolean employeeOnly = currentUserService.hasRole("EMPLOYEE");
         List<ClientReport> records = clientReportService.list(
                 new QueryWrapper<ClientReport>()
                 .eq(companyId != null, "company_id", companyId)
+                        .eq(employeeOnly, "os_username", currentUser.getUsername())
                         .eq("client_id", clientId)
                         .orderByDesc("scan_time")
                         .last("LIMIT 50")
@@ -194,13 +238,16 @@ public class ClientReportController {
      * 返回影子AI治理摘要，供工作台首页和 ShadowAiDiscovery 视图使用。
      */
     @GetMapping("/stats")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','EMPLOYEE')")
     public R<Map<String, Object>> stats() {
-        currentUserService.requireAnyRole("ADMIN", "SECOPS");
-        Long companyId = currentUserService.requireCurrentUser().getCompanyId();
+        currentUserService.requireAnyRole("ADMIN", "SECOPS", "EMPLOYEE");
+        User currentUser = currentUserService.requireCurrentUser();
+        Long companyId = currentUser.getCompanyId();
+        boolean employeeOnly = currentUserService.hasRole("EMPLOYEE");
         List<ClientReport> all = clientReportService.list(
             new QueryWrapper<ClientReport>()
                 .eq(companyId != null, "company_id", companyId)
+                .eq(employeeOnly, "os_username", currentUser.getUsername())
                 .orderByDesc("scan_time")
         );
 
@@ -271,12 +318,13 @@ public class ClientReportController {
     @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
     public R<ClientScanQueue> enqueue(@RequestBody QueueReq req, HttpServletRequest servletReq) {
         currentUserService.requireAnyRole("ADMIN", "SECOPS");
-        Long companyId = currentUserService.requireCurrentUser().getCompanyId();
+        User currentUser = currentUserService.requireCurrentUser();
+        Long companyId = currentUser.getCompanyId();
         ClientScanQueue entry = new ClientScanQueue();
         entry.setCompanyId(companyId);
         entry.setPlatform(req.getPlatform() != null ? req.getPlatform() : "unknown");
         entry.setHostname(req.getHostname());
-        entry.setOsUsername(req.getOsUsername());
+        entry.setOsUsername(currentUser.getUsername());
         entry.setUserAgent(servletReq.getHeader("User-Agent"));
         entry.setStatus("queued");
         entry.setDownloadTime(LocalDateTime.now());
@@ -329,7 +377,19 @@ public class ClientReportController {
         return "low";
     }
 
-    private Long resolveCompanyId(Long headerCompanyId) {
+    private Long resolveCompanyId(Long headerCompanyId, String osUsername) {
+        if (osUsername != null && !osUsername.isBlank()) {
+            User boundUser = userService.lambdaQuery()
+                .eq(User::getUsername, osUsername)
+                .eq(headerCompanyId != null && headerCompanyId > 0, User::getCompanyId, headerCompanyId)
+                .list()
+                .stream()
+                .findFirst()
+                .orElse(null);
+            if (boundUser != null && boundUser.getCompanyId() != null) {
+                return boundUser.getCompanyId();
+            }
+        }
         if (headerCompanyId != null && headerCompanyId > 0) {
             return headerCompanyId;
         }
@@ -342,6 +402,20 @@ public class ClientReportController {
             // unauthenticated reporting is allowed
         }
         return clientIngressAuthService.getDefaultCompanyId();
+    }
+
+    private User resolveBoundUser(String osUsername, Long headerCompanyId) {
+        if (osUsername == null || osUsername.isBlank()) {
+            return null;
+        }
+        List<User> candidates = userService.lambdaQuery()
+            .eq(User::getUsername, osUsername)
+            .eq(headerCompanyId != null && headerCompanyId > 0, User::getCompanyId, headerCompanyId)
+            .list();
+        if (candidates == null || candidates.isEmpty()) {
+            return null;
+        }
+        return candidates.get(0);
     }
 
     private User resolveRelatedUser(ClientReport report) {
@@ -361,6 +435,20 @@ public class ClientReportController {
         return null;
     }
 
+    private String resolveDispositionStatus(ClientReport report) {
+        if (report == null || report.getCompanyId() == null || report.getOsUsername() == null || report.getOsUsername().isBlank()) {
+            return null;
+        }
+        SecurityEvent latest = securityEventService.getOne(
+            new QueryWrapper<SecurityEvent>()
+                .eq("company_id", report.getCompanyId())
+                .eq("employee_id", report.getOsUsername())
+                .orderByDesc("event_time")
+                .last("LIMIT 1")
+        );
+        return latest == null ? null : latest.getStatus();
+    }
+
     private String resolveClientIp(HttpServletRequest req) {
         if (req == null) {
             return null;
@@ -377,6 +465,25 @@ public class ClientReportController {
             return realIp.trim();
         }
         return req.getRemoteAddr();
+    }
+
+    private String buildDeviceFingerprint(String clientId, String hostname, String osUsername) {
+        String payload = String.join("|",
+            clientId == null ? "" : clientId,
+            hostname == null ? "" : hostname,
+            osUsername == null ? "" : osUsername
+        );
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(payload.getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder();
+            for (byte b : hash) {
+                hex.append(String.format("%02x", b));
+            }
+            return hex.substring(0, 24);
+        } catch (Exception ex) {
+            return Integer.toHexString(payload.hashCode());
+        }
     }
 
     // ── DTO ────────────────────────────────────────────────────────────────────

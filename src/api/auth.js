@@ -36,8 +36,15 @@ function realSendPhoneCode(payload) {
   return request.post('/auth/phone-code', payload);
 }
 
-function realRegistrationOptions() {
+function realRegistrationOptions(companyId) {
+  if (companyId) {
+    return request.get('/auth/registration-options', { params: { companyId } });
+  }
   return request.get('/auth/registration-options');
+}
+
+function realPublicRoles(companyId) {
+  return request.get('/public/roles', { params: { companyId } });
 }
 
 function normalizeCurrentUserResponse(response) {
@@ -81,8 +88,12 @@ export const authApi = {
     return realSendPhoneCode(payload);
   },
 
-  getRegistrationOptions() {
-    return realRegistrationOptions();
+  getRegistrationOptions(companyId) {
+    return realRegistrationOptions(companyId);
+  },
+
+  getPublicRoles(companyId) {
+    return realPublicRoles(companyId);
   },
 
   /**

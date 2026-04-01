@@ -13,6 +13,7 @@
 
 const os   = require('os');
 const path = require('path');
+const fs = require('fs');
 const axios = require('axios');
 
 const { scanBrowserHistory }   = require('./browserHistoryScanner');
@@ -21,6 +22,79 @@ const { scanRunningProcesses } = require('./processScanner');
 const { AI_SERVICES } = require('./aiServiceList');
 
 const DEFAULT_AI_WHITELIST = ['阿里通义系列', '百度文心系列'];
+const PENDING_REPORT_FILE = path.join(os.homedir(), '.aegis-pending-reports.json');
+const MAX_PENDING_REPORTS = 50;
+
+function normalizeBoundUsername(authenticatedUsername) {
+  const authName = String(authenticatedUsername || '').trim();
+  if (authName) {
+    return authName;
+  }
+  return os.userInfo().username;
+}
+
+function loadPendingReports() {
+  try {
+    if (!fs.existsSync(PENDING_REPORT_FILE)) {
+      return [];
+    }
+    const raw = fs.readFileSync(PENDING_REPORT_FILE, 'utf-8');
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function savePendingReports(reports) {
+  try {
+    const sanitized = Array.isArray(reports) ? reports.slice(-MAX_PENDING_REPORTS) : [];
+    fs.writeFileSync(PENDING_REPORT_FILE, JSON.stringify(sanitized, null, 2), 'utf-8');
+  } catch {
+    // Non-blocking local persistence best effort.
+  }
+}
+
+async function flushPendingReports(apiBase, headers) {
+  const pending = loadPendingReports();
+  if (!pending.length) {
+    return;
+  }
+
+  const remaining = [];
+  for (const report of pending) {
+    try {
+      await axios.post(`${apiBase}/api/client/report`, report, {
+        timeout: 10000,
+        headers,
+      });
+    } catch {
+      remaining.push(report);
+    }
+  }
+  savePendingReports(remaining);
+}
+
+async function registerClient(apiBase, headers, report) {
+  if (!apiBase || !report) {
+    return;
+  }
+  const body = {
+    clientId: report.clientId,
+    hostname: report.hostname,
+    osUsername: report.osUsername,
+    osType: report.osType,
+    clientVersion: report.clientVersion,
+  };
+  try {
+    await axios.post(`${apiBase}/api/client/register`, body, {
+      timeout: 8000,
+      headers,
+    });
+  } catch {
+    // Registration failure does not block scan reporting.
+  }
+}
 
 // ── 辅助：合并去重 ──────────────────────────────────────────────────────────
 
@@ -99,7 +173,7 @@ async function fetchPolicyConfig(apiBase, headers) {
 /**
  * 执行完整扫描并将结果上报至服务端。
  *
- * @param {{ clientId: string, backendUrl: string, serverUrl?: string, clientToken?: string, companyId?: number }} opts
+ * @param {{ clientId: string, backendUrl: string, serverUrl?: string, clientToken?: string, companyId?: number, authenticatedUsername?: string }} opts
  * @returns {Promise<{
  *   shadowAiCount: number,
  *   riskLevel: string,
@@ -107,7 +181,7 @@ async function fetchPolicyConfig(apiBase, headers) {
  *   time: string,
  * }>}
  */
-async function scan({ clientId, backendUrl, serverUrl, clientToken, companyId }) {
+async function scan({ clientId, backendUrl, serverUrl, clientToken, companyId, authenticatedUsername }) {
   // backendUrl 优先；兼容旧调用方式中传入 serverUrl 的情况
   const apiBase = backendUrl || serverUrl;
   const startTime = Date.now();
@@ -157,10 +231,11 @@ async function scan({ clientId, backendUrl, serverUrl, clientToken, companyId })
 
   // ── 上报至服务端 ────────────────────────────────────────────────────────────
   if (apiBase && clientId) {
+    const boundUsername = normalizeBoundUsername(authenticatedUsername);
     const report = {
       clientId,
       hostname:    os.hostname(),
-      osUsername:  os.userInfo().username,
+      osUsername:  boundUsername,
       osType:      getOsType(),
       clientVersion: '1.0.0',
       discoveredServices: JSON.stringify(shadowServices),
@@ -171,6 +246,8 @@ async function scan({ clientId, backendUrl, serverUrl, clientToken, companyId })
 
     try {
       const reportHeaders = { ...headers, 'Content-Type': 'application/json' };
+      await registerClient(apiBase, reportHeaders, report);
+      await flushPendingReports(apiBase, reportHeaders);
       await axios.post(`${apiBase}/api/client/report`, report, {
         timeout: 10000,
         headers: reportHeaders,
@@ -179,6 +256,9 @@ async function scan({ clientId, backendUrl, serverUrl, clientToken, companyId })
     } catch (err) {
       // 上报失败不影响本次扫描结果
       console.warn('[Scanner] 上报失败（将在下次重试）：', err.message);
+      const pending = loadPendingReports();
+      pending.push(report);
+      savePendingReports(pending);
     }
   }
 

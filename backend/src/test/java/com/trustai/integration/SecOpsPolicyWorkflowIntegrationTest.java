@@ -50,6 +50,9 @@ class SecOpsPolicyWorkflowIntegrationTest {
     @Test
     void secopsShouldManagePolicyWithSecondPasswordAndDataVisibleInList() throws Exception {
         ensurePolicyTable();
+        ensurePermissionBindingForRole("SECOPS", "policy:structure:manage");
+        ensurePermissionBindingForRole("SECOPS", "policy:status:toggle");
+        ensurePermissionBindingForRole("SECOPS", "policy:view");
         String secopsToken = loginAndGetToken("secops", "Passw0rd!");
         String policyName = "SECOPS_POLICY_" + System.currentTimeMillis();
 
@@ -110,6 +113,7 @@ class SecOpsPolicyWorkflowIntegrationTest {
         var builder = post(path)
             .contentType(MediaType.APPLICATION_JSON)
             .content(objectMapper.writeValueAsString(body));
+        builder.header("X-Company-Id", "1");
         if (token != null && !token.isBlank()) {
             builder.header("Authorization", "Bearer " + token);
         }
@@ -121,6 +125,7 @@ class SecOpsPolicyWorkflowIntegrationTest {
 
     private JsonNode getJson(String path, String token) throws Exception {
         var builder = get(path).contentType(MediaType.APPLICATION_JSON);
+        builder.header("X-Company-Id", "1");
         if (token != null && !token.isBlank()) {
             builder.header("Authorization", "Bearer " + token);
         }
@@ -128,5 +133,48 @@ class SecOpsPolicyWorkflowIntegrationTest {
             .andExpect(status().isOk())
             .andReturn();
         return objectMapper.readTree(result.getResponse().getContentAsString());
+    }
+
+    private void ensurePermissionBindingForRole(String roleCode, String permissionCode) {
+        Long roleId = jdbcTemplate.query(
+            "SELECT id FROM role WHERE company_id = 1 AND code = ? ORDER BY id ASC LIMIT 1",
+            ps -> ps.setString(1, roleCode),
+            rs -> rs.next() ? rs.getLong(1) : null
+        );
+        assertTrue(roleId != null && roleId > 0L);
+
+        Long permissionId = jdbcTemplate.query(
+            "SELECT id FROM permission WHERE company_id = 1 AND code = ? ORDER BY id ASC LIMIT 1",
+            ps -> ps.setString(1, permissionCode),
+            rs -> rs.next() ? rs.getLong(1) : null
+        );
+        if (permissionId == null) {
+            jdbcTemplate.update(
+                "INSERT INTO permission(company_id, name, code, type, create_time, update_time) VALUES(?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+                1L,
+                permissionCode,
+                permissionCode,
+                "button"
+            );
+            permissionId = jdbcTemplate.query(
+                "SELECT id FROM permission WHERE company_id = 1 AND code = ? ORDER BY id DESC LIMIT 1",
+                ps -> ps.setString(1, permissionCode),
+                rs -> rs.next() ? rs.getLong(1) : null
+            );
+        }
+        assertTrue(permissionId != null && permissionId > 0L);
+
+        Long boundPermissionId = permissionId;
+        Integer exists = jdbcTemplate.query(
+            "SELECT COUNT(1) FROM role_permission WHERE role_id = ? AND permission_id = ?",
+            ps -> {
+                ps.setLong(1, roleId);
+                ps.setLong(2, boundPermissionId);
+            },
+            rs -> rs.next() ? rs.getInt(1) : 0
+        );
+        if (exists == null || exists == 0) {
+            jdbcTemplate.update("INSERT INTO role_permission(role_id, permission_id) VALUES(?, ?)", roleId, boundPermissionId);
+        }
     }
 }

@@ -70,6 +70,7 @@ class AuthAndOpsStabilityIntegrationTest {
 
     private JsonNode getJson(String path, String token) throws Exception {
         var builder = get(path);
+        builder.header("X-Company-Id", "1");
         if (token != null && !token.isBlank()) {
             builder.header("Authorization", "Bearer " + token);
         }
@@ -83,6 +84,7 @@ class AuthAndOpsStabilityIntegrationTest {
         var builder = post(path)
             .contentType(MediaType.APPLICATION_JSON)
             .content(objectMapper.writeValueAsString(body));
+        builder.header("X-Company-Id", "1");
         if (token != null && !token.isBlank()) {
             builder.header("Authorization", "Bearer " + token);
         }

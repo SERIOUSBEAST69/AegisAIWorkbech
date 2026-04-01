@@ -20,14 +20,16 @@
         <el-tag v-if="isElectron" type="success" size="large">客户端已连接</el-tag>
         <el-tag v-else type="info" size="large">Web 模式</el-tag>
         <el-button
+          v-if="canRunLocalScan"
           type="success"
           :loading="localScanning"
+          :disabled="localScanning || loading"
           @click="runLocalScan"
         >
           <el-icon><Monitor /></el-icon>
-          扫描本机
+          {{ localScanning ? '扫描中' : '扫描本机' }}
         </el-button>
-        <el-button type="primary" :loading="loading" @click="refresh">
+        <el-button type="primary" :loading="loading" :disabled="localScanning" @click="refresh">
           <el-icon><Refresh /></el-icon>
           刷新扫描结果
         </el-button>
@@ -35,7 +37,7 @@
     </div>
 
     <!-- 统计卡片 -->
-    <div v-if="!isEmployeeView" class="stats-grid scene-block">
+    <div v-if="canViewCompanyWide" class="stats-grid scene-block">
       <article class="stat-tile card-glass">
         <div class="stat-tile-icon clients">
           <el-icon><Monitor /></el-icon>
@@ -101,13 +103,15 @@
             本机风险：{{ riskLabel(localScanResult.riskLevel) }}
           </span>
           <el-button
+            v-if="canRunLocalScan"
             type="success"
             :loading="localScanning"
+            :disabled="localScanning || loading"
             size="small"
             @click="runLocalScan"
           >
             <el-icon><Refresh /></el-icon>
-            立即扫描
+            {{ localScanning ? '扫描中' : '立即扫描' }}
           </el-button>
         </div>
       </div>
@@ -153,10 +157,10 @@
     </div>
 
     <!-- 风险分布 + 客户端列表 -->
-    <div v-if="!isEmployeeView" class="main-grid scene-block">
+    <div class="main-grid scene-block">
 
       <!-- 左侧：风险等级分布 -->
-      <el-card class="risk-dist-card card-glass">
+      <el-card v-if="canViewCompanyWide" class="risk-dist-card card-glass">
         <div class="panel-head">
           <div class="card-header">风险分布</div>
           <p class="panel-subtitle">各终端影子AI风险等级占比。</p>
@@ -226,36 +230,25 @@
           </div>
         </div>
 
-        <!-- 局域网多机部署指引 -->
-        <div class="lan-guide-section">
-          <div class="card-header" style="margin-top: 28px;">🌐 局域网多机检测部署指引</div>
-          <p class="panel-subtitle" style="margin-bottom: 12px;">
-            将 Aegis 客户端部署到同一局域网内的多台设备，统一汇报至本平台进行集中合规审查。
-          </p>
-          <ol class="lan-guide-steps">
-            <li>
-              <strong>启动 Aegis 服务端</strong>：在本机（或局域网内某台服务器）运行
-              <code>docker-compose up</code>，确保服务端监听在 <code>0.0.0.0:8080</code>。
-            </li>
-            <li>
-              <strong>确认本机 IP</strong>：运行 <code>ipconfig</code>（Windows）或
-              <code>ifconfig</code>（macOS/Linux）获取局域网 IP，如 <code>192.168.1.100</code>。
-            </li>
-            <li>
-              <strong>分发客户端安装包</strong>：将 Windows 安装包或 macOS DMG 分发给需要检测的设备。
-              每台设备安装后，在托盘菜单 → 「服务器设置」中填写服务器地址，例如
-              <code>http://192.168.1.100:8080</code>。
-            </li>
-            <li>
-              <strong>客户端自动扫描上报</strong>：Aegis 客户端将每 30 分钟自动扫描本机 AI 服务，
-              并将结果上报到此平台。在「终端设备清单」中可查看所有已接入设备的扫描报告。
-            </li>
-            <li>
-              <strong>隐私合规声明</strong>：请确保每台设备的使用者已了解并同意 Aegis 的扫描行为。
-              Aegis 仅读取进程列表、活跃网络连接和浏览器历史记录，不上传任何文件内容。
-            </li>
-          </ol>
-        </div>
+        <el-collapse v-model="helpOpen" class="help-collapse">
+          <el-collapse-item title="部署帮助：局域网多机检测指引" name="deploy-help">
+            <ol class="lan-guide-steps">
+              <li>
+                <strong>启动 Aegis 服务端</strong>：在本机（或局域网服务器）运行
+                <code>docker-compose up</code>，确保服务监听 <code>0.0.0.0:8080</code>。
+              </li>
+              <li>
+                <strong>确认本机 IP</strong>：运行 <code>ipconfig</code> 或 <code>ifconfig</code> 获取局域网地址。
+              </li>
+              <li>
+                <strong>分发客户端安装包</strong>：安装后在托盘菜单「服务器设置」填写平台地址。
+              </li>
+              <li>
+                <strong>自动扫描上报</strong>：客户端会按策略周期上报结果，平台统一展示终端清单。
+              </li>
+            </ol>
+          </el-collapse-item>
+        </el-collapse>
       </el-card>
 
       <!-- 右侧：客户端设备列表 -->
@@ -297,13 +290,16 @@
               <div class="client-info">
                 <div class="client-hostname">
                   <el-icon><Monitor /></el-icon>
-                  {{ client.hostname }}
+                  {{ normalizeClientText(client.hostname) }}
                 </div>
                 <div class="client-meta">
                   {{ client.osUsername || '-' }} · {{ client.ipAddress || '-' }} · {{ client.osType || '-' }} · v{{ client.clientVersion || '-' }}
                 </div>
                 <div class="client-meta">
-                  设备标识：{{ client.deviceIdentifier || client.clientId || '-' }} · 首次登录：{{ formatTime(client.loginTime) }}
+                  设备标识：{{ normalizeClientText(client.deviceIdentifier || client.clientId || '-') }} · 首次登录：{{ formatTime(client.loginTime) }}
+                </div>
+                <div class="client-meta" v-if="client.dispositionStatus">
+                  处置状态：{{ dispositionLabel(client.dispositionStatus) }}
                 </div>
               </div>
               <div class="client-risk">
@@ -344,7 +340,7 @@
     </div>
 
     <!-- 云端扫描队列（下载触发时自动入队） -->
-    <div v-if="!isEmployeeView && (scanQueue.length > 0 || localScanEnabled)" class="cloud-queue-panel scene-block card-glass">
+    <div v-if="canViewCompanyWide && (scanQueue.length > 0 || localScanEnabled)" class="cloud-queue-panel scene-block card-glass">
       <div class="cloud-queue-header">
         <div>
           <div class="card-header">☁️ 云端扫描队列</div>
@@ -402,14 +398,14 @@
     <!-- 详情抽屉 -->
     <el-drawer
       v-model="drawerVisible"
-      :title="`设备详情 · ${selectedClient?.hostname}`"
+      :title="`设备详情 · ${normalizeClientText(selectedClient?.hostname || '-')}`"
       direction="rtl"
       size="520px"
     >
       <div v-if="selectedClient" class="drawer-content">
         <div class="drawer-meta">
           <div class="drawer-meta-row">
-            <span>主机名</span><strong>{{ selectedClient.hostname }}</strong>
+            <span>主机名</span><strong>{{ normalizeClientText(selectedClient.hostname) }}</strong>
           </div>
           <div class="drawer-meta-row">
             <span>用户</span><strong>{{ selectedClient.osUsername }}</strong>
@@ -421,7 +417,7 @@
             <span>系统</span><strong>{{ selectedClient.osType }}</strong>
           </div>
           <div class="drawer-meta-row">
-            <span>设备标识</span><strong>{{ selectedClient.deviceIdentifier || selectedClient.clientId || '-' }}</strong>
+            <span>设备标识</span><strong>{{ normalizeClientText(selectedClient.deviceIdentifier || selectedClient.clientId || '-') }}</strong>
           </div>
           <div class="drawer-meta-row">
             <span>首次登录</span><strong>{{ formatTime(selectedClient.loginTime) }}</strong>
@@ -501,6 +497,7 @@ const localClientInfo = ref(null);
 
 // 本地扫描是否已开启（用于决定下载时是否入云端队列）
 const localScanEnabled = ref(false);
+const helpOpen = ref([]);
 
 // 下载状态（按平台跟踪）
 const downloading = ref(null);
@@ -508,8 +505,11 @@ const downloading = ref(null);
 // 云端扫描队列
 const scanQueue   = ref([]);
 const queueLoading = ref(false);
-const isEmployeeView = computed(() => String(userStore.userInfo?.roleCode || '').toUpperCase() === 'EMPLOYEE');
-const isAdminUser = computed(() => String(userStore.userInfo?.roleCode || '').toUpperCase() === 'ADMIN');
+const roleCode = computed(() => String(userStore.userInfo?.roleCode || '').toUpperCase());
+const isEmployeeView = computed(() => roleCode.value === 'EMPLOYEE');
+const isAdminUser = computed(() => roleCode.value === 'ADMIN');
+const canViewCompanyWide = computed(() => roleCode.value === 'ADMIN' || roleCode.value === 'SECOPS');
+const canRunLocalScan = computed(() => roleCode.value === 'ADMIN' || roleCode.value === 'SECOPS');
 
 // ── 计算属性 ──────────────────────────────────────────────────────────────────
 const filteredClients = computed(() => {
@@ -575,11 +575,30 @@ function sourceLabel(src) {
   return map[src] || src || '未知';
 }
 
+function dispositionLabel(status) {
+  const map = {
+    blocked: '已拦截',
+    ignored: '已忽略',
+    pending: '待处理',
+    reviewing: '审查中',
+    done: '已完成'
+  };
+  return map[String(status || '').toLowerCase()] || String(status || '未知');
+}
+
 function formatTime(t) {
   if (!t) return '—';
   const d = new Date(t);
   if (isNaN(d)) return t;
   return d.toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-');
+}
+
+function normalizeClientText(value) {
+  if (value == null) return '-';
+  const normalized = String(value)
+    .replace(/\b(DEMO|demo|Demo)[-_ ]?/g, '')
+    .replace(/^[-_\s]+|[-_\s]+$/g, '');
+  return normalized || '-';
 }
 
 // ── 本地 Electron 扫描 ────────────────────────────────────────────────────────
@@ -618,6 +637,10 @@ async function syncElectronAuthGate() {
 }
 
 async function runLocalScan() {
+  if (!canRunLocalScan.value) {
+    ElMessage.warning('当前角色仅支持查看结果，不可触发扫描');
+    return;
+  }
   localScanning.value = true;
   localScanEnabled.value = true;
   try {
@@ -685,30 +708,6 @@ function rebuildStats() {
 
 // ── 服务端数据加载 ────────────────────────────────────────────────────────────
 async function refresh() {
-  if (isEmployeeView.value) {
-    loading.value = false;
-    clients.value = [];
-    stats.value = {
-      totalClients: 0,
-      highRiskClients: 0,
-      totalShadowAi: localScanResult.value?.shadowAiCount || 0,
-      recentReports: 0,
-      riskDistribution: {},
-    };
-    if (isElectron) {
-      try {
-        localClientInfo.value = await window.aegisClient.getClientInfo();
-        const lastResult = localClientInfo.value?.lastScanResult;
-        if (lastResult && !lastResult.skipped) {
-          localScanResult.value = lastResult;
-        }
-      } catch (e) {
-        console.warn('[ShadowAI] Unable to load local client info:', e.message);
-      }
-    }
-    return;
-  }
-
   loading.value = true;
   try {
     const [s, c] = await Promise.all([
@@ -717,6 +716,13 @@ async function refresh() {
     ]);
     stats.value   = s;
     clients.value = c;
+
+    if (!selectedClient.value && clients.value.length) {
+      selectedClient.value = clients.value[0];
+    } else if (selectedClient.value) {
+      const found = clients.value.find(item => item.clientId === selectedClient.value.clientId);
+      selectedClient.value = found || clients.value[0] || null;
+    }
   } catch (err) {
     ElMessage.error('加载失败：' + (err.message || '网络异常'));
   } finally {
@@ -788,7 +794,7 @@ async function downloadClient(platform) {
 // ── 云端扫描队列 ──────────────────────────────────────────────────────────────
 
 async function refreshQueue() {
-  if (isEmployeeView.value || !isAdminUser.value) {
+  if (!canViewCompanyWide.value) {
     scanQueue.value = [];
     return;
   }

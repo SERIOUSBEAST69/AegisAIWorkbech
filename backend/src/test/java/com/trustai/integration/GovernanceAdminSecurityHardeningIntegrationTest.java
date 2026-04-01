@@ -16,6 +16,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -31,6 +32,9 @@ class GovernanceAdminSecurityHardeningIntegrationTest {
     @Autowired
     private ObjectMapper objectMapper;
 
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
     @MockBean(name = "securitySchemaInitializer")
     private CommandLineRunner securitySchemaInitializerRunner;
 
@@ -45,7 +49,9 @@ class GovernanceAdminSecurityHardeningIntegrationTest {
 
     @Test
     void deleteMustRequireSecondPasswordAndSupportRestore() throws Exception {
-        String adminToken = loginAndGetToken("admin_reviewer", "admin");
+        ensureAdminPermission("user:manage");
+        ensureAdminPermission("role:manage");
+        String adminToken = loginAndGetToken("admin_ops", "admin");
         long roleId = resolveAnyRoleId(adminToken);
         String username = "gov_harden_" + System.currentTimeMillis();
 
@@ -129,6 +135,7 @@ class GovernanceAdminSecurityHardeningIntegrationTest {
         var builder = get(path).contentType(MediaType.APPLICATION_JSON);
         if (token != null && !token.isBlank()) {
             builder.header("Authorization", "Bearer " + token);
+            builder.header("X-Company-Id", "1");
         }
         MvcResult result = mockMvc.perform(builder)
             .andExpect(matcher)
@@ -142,10 +149,55 @@ class GovernanceAdminSecurityHardeningIntegrationTest {
             .content(objectMapper.writeValueAsString(body));
         if (token != null && !token.isBlank()) {
             builder.header("Authorization", "Bearer " + token);
+            builder.header("X-Company-Id", "1");
         }
         MvcResult result = mockMvc.perform(builder)
             .andExpect(matcher)
             .andReturn();
         return objectMapper.readTree(result.getResponse().getContentAsString());
+    }
+
+    private void ensureAdminPermission(String permissionCode) {
+        Long adminRoleId = jdbcTemplate.query(
+            "SELECT id FROM role WHERE company_id = 1 AND code = 'ADMIN' ORDER BY id ASC LIMIT 1",
+            rs -> rs.next() ? rs.getLong(1) : null
+        );
+        if (adminRoleId == null) {
+            throw new IllegalStateException("ADMIN role not found");
+        }
+        Long permissionId = jdbcTemplate.query(
+            "SELECT id FROM permission WHERE company_id = 1 AND code = ? ORDER BY id ASC LIMIT 1",
+            ps -> ps.setString(1, permissionCode),
+            rs -> rs.next() ? rs.getLong(1) : null
+        );
+        if (permissionId == null) {
+            java.util.Date now = new java.util.Date();
+            jdbcTemplate.update(
+                "INSERT INTO permission(company_id, name, code, type, create_time, update_time) VALUES(?, ?, ?, ?, ?, ?)",
+                1L,
+                permissionCode,
+                permissionCode,
+                "button",
+                now,
+                now
+            );
+            permissionId = jdbcTemplate.query(
+                "SELECT id FROM permission WHERE company_id = 1 AND code = ? ORDER BY id DESC LIMIT 1",
+                ps -> ps.setString(1, permissionCode),
+                rs -> rs.next() ? rs.getLong(1) : null
+            );
+        }
+        final Long boundPermissionId = permissionId;
+        Integer exists = jdbcTemplate.query(
+            "SELECT COUNT(1) FROM role_permission WHERE role_id = ? AND permission_id = ?",
+            ps -> {
+                ps.setLong(1, adminRoleId);
+                ps.setLong(2, boundPermissionId);
+            },
+            rs -> rs.next() ? rs.getInt(1) : 0
+        );
+        if (exists == null || exists == 0) {
+            jdbcTemplate.update("INSERT INTO role_permission(role_id, permission_id) VALUES(?, ?)", adminRoleId, boundPermissionId);
+        }
     }
 }

@@ -1,4 +1,4 @@
 package com.trustai.config.jwt;
 
-public record JwtPrincipal(Long userId, String username) {
+public record JwtPrincipal(Long userId, String username, Long companyId) {
 }

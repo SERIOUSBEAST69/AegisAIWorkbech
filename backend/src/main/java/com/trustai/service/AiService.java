@@ -32,7 +32,7 @@ public class AiService {
     private final AiCallAuditService aiCallAuditService;
     private final WebClient.Builder webClientBuilder;
 
-    public AiCallResponse chat(AiCallRequest request, Long userId, String ip) {
+    public AiCallResponse chat(AiCallRequest request, Long userId, Long companyId, String username, String ip) {
         AiModel model = aiModelService.lambdaQuery()
                 .eq(AiModel::getModelCode, request.getModelCode())
                 .one();
@@ -53,11 +53,11 @@ public class AiService {
                 content = callOpenAiLike(model, request, apiKey);
             }
             rateLimiterService.increment(model.getModelCode(), LocalDate.now());
-            AiCallLog logEntry = buildLog(model, userId, ip, request, content, "success", null, Duration.between(begin, Instant.now()).toMillis(), tokens);
+            AiCallLog logEntry = buildLog(model, userId, companyId, username, ip, request, content, "success", null, Duration.between(begin, Instant.now()).toMillis(), tokens);
             aiCallAuditService.recordAsync(logEntry);
             return new AiCallResponse(content, tokens, Duration.between(begin, Instant.now()).toMillis(), model.getProvider(), model.getModelName());
         } catch (Exception e) {
-            AiCallLog logEntry = buildLog(model, userId, ip, request, null, "fail", e.getMessage(), Duration.between(begin, Instant.now()).toMillis(), tokens);
+            AiCallLog logEntry = buildLog(model, userId, companyId, username, ip, request, null, "fail", e.getMessage(), Duration.between(begin, Instant.now()).toMillis(), tokens);
             aiCallAuditService.recordAsync(logEntry);
             throw new IllegalStateException("模型调用失败:" + e.getMessage(), e);
         }
@@ -137,9 +137,11 @@ public class AiService {
         return Objects.equals(p, "wenxin") || Objects.equals(p, "qianfan") || Objects.equals(p, "yiyan");
     }
 
-    private AiCallLog buildLog(AiModel model, Long userId, String ip, AiCallRequest req, String output, String status, String error, long durationMs, Integer tokens) {
+    private AiCallLog buildLog(AiModel model, Long userId, Long companyId, String username, String ip, AiCallRequest req, String output, String status, String error, long durationMs, Integer tokens) {
         AiCallLog logEntry = new AiCallLog();
+        logEntry.setCompanyId(companyId);
         logEntry.setUserId(userId);
+        logEntry.setUsername(username);
         logEntry.setModelId(model.getId());
         logEntry.setModelCode(model.getModelCode());
         logEntry.setDataAssetId(req.getAssetId());

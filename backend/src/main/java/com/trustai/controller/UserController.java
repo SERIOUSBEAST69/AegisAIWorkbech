@@ -10,6 +10,7 @@ import com.trustai.entity.AuditLog;
 import com.trustai.entity.Company;
 import com.trustai.entity.Role;
 import com.trustai.entity.User;
+import com.trustai.entity.UserRole;
 import com.trustai.entity.UserRecycleBin;
 import com.trustai.exception.BizException;
 import com.trustai.service.AuditLogService;
@@ -18,6 +19,7 @@ import com.trustai.service.CurrentUserService;
 import com.trustai.service.RoleService;
 import com.trustai.service.SensitiveOperationGuardService;
 import com.trustai.service.UserService;
+import com.trustai.service.UserRoleService;
 import com.trustai.service.UserRecycleBinService;
 import com.trustai.utils.R;
 import java.io.IOException;
@@ -33,6 +35,8 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.ArrayList;
+import java.util.HashMap;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -63,6 +67,9 @@ public class UserController {
     private static final String ACCOUNT_STATUS_PENDING = "pending";
     private static final String ACCOUNT_STATUS_ACTIVE = "active";
     private static final String ACCOUNT_STATUS_REJECTED = "rejected";
+    private static final String GOV_ADMIN_PRIMARY = "admin";
+    private static final String GOV_ADMIN_REVIEWER = "admin_reviewer";
+    private static final String GOV_ADMIN_OPS = "admin_ops";
     private static final long MAX_AVATAR_SIZE_BYTES = 2L * 1024 * 1024;
     private static final Set<String> ALLOWED_AVATAR_EXTENSIONS = Set.of(".png", ".jpg", ".jpeg", ".gif", ".webp");
     private static final Set<String> ALLOWED_AVATAR_CONTENT_TYPES = Set.of("image/png", "image/jpeg", "image/gif", "image/webp");
@@ -73,6 +80,7 @@ public class UserController {
     @Autowired private CompanyService companyService;
     @Autowired private AuditLogService auditLogService;
     @Autowired private RoleService roleService;
+    @Autowired private UserRoleService userRoleService;
     @Autowired private UserRecycleBinService userRecycleBinService;
     @Autowired private SensitiveOperationGuardService sensitiveOperationGuardService;
 
@@ -94,6 +102,7 @@ public class UserController {
         if (accountType != null && !accountType.isEmpty()) qw.eq("account_type", accountType);
         List<User> list = userService.list(qw);
         list.forEach(u -> u.setPassword(null));
+        hydrateUserRoles(list);
         return R.ok(list);
     }
 
@@ -123,6 +132,7 @@ public class UserController {
 
         Page<User> result = userService.page(new Page<>(Math.max(1, page), Math.max(1, pageSize)), qw);
         result.getRecords().forEach(item -> item.setPassword(null));
+        hydrateUserRoles(result.getRecords());
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("current", result.getCurrent());
         payload.put("pages", result.getPages());
@@ -152,6 +162,7 @@ public class UserController {
     public R<?> approve(@Valid @RequestBody ApproveReq req) {
         currentUserService.requirePermission("user:manage");
         User admin = currentUserService.requireCurrentUser();
+        ensureGovernanceDuty(admin, "approve");
         User user = requireCompanyUser(req.getId(), admin.getCompanyId());
         user.setAccountStatus(ACCOUNT_STATUS_ACTIVE);
         user.setRejectReason(null);
@@ -169,6 +180,7 @@ public class UserController {
     public R<?> reject(@Valid @RequestBody RejectReq req) {
         currentUserService.requirePermission("user:manage");
         User admin = currentUserService.requireCurrentUser();
+        ensureGovernanceDuty(admin, "approve");
         User user = requireCompanyUser(req.getId(), admin.getCompanyId());
         user.setAccountStatus(ACCOUNT_STATUS_REJECTED);
         user.setRejectReason(req.getReason());
@@ -185,6 +197,7 @@ public class UserController {
     public R<?> register(@Valid @RequestBody User user) {
         currentUserService.requirePermission("user:manage");
         User currentUser = currentUserService.requireCurrentUser();
+        ensureGovernanceDuty(currentUser, "write");
         if (!StringUtils.hasText(user.getUsername())) {
             throw new BizException(40000, "用户名不能为空");
         }
@@ -197,7 +210,9 @@ public class UserController {
         }
         user.setUsername(normalizedUsername);
         user.setCompanyId(currentUser.getCompanyId());
-        ensureRoleInCompany(user.getRoleId(), currentUser.getCompanyId());
+        Long primaryRoleId = resolvePrimaryRoleId(user.getRoleId(), user.getRoleIds());
+        ensureRoleInCompany(primaryRoleId, currentUser.getCompanyId());
+        user.setRoleId(primaryRoleId);
         user.setPassword(passwordEncoder.encode(user.getPassword()));
         if (!StringUtils.hasText(user.getAccountType())) {
             user.setAccountType("real");
@@ -211,6 +226,7 @@ public class UserController {
         user.setCreateTime(new Date());
         user.setUpdateTime(new Date());
         userService.save(user);
+        syncUserRoles(user.getId(), user.getRoleIds(), primaryRoleId);
         writeApprovalAudit(currentUser, user, "create", "管理员创建账号");
         return R.okMsg("注册成功");
     }
@@ -219,12 +235,19 @@ public class UserController {
     @PreAuthorize("@currentUserService.hasPermission('user:manage')")
     public R<?> update(@Valid @RequestBody User user) {
         currentUserService.requirePermission("user:manage");
+        User operator = currentUserService.requireCurrentUser();
+        ensureGovernanceDuty(operator, "write");
         User existing = userService.getById(user.getId());
-        if (existing == null || !java.util.Objects.equals(existing.getCompanyId(), currentUserService.requireCurrentUser().getCompanyId())) {
+        if (existing == null || !java.util.Objects.equals(existing.getCompanyId(), operator.getCompanyId())) {
             throw new BizException(40400, "用户不存在或不在当前公司");
         }
         if (user.getRoleId() != null) {
             ensureRoleInCompany(user.getRoleId(), existing.getCompanyId());
+        }
+        Long primaryRoleId = resolvePrimaryRoleId(user.getRoleId(), user.getRoleIds());
+        if (primaryRoleId != null) {
+            ensureRoleInCompany(primaryRoleId, existing.getCompanyId());
+            user.setRoleId(primaryRoleId);
         }
         if (user.getPassword() != null && !user.getPassword().isEmpty()) {
             user.setPassword(passwordEncoder.encode(user.getPassword()));
@@ -232,7 +255,8 @@ public class UserController {
         user.setCompanyId(existing.getCompanyId());
         user.setUpdateTime(new Date());
         userService.updateById(user);
-        writeApprovalAudit(currentUserService.requireCurrentUser(), existing, "update", "管理员更新账号");
+        syncUserRoles(existing.getId(), user.getRoleIds(), primaryRoleId == null ? existing.getRoleId() : primaryRoleId);
+        writeApprovalAudit(operator, existing, "update", "管理员更新账号");
         return R.okMsg("更新成功");
     }
 
@@ -240,6 +264,7 @@ public class UserController {
     @PreAuthorize("@currentUserService.hasPermission('user:manage')")
     public R<?> delete(@Valid @RequestBody IdReq req) {
         User operator = sensitiveOperationGuardService.requireConfirmedAdmin(req.getConfirmPassword(), "user_delete", "userId=" + req.getId());
+        ensureGovernanceDuty(operator, "write");
         User existing = userService.getById(req.getId());
         if (existing == null || !java.util.Objects.equals(existing.getCompanyId(), operator.getCompanyId())) {
             throw new BizException(40400, "用户不存在或不在当前公司");
@@ -279,6 +304,7 @@ public class UserController {
     @PreAuthorize("@currentUserService.hasPermission('user:manage')")
     public R<?> restoreFromRecycleBin(@Valid @RequestBody RestoreReq req) {
         User operator = sensitiveOperationGuardService.requireConfirmedAdmin(req.getConfirmPassword(), "user_restore", "recycleId=" + req.getRecycleId());
+        ensureGovernanceDuty(operator, "write");
         UserRecycleBin recycle = userRecycleBinService.getById(req.getRecycleId());
         if (recycle == null || !Objects.equals(recycle.getCompanyId(), operator.getCompanyId())) {
             throw new BizException(40400, "回收记录不存在或不在当前公司");
@@ -457,6 +483,72 @@ public class UserController {
         }
     }
 
+    private Long resolvePrimaryRoleId(Long roleId, List<Long> roleIds) {
+        if (roleId != null) {
+            return roleId;
+        }
+        if (roleIds == null || roleIds.isEmpty()) {
+            return null;
+        }
+        return roleIds.get(0);
+    }
+
+    private void syncUserRoles(Long userId, List<Long> roleIds, Long primaryRoleId) {
+        if (userId == null) {
+            return;
+        }
+        userRoleService.remove(new QueryWrapper<UserRole>().eq("user_id", userId));
+        List<Long> merged = new ArrayList<>();
+        if (primaryRoleId != null) {
+            merged.add(primaryRoleId);
+        }
+        if (roleIds != null) {
+            for (Long roleId : roleIds) {
+                if (roleId != null && !merged.contains(roleId)) {
+                    merged.add(roleId);
+                }
+            }
+        }
+        Date now = new Date();
+        for (Long roleId : merged) {
+            UserRole userRole = new UserRole();
+            userRole.setUserId(userId);
+            userRole.setRoleId(roleId);
+            userRole.setCreateTime(now);
+            userRole.setUpdateTime(now);
+            userRoleService.save(userRole);
+        }
+    }
+
+    private void hydrateUserRoles(List<User> users) {
+        if (users == null || users.isEmpty()) {
+            return;
+        }
+        List<Long> userIds = users.stream().map(User::getId).filter(Objects::nonNull).toList();
+        if (userIds.isEmpty()) {
+            return;
+        }
+        Map<Long, List<Long>> roleMap = new HashMap<>();
+        try {
+            for (UserRole userRole : userRoleService.lambdaQuery().in(UserRole::getUserId, userIds).list()) {
+                if (userRole.getUserId() == null || userRole.getRoleId() == null) {
+                    continue;
+                }
+                roleMap.computeIfAbsent(userRole.getUserId(), key -> new ArrayList<>()).add(userRole.getRoleId());
+            }
+        } catch (Exception ignored) {
+            // user_role may not be available in legacy environments.
+        }
+
+        for (User user : users) {
+            List<Long> roles = roleMap.getOrDefault(user.getId(), new ArrayList<>());
+            if (user.getRoleId() != null && !roles.contains(user.getRoleId())) {
+                roles.add(0, user.getRoleId());
+            }
+            user.setRoleIds(roles);
+        }
+    }
+
     private void archiveDeletedUser(User target, User operator, String reason) {
         try {
             UserRecycleBin recycleBin = new UserRecycleBin();
@@ -515,5 +607,28 @@ public class UserController {
         } catch (IOException e) {
             throw new BizException(50000, "头像上传失败: " + e.getMessage());
         }
+    }
+
+    private void ensureGovernanceDuty(User operator, String action) {
+        if (operator == null || !StringUtils.hasText(operator.getUsername())) {
+            throw new BizException(40300, "当前账号无权执行该操作");
+        }
+        String username = operator.getUsername().trim().toLowerCase(Locale.ROOT);
+        if (GOV_ADMIN_PRIMARY.equals(username)) {
+            return;
+        }
+        if ("approve".equalsIgnoreCase(action)) {
+            if (!GOV_ADMIN_REVIEWER.equals(username)) {
+                throw new BizException(40300, "仅治理复核员可执行审批动作");
+            }
+            return;
+        }
+        if ("write".equalsIgnoreCase(action)) {
+            if (!GOV_ADMIN_OPS.equals(username)) {
+                throw new BizException(40300, "仅治理运营专员可执行账号写操作");
+            }
+            return;
+        }
+        throw new BizException(40300, "当前账号无权执行该操作");
     }
 }

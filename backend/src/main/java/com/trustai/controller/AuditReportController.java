@@ -84,7 +84,7 @@ public class AuditReportController {
     }
 
     @GetMapping("/generate")
-    @PreAuthorize("@currentUserService.hasRole('ADMIN')")
+    @PreAuthorize("@currentUserService.hasRole('ADMIN') || @currentUserService.hasPermission('audit:report:generate')")
     public R<Map<String, String>> generate(@RequestParam(required = false) String range) {
         // 简化：返回报告下载占位链接
         Map<String, String> map = new HashMap<>();

@@ -129,6 +129,7 @@
 
             <el-table-column prop="hostname" label="主机" width="180" />
             <el-table-column prop="employeeId" label="员工标识" width="110" />
+            <el-table-column prop="companyId" label="所属企业" width="110" />
 
             <el-table-column label="文件大小" width="110">
               <template #default="{ row }">{{ formatSize(row.fileSize) }}</template>
@@ -252,6 +253,7 @@
             </el-table-column>
             <el-table-column prop="title" label="告警标题" min-width="220" />
             <el-table-column prop="username" label="关联用户" width="120" />
+            <el-table-column prop="companyId" label="所属企业" width="110" />
             <el-table-column prop="sourceModule" label="来源模块" width="120" />
             <el-table-column prop="eventTime" label="发生时间" min-width="160" />
             <el-table-column prop="status" label="状态" width="110">
@@ -587,6 +589,8 @@ import {
   canAccessThreatMonitor,
   canHandleThreatEvent,
   canManageThreatRule,
+  canBlockThreatEvent,
+  canIgnoreThreatEvent,
 } from '../utils/roleBoundary';
 
 const userStore = useUserStore();
@@ -596,7 +600,6 @@ const canHandleThreats = computed(() => canHandleThreatEvent(userStore.userInfo)
 const canManageThreatRules = computed(() => canManageThreatRule(userStore.userInfo));
 const canRunThreatDrill = computed(() => canHandleThreatEvent(userStore.userInfo));
 const isAdminUser = computed(() => String(userStore.userInfo?.roleCode || '').toUpperCase() === 'ADMIN');
-const isSecopsUser = computed(() => String(userStore.userInfo?.roleCode || '').toUpperCase() === 'SECOPS');
 
 // ── 统计 ──────────────────────────────────────────────────────────────────────
 const stats = ref({});
@@ -811,15 +814,15 @@ function canBlacklistEvent(row) {
   if (String(row.eventType || '').toUpperCase() === 'SHADOW_AI_ALERT') {
     return isAdminUser.value;
   }
-  return isSecopsUser.value;
+  return canBlockThreatEvent(userStore.userInfo);
 }
 
 function canMarkFalsePositive(row) {
   if (!row) return false;
   if (String(row.eventType || '').toUpperCase() === 'SHADOW_AI_ALERT') {
-    return isSecopsUser.value;
+    return canIgnoreThreatEvent(userStore.userInfo);
   }
-  return isSecopsUser.value;
+  return canIgnoreThreatEvent(userStore.userInfo);
 }
 
 // ── 标签页 ────────────────────────────────────────────────────────────────────

@@ -6,6 +6,7 @@ import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.security.Keys;
 import java.nio.charset.StandardCharsets;
 import java.util.Date;
+import java.util.List;
 import javax.crypto.SecretKey;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -28,10 +29,15 @@ public class JwtUtil {
     }
 
     public String generateToken(String username, Long userId, Long companyId) {
+        return generateToken(username, userId, companyId, List.of());
+    }
+
+    public String generateToken(String username, Long userId, Long companyId, List<String> permissions) {
         return Jwts.builder()
                 .setSubject(username)
                 .claim("uid", userId)
                 .claim("cid", companyId)
+                .claim("perms", permissions == null ? List.of() : permissions)
                 .setIssuedAt(new Date())
                 .setExpiration(new Date(System.currentTimeMillis() + expireMs))
                 .signWith(key, SignatureAlgorithm.HS256)

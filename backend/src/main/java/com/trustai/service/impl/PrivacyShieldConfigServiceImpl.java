@@ -26,16 +26,16 @@ public class PrivacyShieldConfigServiceImpl implements PrivacyShieldConfigServic
         "阿里通义系列",
         "百度文心系列",
         "DeepSeek",
-        "稿定设计",
-        "和鲸 ModelWhale",
-        "即梦",
         "豆包 AI",
-        "科大讯飞星火",
-        "Kimi",
-        "腾讯混元系列",
-        "智谱 AI"
+        "腾讯混元系列"
     );
-    private static final List<String> DEFAULT_AI_WHITELIST = List.of("阿里通义系列", "百度文心系列");
+    private static final List<String> DEFAULT_AI_WHITELIST = List.of(
+        "阿里通义系列",
+        "百度文心系列",
+        "DeepSeek",
+        "豆包 AI",
+        "腾讯混元系列"
+    );
 
     private final SystemConfigRepository systemConfigRepository;
     private final ObjectMapper objectMapper;
@@ -145,7 +145,7 @@ public class PrivacyShieldConfigServiceImpl implements PrivacyShieldConfigServic
         root.put("siteSelectors", selectors);
 
         Map<String, Object> windowRules = new LinkedHashMap<>();
-        windowRules.put("titleKeywords", List.of("通义", "文心", "DeepSeek", "稿定", "ModelWhale", "即梦", "豆包", "星火", "Kimi", "混元", "智谱"));
+        windowRules.put("titleKeywords", List.of("通义", "文心", "DeepSeek", "豆包", "混元"));
         windowRules.put("processNames", List.of("chrome", "msedge", "firefox", "doubao", "qqbrowser"));
         root.put("aiWindowRules", windowRules);
         return root;

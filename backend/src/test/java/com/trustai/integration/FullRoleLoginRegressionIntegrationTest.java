@@ -2,6 +2,7 @@ package com.trustai.integration;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -53,14 +54,20 @@ class FullRoleLoginRegressionIntegrationTest {
         roles.put("DATA_ADMIN", new String[] {"dataadmin", "Passw0rd!"});
         roles.put("AI_BUILDER", new String[] {"aibuilder", "Passw0rd!"});
         roles.put("BUSINESS_OWNER", new String[] {"bizowner", "Passw0rd!"});
-        roles.put("EMPLOYEE", new String[] {"employee", "Passw0rd!"});
+        roles.put("EMPLOYEE", new String[] {"employee1", "Passw0rd!"});
 
         for (Map.Entry<String, String[]> entry : roles.entrySet()) {
             String expectedRole = entry.getKey();
             String username = entry.getValue()[0];
             String password = entry.getValue()[1];
 
-            JsonNode loginResp = postJson("/api/auth/login", null, Map.of("username", username, "password", password));
+            JsonNode loginResp;
+            if ("EMPLOYEE".equals(expectedRole)) {
+                loginResp = loginEmployeeWithFallback(password);
+                username = loginResp.path("data").path("user").path("username").asText();
+            } else {
+                loginResp = postJson("/api/auth/login", null, Map.of("username", username, "password", password));
+            }
             assertEquals(20000, loginResp.path("code").asInt(), "login failed for role=" + expectedRole);
 
             String token = loginResp.path("data").path("token").asText();
@@ -78,6 +85,7 @@ class FullRoleLoginRegressionIntegrationTest {
 
     private JsonNode getJson(String path, String token) throws Exception {
         var builder = get(path);
+        builder.header("X-Company-Id", "1");
         if (token != null && !token.isBlank()) {
             builder.header("Authorization", "Bearer " + token);
         }
@@ -91,6 +99,7 @@ class FullRoleLoginRegressionIntegrationTest {
         var builder = post(path)
             .contentType(MediaType.APPLICATION_JSON)
             .content(objectMapper.writeValueAsString(body));
+        builder.header("X-Company-Id", "1");
         if (token != null && !token.isBlank()) {
             builder.header("Authorization", "Bearer " + token);
         }
@@ -98,5 +107,16 @@ class FullRoleLoginRegressionIntegrationTest {
             .andExpect(status().isOk())
             .andReturn();
         return objectMapper.readTree(result.getResponse().getContentAsString());
+    }
+
+    private JsonNode loginEmployeeWithFallback(String password) throws Exception {
+        for (String candidate : new String[] {"employee1", "employee"}) {
+            JsonNode loginResp = postJson("/api/auth/login", null, Map.of("username", candidate, "password", password));
+            if (loginResp.path("code").asInt() == 20000) {
+                return loginResp;
+            }
+        }
+        fail("employee login failed for both employee1 and employee");
+        return null;
     }
 }

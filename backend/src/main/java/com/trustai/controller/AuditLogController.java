@@ -1,6 +1,7 @@
 package com.trustai.controller;
 
 import com.trustai.document.AuditLogDocument;
+import com.trustai.exception.BizException;
 import com.trustai.service.AuditLogService;
 import com.trustai.service.CompanyScopeService;
 import com.trustai.utils.R;
@@ -39,8 +40,7 @@ public class AuditLogController {
     @PostMapping("/delete")
     @PreAuthorize("@currentUserService.hasRole('ADMIN')")
     public R<?> delete(@RequestBody @Validated IdReq req) {
-        auditLogService.removeById(req.getId());
-        return R.okMsg("删除成功");
+        throw new BizException(40300, "审计日志不允许物理删除，请走审计归档流程");
     }
 
     public static class IdReq {

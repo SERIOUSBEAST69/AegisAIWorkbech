@@ -1,6 +1,7 @@
 package com.trustai.dto;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import lombok.Builder;
 import lombok.Data;
 
@@ -23,6 +24,8 @@ public class UserProfileDTO {
     private String loginType;
     private String roleName;
     private String roleCode;
+    private List<Long> roleIds;
+    private List<String> permissionCodes;
     private String deviceId;
     private LocalDateTime lastActiveAt;
 }

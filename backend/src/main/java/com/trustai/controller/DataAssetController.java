@@ -16,6 +16,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.util.Date;
+import java.util.HashMap;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -25,6 +26,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import jakarta.validation.constraints.NotBlank;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -37,9 +39,9 @@ public class DataAssetController {
     @Autowired private AssetContentExtractor assetContentExtractor;
 
     @GetMapping("/list")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN','SECOPS')")
     public R<List<DataAsset>> list(@RequestParam(required = false) String name) {
-        currentUserService.requireCurrentUser();
+        currentUserService.requireAnyRole("ADMIN", "DATA_ADMIN", "SECOPS");
         QueryWrapper<DataAsset> qw = new QueryWrapper<>();
         companyScopeService.withCompany(qw);
         if (name != null && !name.isEmpty()) qw.like("name", name);
@@ -51,6 +53,7 @@ public class DataAssetController {
     @PostMapping("/register")
     @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN')")
     public R<?> register(@RequestBody @Validated DataAssetReq asset) {
+        enforceDataAdminDuty("write");
         DataAsset entity = new DataAsset();
         entity.setName(asset.getName());
         entity.setCompanyId(companyScopeService.requireCompanyId());
@@ -64,8 +67,8 @@ public class DataAssetController {
     }
 
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN')")
-    public R<DataAsset> upload(
+    @PreAuthorize("hasAuthority('data_asset:upload')")
+    public R<Map<String, Object>> upload(
         @RequestParam("file") MultipartFile file,
         @RequestParam(required = false) String assetName,
         @RequestParam(required = false) String type,
@@ -73,30 +76,36 @@ public class DataAssetController {
         @RequestParam(required = false) String description,
         @RequestParam(required = false) Long ownerId
     ) {
+        enforceDataAdminDuty("write");
         if (file == null || file.isEmpty()) {
             throw new BizException(40000, "请上传需要治理的数据文件");
         }
         User currentUser = currentUserService.requireCurrentUser();
         String storedPath = storeGovernanceFile(file, currentUser.getUsername());
         String preview = assetContentExtractor.extractPreview(file);
+        String recommendedSensitivity = recommendSensitivityLevel(file.getOriginalFilename(), preview, description);
 
         DataAsset entity = new DataAsset();
         entity.setName(StringUtils.hasText(assetName) ? assetName : deriveName(file));
         entity.setCompanyId(companyScopeService.requireCompanyId());
         entity.setType(StringUtils.hasText(type) ? type : detectType(file.getOriginalFilename()));
-        entity.setSensitivityLevel(StringUtils.hasText(sensitivityLevel) ? sensitivityLevel : "medium");
+        entity.setSensitivityLevel(StringUtils.hasText(sensitivityLevel) ? sensitivityLevel : recommendedSensitivity);
         entity.setOwnerId(resolveOwnerId(ownerId));
         entity.setLocation(storedPath);
         entity.setDescription(buildUploadDescription(description, currentUser, preview));
         entity.setUpdateTime(new Date());
 
-        return R.ok(dataAssetService.register(entity));
+        DataAsset saved = dataAssetService.register(entity);
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("asset", saved);
+        payload.put("recommendedSensitivityLevel", recommendedSensitivity);
+        return R.ok(payload);
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN','SECOPS')")
     public R<DataAssetDetailDto> detail(@PathVariable Long id) {
-        currentUserService.requireCurrentUser();
+        currentUserService.requireAnyRole("ADMIN", "DATA_ADMIN", "SECOPS");
         DataAsset scoped = dataAssetService.getOne(companyScopeService.withCompany(new QueryWrapper<DataAsset>()).eq("id", id));
         if (scoped == null) {
             throw new BizException(40400, "数据资产不存在或不在当前公司");
@@ -109,6 +118,7 @@ public class DataAssetController {
     @PostMapping("/update")
     @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN')")
     public R<?> update(@RequestBody @Validated DataAssetUpdateReq asset) {
+        enforceDataAdminDuty("write");
         DataAsset scoped = dataAssetService.getOne(companyScopeService.withCompany(new QueryWrapper<DataAsset>()).eq("id", asset.getId()));
         if (scoped == null) {
             throw new BizException(40400, "数据资产不存在或不在当前公司");
@@ -129,6 +139,7 @@ public class DataAssetController {
     @PostMapping("/delete")
     @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN')")
     public R<?> delete(@RequestBody @Validated IdReq req) {
+        enforceDataAdminDuty("delete");
         DataAsset scoped = dataAssetService.getOne(companyScopeService.withCompany(new QueryWrapper<DataAsset>()).eq("id", req.getId()));
         if (scoped == null) {
             throw new BizException(40400, "数据资产不存在或不在当前公司");
@@ -142,6 +153,20 @@ public class DataAssetController {
             return ownerId;
         }
         return currentUserService.requireCurrentUser().getId();
+    }
+
+    private void enforceDataAdminDuty(String action) {
+        User current = currentUserService.requireCurrentUser();
+        if (!currentUserService.hasRole("DATA_ADMIN")) {
+            return;
+        }
+        String username = current.getUsername() == null ? "" : current.getUsername().trim().toLowerCase();
+        if ("dataadmin_3".equals(username)) {
+            throw new BizException(40300, "数据管理员三号为审批岗，不可执行资产变更");
+        }
+        if ("dataadmin_2".equals(username) && "delete".equals(action)) {
+            throw new BizException(40300, "数据管理员二号不可删除资产，仅可维护与上传");
+        }
     }
 
     private String displayName(User user) {
@@ -178,6 +203,25 @@ public class DataAssetController {
             return "document";
         }
         return "file";
+    }
+
+    private String recommendSensitivityLevel(String originalFilename, String preview, String customDescription) {
+        String combined = String.join(" ",
+            StringUtils.hasText(originalFilename) ? originalFilename : "",
+            StringUtils.hasText(preview) ? preview : "",
+            StringUtils.hasText(customDescription) ? customDescription : ""
+        ).toLowerCase();
+
+        if (combined.matches(".*(身份证|id ?card|银行卡|bank ?card|薪资|工资|财务|税号|合同|手机号|phone|email|住址|biometric).*")) {
+            return "critical";
+        }
+        if (combined.matches(".*(客户|customer|订单|order|交易|payment|会话|chat|日志|log|行为|profile|组织|hr|人事).*")) {
+            return "high";
+        }
+        if (combined.matches(".*(研发|代码|repo|git|模型|train|sample|prompt|api|接口).*")) {
+            return "medium";
+        }
+        return "low";
     }
 
     private String buildUploadDescription(String description, User currentUser, String preview) {

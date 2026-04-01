@@ -34,6 +34,9 @@ public class SecurityConfig {
     private CrossSiteRequestFilter crossSiteRequestFilter;
 
     @Autowired
+    private CompanyConsistencyFilter companyConsistencyFilter;
+
+    @Autowired
     private ApiMetricsFilter apiMetricsFilter;
 
     @Autowired
@@ -69,6 +72,7 @@ public class SecurityConfig {
                         "/api/auth/register",
                         "/api/auth/phone-code",
                         "/api/auth/registration-options",
+                        "/api/public/roles",
                         "/api/security/cross-site/status",
                         // 轻量级客户端上报接口（无需登录，客户端用 clientId 标识）
                         "/api/client/register",
@@ -89,6 +93,7 @@ public class SecurityConfig {
                         .anyRequest().authenticated());
         http.addFilterBefore(threatInputFilter, UsernamePasswordAuthenticationFilter.class);
         http.addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
+        http.addFilterAfter(companyConsistencyFilter, JwtAuthFilter.class);
         http.addFilterBefore(crossSiteRequestFilter, JwtAuthFilter.class);
         http.addFilterAfter(apiMetricsFilter, CrossSiteRequestFilter.class);
         return http.build();

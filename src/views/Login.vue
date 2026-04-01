@@ -199,8 +199,14 @@
                       <div class="compact-grid">
                         <div class="field-group">
                           <label for="register-role">身份</label>
-                          <select id="register-role" v-model="registerForm.roleCode" class="field-input field-select">
-                            <option v-for="item in registrationOptions.identities" :key="item.code" :value="item.code">{{ item.label }}</option>
+                          <select id="register-role" v-model="selectedRegisterRole" class="field-input field-select">
+                            <option
+                              v-for="item in registrationOptions.identities"
+                              :key="`${item.id || 'na'}-${item.code}`"
+                              :value="String(item.id || item.code)"
+                            >
+                              {{ item.label }}
+                            </option>
                           </select>
                         </div>
                         <div class="field-group">
@@ -294,7 +300,7 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import gsap from 'gsap';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { UserFilled } from '@element-plus/icons-vue';
@@ -304,6 +310,7 @@ import LiquidChrome from '../components/LiquidChrome.vue';
 import { acceptEmployeeAgreement, hasAcceptedEmployeeAgreement, isEmployeeUser } from '../utils/employeePolicy';
 
 const router = useRouter();
+const route = useRoute();
 const userStore = useUserStore();
 
 const pageEl = ref(null);
@@ -354,7 +361,8 @@ const registerForm = reactive({
   confirmPassword: '',
   realName: '',
   nickname: '',
-  roleCode: 'BUSINESS_OWNER',
+  roleId: null,
+  roleCode: '',
   organizationType: 'enterprise',
   department: '',
   phone: '',
@@ -382,15 +390,18 @@ const DEFAULT_ORGANIZATIONS = [
 
 function normalizeOptions(options, fallback) {
   if (!Array.isArray(options) || options.length === 0) {
-    return [...fallback];
+    return fallback.map(item => ({ id: item.id ?? null, code: item.code, label: item.label }));
   }
   const normalized = options
     .map(item => ({
+      id: item?.id ?? null,
       code: String(item?.code || '').trim(),
       label: String(item?.label || '').trim(),
     }))
     .filter(item => item.code && item.label);
-  return normalized.length > 0 ? normalized : [...fallback];
+  return normalized.length > 0
+    ? normalized
+    : fallback.map(item => ({ id: item.id ?? null, code: item.code, label: item.label }));
 }
 
 const registrationOptions = reactive({
@@ -398,6 +409,20 @@ const registrationOptions = reactive({
   organizations: [...DEFAULT_ORGANIZATIONS],
   demoAccounts: [],
 });
+
+const registerRoleOptions = computed(() => registrationOptions.identities || []);
+const selectedRegisterRole = ref('');
+
+function syncRegisterRoleSelection(selectedValue) {
+  const selected = registerRoleOptions.value.find(item => String(item.id ?? item.code) === String(selectedValue));
+  if (!selected) {
+    registerForm.roleId = null;
+    registerForm.roleCode = '';
+    return;
+  }
+  registerForm.roleId = selected.id || null;
+  registerForm.roleCode = selected.code || '';
+}
 
 const selectedDemoRole = ref('');
 const selectedDemoUsername = ref('');
@@ -484,7 +509,8 @@ const reviewPrimaryIdentity = computed(() => {
 });
 
 const reviewRole = computed(() => {
-  return registerForm.roleCode || 'BUSINESS_OWNER';
+  const matched = registerRoleOptions.value.find(item => String(item.code) === String(registerForm.roleCode));
+  return matched?.label || registerForm.roleCode || '未选择';
 });
 
 const reviewOrganization = computed(() => {
@@ -590,8 +616,11 @@ function refreshCaptcha() {
 
 
 function ensureRegistrationBasics() {
-  if (!registerForm.realName || !registerForm.roleCode || !registerForm.organizationType) {
+  if (!registerForm.realName || !registerForm.organizationType) {
     throw new Error('请先填写姓名、身份与组织类型');
+  }
+  if (!registerForm.roleId && !registerForm.roleCode) {
+    throw new Error('请选择身份');
   }
   if (!registerForm.companyName) {
     throw new Error('请填写公司名称');
@@ -823,7 +852,14 @@ async function submitRegistration() {
 
   isLoading.value = true;
   try {
-    const res = await authApi.register({ ...registerForm, loginType: activeMode.value, accountType: 'real' });
+    const payload = {
+      ...registerForm,
+      loginType: activeMode.value,
+      accountType: 'real',
+      roleId: registerForm.roleId || null,
+      roleCode: registerForm.roleCode || '',
+    };
+    const res = await authApi.register(payload);
     if (res?.pendingApproval || !res?.token) {
       ElMessage.success(res?.message || '注册申请已提交，等待管理员审批');
       flowType.value = 'login';
@@ -1017,6 +1053,13 @@ watch([flowType, activeMode], async () => {
   syncStepHeight();
 });
 
+watch(
+  () => selectedRegisterRole.value,
+  (value) => {
+    syncRegisterRoleSelection(value);
+  }
+);
+
 watch(isPortalLifted, async () => {
   await nextTick();
   syncPortalPose();
@@ -1051,16 +1094,31 @@ onMounted(async () => {
   }
 
   try {
-    const result = await authApi.getRegistrationOptions();
+    const companyIdFromQuery = Number(route.query.companyId || 0);
+    const roleResult = companyIdFromQuery > 0
+      ? await authApi.getPublicRoles(companyIdFromQuery)
+      : null;
+    const result = await authApi.getRegistrationOptions(companyIdFromQuery > 0 ? companyIdFromQuery : undefined);
+    const roleOptions = Array.isArray(roleResult) && roleResult.length > 0 ? roleResult : result?.identities;
     registrationOptions.identities = normalizeOptions(result?.identities, DEFAULT_IDENTITIES);
     registrationOptions.organizations = normalizeOptions(result?.organizations, DEFAULT_ORGANIZATIONS);
     registrationOptions.demoAccounts = Array.isArray(result?.demoAccounts) && result.demoAccounts.length > 0
       ? result.demoAccounts
       : [];
+    if (Array.isArray(roleOptions) && roleOptions.length > 0) {
+      registrationOptions.identities = normalizeOptions(roleOptions, registrationOptions.identities);
+    }
+    const defaultRole = registrationOptions.identities[0];
+    registerForm.roleCode = defaultRole?.code || '';
+    registerForm.roleId = defaultRole?.id || null;
+    selectedRegisterRole.value = String(defaultRole?.id || defaultRole?.code || '');
   } catch {
     registrationOptions.identities = [...DEFAULT_IDENTITIES];
     registrationOptions.organizations = [...DEFAULT_ORGANIZATIONS];
     registrationOptions.demoAccounts = [];
+    registerForm.roleCode = registrationOptions.identities[0]?.code || '';
+    registerForm.roleId = registrationOptions.identities[0]?.id || null;
+    selectedRegisterRole.value = String(registerForm.roleId || registerForm.roleCode || '');
   }
 
   const initialPose = getPortalPose(false);

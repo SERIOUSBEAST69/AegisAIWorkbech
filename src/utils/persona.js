@@ -159,7 +159,6 @@ const PERSONAS = {
     ],
     quickActions: [
       { title: '影子AI发现', description: '检查本机未授权AI服务', route: '/shadow-ai' },
-      { title: '员工AI行为监控', description: '查看本人行为与隐私告警', route: '/ai/anomaly' },
       { title: '个人资料', description: '维护个人信息', route: '/profile' },
     ],
     roleHints: ['employee', 'staff', '普通员工', '员工', '一线'],
@@ -206,7 +205,7 @@ const MENU_SECTIONS = [
     key: 'governance',
     title: '数据与模型',
     items: [
-      { path: '/data-asset', label: '数据资产', icon: 'DataAnalysis', audiences: ['governanceAdmin', 'dataAdmin'] },
+      { path: '/data-asset', label: '数据资产', icon: 'DataAnalysis', audiences: ['governanceAdmin', 'dataAdmin', 'secops'] },
       { path: '/desense-preview', label: '脱敏预览', icon: 'Lock', audiences: ['governanceAdmin', 'secops'] },
     ],
   },
@@ -214,10 +213,10 @@ const MENU_SECTIONS = [
     key: 'security',
     title: '安全与闭环',
     items: [
-      { path: '/shadow-ai', label: '影子AI发现', icon: 'View', audiences: ['governanceAdmin', 'secops'] },
+      { path: '/shadow-ai', label: '影子AI发现', icon: 'View', audiences: ['governanceAdmin', 'secops', 'employee'] },
       { path: '/threat-monitor', label: '实时威胁监控', icon: 'AlarmClock', audiences: ['governanceAdmin', 'secops'] },
       { path: '/ai/risk-rating', label: 'AI风险评级', icon: 'Histogram', audiences: ['governanceAdmin', 'secops'] },
-      { path: '/ai/anomaly', label: '员工AI行为监控', icon: 'AlarmClock', audiences: ['secops', 'executive', 'dataAdmin', 'aiBuilder', 'businessOwner', 'employee'] },
+      { path: '/ai/anomaly', label: '员工AI行为监控', icon: 'AlarmClock', audiences: ['secops', 'executive', 'dataAdmin', 'aiBuilder', 'businessOwner'] },
       { path: '/audit-log', label: '审计日志', icon: 'Timer', audiences: ['secops'] },
       { path: '/audit-report', label: '审计报告', icon: 'Document', audiences: ['secops', 'executive'] },
       { path: '/sensitive-scan', label: '敏感扫描', icon: 'Search', audiences: ['governanceAdmin', 'secops'] },
@@ -227,7 +226,7 @@ const MENU_SECTIONS = [
     key: 'process',
     title: '流转与履约',
     items: [
-      { path: '/approval-manage', label: '审批管理', icon: 'Finished', audiences: ['governanceAdmin', 'dataAdmin', 'businessOwner', 'employee'] },
+      { path: '/approval-manage', label: '审批管理', icon: 'Finished', audiences: ['governanceAdmin', 'dataAdmin', 'businessOwner'] },
       { path: '/governance-change-manage', label: '治理变更复核', icon: 'Stamp', audiences: ['governanceAdmin', 'secops'] },
       { path: '/risk-event-manage', label: '风险事件', icon: 'Warning', audiences: ['secops'] },
       { path: '/subject-request', label: '主体权利', icon: 'UserFilled', audiences: ['governanceAdmin'] },
@@ -251,17 +250,17 @@ const EXTRA_ROUTE_AUDIENCES = {
   '/settings': [ALL],
   '/operations-command': ['secops', 'executive'],
   '/ops-observability': ['secops', 'executive', 'governanceAdmin'],
-  '/approval-manage': ['governanceAdmin', 'dataAdmin', 'businessOwner', 'employee'],
+  '/approval-manage': ['governanceAdmin', 'dataAdmin', 'businessOwner'],
   '/governance-change-manage': ['governanceAdmin', 'secops'],
   '/sod-rule-manage': ['governanceAdmin', 'secops'],
   '/risk-event-manage': ['secops'],
   '/ai/risk-rating': ['governanceAdmin', 'secops'],
-  '/ai/anomaly': ['secops', 'executive', 'dataAdmin', 'aiBuilder', 'businessOwner', 'employee'],
-  '/shadow-ai': ['governanceAdmin', 'secops'],
+  '/ai/anomaly': ['secops', 'executive', 'dataAdmin', 'aiBuilder', 'businessOwner'],
+  '/shadow-ai': ['governanceAdmin', 'secops', 'employee'],
   '/threat-monitor': ['governanceAdmin', 'secops'],
 };
 
-const EMPLOYEE_ALLOWED_PATHS = new Set(['/ai/anomaly', '/approval-manage', '/profile', '/settings', '/login', '/']);
+const EMPLOYEE_ALLOWED_PATHS = new Set(['/shadow-ai', '/profile', '/settings', '/login', '/']);
 
 function normalizeText(user) {
   return [user?.roleCode, user?.roleName, user?.department, user?.username]

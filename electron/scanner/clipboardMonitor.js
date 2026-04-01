@@ -361,6 +361,9 @@ class ClipboardPrivacyMonitor {
     }
 
     const eventContext = this.buildEventContext(activeWindow);
+    if (!eventContext.username) {
+      return;
+    }
     const severity = this.resolveSeverity(detectedTypes, exfilTarget != null);
     const copyRecord = {
       content: current,
@@ -429,6 +432,9 @@ class ClipboardPrivacyMonitor {
     }
 
     const eventContext = this.buildEventContext(activeWindow);
+    if (!eventContext.username) {
+      return;
+    }
     const detectedTypes = sensitiveFiles.map(file => `file:${extensionOf(file) || 'unknown'}`);
     const severity = exfilTarget ? 'critical' : 'high';
 
@@ -539,8 +545,9 @@ class ClipboardPrivacyMonitor {
 
   buildEventContext(activeWindow) {
     const authState = this.getAuthState() || {};
+    const username = authState?.authenticated ? authState?.user?.username : null;
     return {
-      username: authState?.user?.username || 'unknown',
+      username: username && String(username).trim() ? String(username).trim() : null,
       nowIso: new Date().toISOString(),
       copyWindowTitle: activeWindow?.title || '',
       copyProcessName: activeWindow?.owner?.name || '',
@@ -569,6 +576,9 @@ class ClipboardPrivacyMonitor {
     }
 
     const latest = this.pendingSensitiveCopies[this.pendingSensitiveCopies.length - 1];
+    if (!latest?.username) {
+      return;
+    }
     const riskKey = `${latest.contentHash}:${normalizeText(exfilTarget.processName)}:${Math.floor(now / 1000)}`;
     const recent = this.lastRiskAlertByKey.get(riskKey);
     if (recent && now - recent < 1500) {
@@ -685,6 +695,9 @@ class ClipboardPrivacyMonitor {
   }
 
   async reportEvent(payload) {
+    if (!payload?.userId || !String(payload.userId).trim()) {
+      return;
+    }
     const backendUrl = this.getBackendUrl();
     if (!backendUrl) {
       return;
