@@ -65,7 +65,7 @@ public class SubjectRequestController {
     }
 
     @PostMapping("/create")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN','BUSINESS_OWNER','EMPLOYEE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','EMPLOYEE')")
     public R<?> create(@RequestBody @Validated ApplyReq req) {
         String type = req.getType() == null ? "" : req.getType().trim().toLowerCase();
         if (!ALLOWED_TYPE.contains(type)) return R.error(40000, "不支持的类型");
@@ -99,7 +99,7 @@ public class SubjectRequestController {
         entity.setCompanyId(companyId);
         entity.setUserId(effectiveUserId);
         entity.setType(type);
-        entity.setComment(req.getComment());
+        entity.setComment(appendTraceComment(req.getComment(), currentUser, roleCode, companyId));
         entity.setStatus("pending");
         Date now = new Date();
         entity.setCreateTime(now);
@@ -125,7 +125,7 @@ public class SubjectRequestController {
     }
 
     @PostMapping("/process")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN','BUSINESS_OWNER')")
+    @PreAuthorize("@currentUserService.hasRole('ADMIN')")
     public R<?> process(@RequestBody @Validated ProcessReq req) {
         SubjectRequest sr = subjectRequestService.getById(req.getId());
         if (sr == null || !java.util.Objects.equals(sr.getCompanyId(), companyScopeService.requireCompanyId())) {
@@ -149,7 +149,7 @@ public class SubjectRequestController {
     }
 
     @PostMapping("/delete")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN','BUSINESS_OWNER')")
+    @PreAuthorize("@currentUserService.hasRole('ADMIN')")
     public R<?> delete(@RequestBody @Validated IdReq req) {
         SubjectRequest existing = subjectRequestService.getOne(
             companyScopeService.withCompany(new QueryWrapper<SubjectRequest>()).eq("id", req.getId())
@@ -177,6 +177,27 @@ public class SubjectRequestController {
             return "done".equals(to) || "rejected".equals(to);
         }
         return false;
+    }
+
+    private String appendTraceComment(String comment, User currentUser, String roleCode, Long companyId) {
+        String base = comment == null ? "" : comment.trim();
+        if (currentUser == null) {
+            return base;
+        }
+        String username = currentUser.getUsername() == null ? "-" : currentUser.getUsername();
+        String department = currentUser.getDepartment() == null ? "-" : currentUser.getDepartment();
+        String position = currentUser.getJobTitle() == null ? "-" : currentUser.getJobTitle();
+        String deviceId = currentUser.getDeviceId() == null ? "-" : currentUser.getDeviceId();
+        String snapshot = String.format(" [TRACE username=%s userId=%s role=%s department=%s position=%s companyId=%s device=%s]",
+            username,
+            currentUser.getId(),
+            roleCode == null ? "-" : roleCode,
+            department,
+            position,
+            companyId == null ? "-" : companyId,
+            deviceId
+        );
+        return base + snapshot;
     }
 
     public static class ApplyReq {

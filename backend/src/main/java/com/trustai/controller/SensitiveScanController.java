@@ -4,6 +4,9 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.trustai.dto.SensitiveScanReport;
 import com.trustai.entity.SensitiveScanTask;
+import com.trustai.entity.User;
+import com.trustai.service.CompanyScopeService;
+import com.trustai.service.CurrentUserService;
 import com.trustai.service.SensitiveScanEngine;
 import com.trustai.service.SensitiveScanTaskService;
 import com.trustai.utils.R;
@@ -16,7 +19,9 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.NotBlank;
 
 import java.util.Date;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/sensitive-scan")
@@ -32,16 +37,25 @@ public class SensitiveScanController {
     private SensitiveScanEngine scanEngine;
     @Autowired
     private com.trustai.utils.AssetContentExtractor assetContentExtractor;
+    @Autowired
+    private CurrentUserService currentUserService;
+    @Autowired
+    private CompanyScopeService companyScopeService;
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     @PostMapping("/create")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','DATA_ADMIN')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN')")
     public R<SensitiveScanTask> create(@RequestBody @Validated CreateReq req) {
+        User currentUser = currentUserService.requireCurrentUser();
+        Long companyId = companyScopeService.requireCompanyId();
         SensitiveScanTask task = new SensitiveScanTask();
         task.setAssetId(req.getAssetId());
+        task.setCompanyId(companyId);
+        task.setUserId(currentUser.getId());
         task.setSourceType(req.getSourceType());
         task.setSourcePath(req.getSourcePath());
+        task.setTraceJson(buildTraceJson(currentUser, companyId));
         task.setStatus("pending");
         task.setCreateTime(new Date());
         taskService.save(task);
@@ -49,17 +63,26 @@ public class SensitiveScanController {
     }
 
     @GetMapping("/list")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','DATA_ADMIN')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN')")
     public R<List<SensitiveScanTask>> list(@RequestParam(required = false) String status) {
-        QueryWrapper<SensitiveScanTask> qw = new QueryWrapper<>();
+        User currentUser = currentUserService.requireCurrentUser();
+        Long companyId = companyScopeService.requireCompanyId();
+        QueryWrapper<SensitiveScanTask> qw = new QueryWrapper<SensitiveScanTask>()
+            .eq("company_id", companyId)
+            .eq(currentUserService.hasRole("DATA_ADMIN"), "user_id", currentUser.getId());
         if (status != null && !status.isEmpty()) qw.eq("status", status);
-        return R.ok(taskService.list(qw));
+        try {
+            return R.ok(taskService.list(qw));
+        } catch (Exception ex) {
+            log.warn("SensitiveScan list degraded due to schema mismatch: {}", ex.getMessage());
+            return R.ok(List.of());
+        }
     }
 
     @PostMapping("/run")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','DATA_ADMIN')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN')")
     public R<SensitiveScanTask> run(@RequestBody @Validated IdReq req) {
-        SensitiveScanTask task = taskService.getById(req.getId());
+        SensitiveScanTask task = requireScopedTask(req.getId());
         if (task == null) return R.error(40000, "任务不存在");
 
         // 优先尝试从文件路径中提取真实内容用于 BERT 扫描；
@@ -78,7 +101,16 @@ public class SensitiveScanController {
             samples = (sourcePath != null && !sourcePath.isEmpty()) ? List.of(sourcePath) : List.of("待扫描文本样例");
         }
 
-        SensitiveScanReport report = scanEngine.scan(samples);
+        SensitiveScanReport report;
+        try {
+            report = scanEngine.scan(samples);
+        } catch (Exception ex) {
+            log.error("SensitiveScan task {} execution failed: {}", task.getId(), ex.getMessage());
+            task.setStatus("failed");
+            task.setUpdateTime(new Date());
+            taskService.updateById(task);
+            return R.error(50000, "敏感扫描执行失败，请检查推理服务与模型状态");
+        }
         try {
             task.setReportData(MAPPER.writeValueAsString(report));
         } catch (Exception e) {
@@ -93,19 +125,47 @@ public class SensitiveScanController {
     }
 
     @GetMapping("/{id}/report")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','DATA_ADMIN')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN')")
     public R<?> report(@PathVariable Long id) {
-        SensitiveScanTask task = taskService.getById(id);
+        SensitiveScanTask task = requireScopedTask(id);
         if (task == null) return R.error(40000, "任务不存在");
         if (task.getReportData() == null) return R.error(40000, "报告未生成");
         return R.ok(task.getReportData());
     }
 
     @PostMapping("/delete")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','DATA_ADMIN')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN')")
     public R<?> delete(@RequestBody @Validated IdReq req) {
+        SensitiveScanTask task = requireScopedTask(req.getId());
+        if (task == null) return R.error(40000, "任务不存在");
         taskService.removeById(req.getId());
         return R.okMsg("删除成功");
+    }
+
+    private SensitiveScanTask requireScopedTask(Long id) {
+        User currentUser = currentUserService.requireCurrentUser();
+        Long companyId = companyScopeService.requireCompanyId();
+        QueryWrapper<SensitiveScanTask> qw = new QueryWrapper<SensitiveScanTask>()
+            .eq("id", id)
+            .eq("company_id", companyId)
+            .eq(currentUserService.hasRole("DATA_ADMIN"), "user_id", currentUser.getId());
+        return taskService.getOne(qw);
+    }
+
+    private String buildTraceJson(User user, Long companyId) {
+        Map<String, Object> trace = new LinkedHashMap<>();
+        trace.put("username", user == null ? "-" : user.getUsername());
+        trace.put("userId", user == null ? "-" : user.getId());
+        trace.put("role", currentUserService.currentRoleCode());
+        trace.put("department", user == null ? "-" : user.getDepartment());
+        trace.put("position", user == null ? "-" : user.getJobTitle());
+        trace.put("companyId", companyId == null ? "-" : companyId);
+        trace.put("device", user == null ? "-" : user.getDeviceId());
+        try {
+            return MAPPER.writeValueAsString(trace);
+        } catch (Exception ignored) {
+            return "{}";
+        }
     }
 
     public static class IdReq { @NotNull private Long id; public Long getId(){return id;} public void setId(Long id){this.id=id;} }

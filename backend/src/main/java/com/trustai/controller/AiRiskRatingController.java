@@ -3,9 +3,11 @@ package com.trustai.controller;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.trustai.entity.AiCallLog;
 import com.trustai.entity.AiModel;
+import com.trustai.entity.User;
 import com.trustai.service.AiCallAuditService;
 import com.trustai.service.AiModelService;
 import com.trustai.service.CurrentUserService;
+import com.trustai.service.PrivacyShieldConfigService;
 import com.trustai.utils.R;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,6 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
@@ -28,9 +31,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Locale;
 import java.util.Set;
+import org.springframework.util.StringUtils;
 
 /**
- * AI 服务风险评级 API（仅官方可信5个模型，基于真实近30天调用日志）。
+ * AI 服务风险评级 API（仅官方可信白名单模型，基于真实近30天调用日志）。
  */
 @RestController
 @RequestMapping("/api/ai-risk")
@@ -41,6 +45,7 @@ public class AiRiskRatingController {
     @Autowired private AiModelService aiModelService;
     @Autowired private AiCallAuditService aiCallAuditService;
     @Autowired private CurrentUserService currentUserService;
+    @Autowired private PrivacyShieldConfigService privacyShieldConfigService;
 
     private static final String WINDOW_LABEL = "近30天";
     private static final Set<String> TRUSTED_SERVICE_IDS = new LinkedHashSet<>(List.of(
@@ -48,7 +53,11 @@ public class AiRiskRatingController {
         "wenxin",
         "deepseek",
         "doubao",
-        "hunyuan"
+        "hunyuan",
+        "kimi",
+        "spark",
+        "zhipu",
+        "modelwhale"
     ));
 
     /**
@@ -57,7 +66,7 @@ public class AiRiskRatingController {
      * <p>GET /api/ai-risk/list
      */
     @GetMapping("/list")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','EXECUTIVE','SECOPS','DATA_ADMIN','AI_BUILDER','BUSINESS_OWNER','EMPLOYEE')")
     public R<Map<String, Object>> listServices() {
         try {
             Map<String, Object> result = buildRiskList();
@@ -76,7 +85,7 @@ public class AiRiskRatingController {
      * @param serviceId 服务 ID（小写，如 chatgpt / wenxin / doubao 等）
      */
     @GetMapping("/score")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','EXECUTIVE','SECOPS','DATA_ADMIN','AI_BUILDER','BUSINESS_OWNER','EMPLOYEE')")
     public R<Map<String, Object>> serviceScore(@RequestParam("service") String serviceId) {
         if (serviceId == null || serviceId.isBlank()) {
             return R.error("缺少参数 service");
@@ -114,6 +123,200 @@ public class AiRiskRatingController {
         }
     }
 
+    @GetMapping("/whitelist")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','EXECUTIVE','SECOPS','DATA_ADMIN','AI_BUILDER','BUSINESS_OWNER','EMPLOYEE')")
+    public R<Map<String, Object>> whitelist() {
+        Long companyId = currentUserService.requireCurrentUser().getCompanyId();
+        Map<String, Object> config = privacyShieldConfigService.getOrCreateConfig();
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("catalog", toStringList(config.get("aiCatalog")));
+        data.put("whitelist", resolveCompanyWhitelist(config, companyId));
+        data.put("configVersion", config.getOrDefault("configVersion", 1L));
+        data.put("updatedAt", config.get("updatedAt"));
+        boolean canReview = currentUserService.hasRole("ADMIN");
+        boolean canRequest = currentUserService.hasRole("DATA_ADMIN");
+        data.put("canRequest", canRequest);
+        data.put("canReview", canReview);
+        if (canRequest || canReview) {
+            data.put("pending", pendingRequests(config, companyId));
+        } else {
+            data.put("pending", List.of());
+        }
+        return R.ok(data);
+    }
+
+    @PostMapping("/whitelist/request")
+    @PreAuthorize("@currentUserService.hasRole('DATA_ADMIN')")
+    public R<Map<String, Object>> submitWhitelistRequest(@RequestBody(required = false) Map<String, Object> payload) {
+        if (payload == null) {
+            return R.error("请求体不能为空");
+        }
+        Long companyId = currentUserService.requireCurrentUser().getCompanyId();
+        List<String> requested = toStringList(payload.get("whitelist"));
+        if (requested.isEmpty()) {
+            return R.error("白名单不能为空");
+        }
+        Map<String, Object> config = new LinkedHashMap<>(privacyShieldConfigService.getOrCreateConfig());
+        Set<String> catalog = new LinkedHashSet<>(toStringList(config.get("aiCatalog")));
+        for (String item : requested) {
+            if (!catalog.contains(item)) {
+                return R.error("存在未收录的AI服务: " + item);
+            }
+        }
+
+        User requester = currentUserService.requireCurrentUser();
+        List<Map<String, Object>> pending = pendingRequests(config, null);
+        long requestId = pending.stream()
+            .mapToLong(item -> toLong(item.get("requestId"), 0L))
+            .max()
+            .orElse(0L) + 1L;
+        Map<String, Object> req = new LinkedHashMap<>();
+        req.put("requestId", requestId);
+        req.put("status", "pending");
+        req.put("requestedBy", requester.getUsername());
+        req.put("requestedById", requester.getId());
+        req.put("companyId", companyId == null ? 0L : companyId);
+        req.put("requestedAt", new Date().getTime());
+        req.put("targetWhitelist", requested);
+        req.put("note", String.valueOf(payload.getOrDefault("note", "")));
+        pending.add(req);
+        config.put("aiWhitelistPending", pending);
+        privacyShieldConfigService.updateConfig(config);
+
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("requestId", requestId);
+        data.put("status", "pending");
+        data.put("message", "白名单变更已提交，待治理管理员审批后生效");
+        return R.ok(data);
+    }
+
+    @PostMapping("/whitelist/review")
+    @PreAuthorize("@currentUserService.hasRole('ADMIN')")
+    public R<Map<String, Object>> reviewWhitelistRequest(@RequestBody(required = false) Map<String, Object> payload) {
+        if (payload == null) {
+            return R.error("请求体不能为空");
+        }
+        long requestId = toLong(payload.get("requestId"), 0L);
+        String decision = String.valueOf(payload.getOrDefault("decision", "")).trim().toLowerCase(Locale.ROOT);
+        Long companyId = currentUserService.requireCurrentUser().getCompanyId();
+        if (requestId <= 0L) {
+            return R.error("requestId 不合法");
+        }
+        if (!"approve".equals(decision) && !"reject".equals(decision)) {
+            return R.error("decision 仅支持 approve/reject");
+        }
+
+        Map<String, Object> config = new LinkedHashMap<>(privacyShieldConfigService.getOrCreateConfig());
+        List<Map<String, Object>> pending = pendingRequests(config, null);
+        Map<String, Object> target = null;
+        for (Map<String, Object> row : pending) {
+            if (toLong(row.get("requestId"), 0L) == requestId && toLong(row.get("companyId"), 0L) == toLong(companyId, 0L)) {
+                target = row;
+                break;
+            }
+        }
+        if (target == null) {
+            return R.error("审批单不存在");
+        }
+        if (!"pending".equalsIgnoreCase(String.valueOf(target.get("status")))) {
+            return R.error("审批单已处理");
+        }
+
+        User reviewer = currentUserService.requireCurrentUser();
+        target.put("status", "approve".equals(decision) ? "approved" : "rejected");
+        target.put("reviewedBy", reviewer.getUsername());
+        target.put("reviewedById", reviewer.getId());
+        target.put("reviewedAt", new Date().getTime());
+        if (StringUtils.hasText(String.valueOf(payload.getOrDefault("note", "")))) {
+            target.put("reviewNote", String.valueOf(payload.get("note")));
+        }
+
+        if ("approve".equals(decision)) {
+            List<String> nextWhitelist = toStringList(target.get("targetWhitelist"));
+            setCompanyWhitelist(config, companyId, nextWhitelist);
+        }
+        config.put("aiWhitelistPending", pending);
+        privacyShieldConfigService.updateConfig(config);
+
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("requestId", requestId);
+        data.put("status", target.get("status"));
+        data.put("whitelist", resolveCompanyWhitelist(config, companyId));
+        return R.ok(data);
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> pendingRequests(Map<String, Object> config, Long companyId) {
+        Object raw = config.get("aiWhitelistPending");
+        if (!(raw instanceof List<?> list)) {
+            return new ArrayList<>();
+        }
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (Object row : list) {
+            if (row instanceof Map<?, ?> map) {
+                Map<String, Object> normalized = new LinkedHashMap<>();
+                map.forEach((k, v) -> normalized.put(String.valueOf(k), v));
+                if (companyId == null || toLong(normalized.get("companyId"), 0L) == toLong(companyId, 0L)) {
+                    result.add(normalized);
+                }
+            }
+        }
+        return result;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<String> resolveCompanyWhitelist(Map<String, Object> config, Long companyId) {
+        Object raw = config.get("aiWhitelistByCompany");
+        if (raw instanceof Map<?, ?> map) {
+            Object companyList = map.get(String.valueOf(companyId == null ? 0L : companyId));
+            List<String> list = toStringList(companyList);
+            if (!list.isEmpty()) {
+                return list;
+            }
+        }
+        return toStringList(config.get("aiWhitelist"));
+    }
+
+    @SuppressWarnings("unchecked")
+    private void setCompanyWhitelist(Map<String, Object> config, Long companyId, List<String> whitelist) {
+        Map<String, Object> bucket;
+        Object raw = config.get("aiWhitelistByCompany");
+        if (raw instanceof Map<?, ?> map) {
+            bucket = new LinkedHashMap<>();
+            map.forEach((k, v) -> bucket.put(String.valueOf(k), v));
+        } else {
+            bucket = new LinkedHashMap<>();
+        }
+        bucket.put(String.valueOf(companyId == null ? 0L : companyId), whitelist);
+        config.put("aiWhitelistByCompany", bucket);
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<String> toStringList(Object value) {
+        if (!(value instanceof List<?> list)) {
+            return List.of();
+        }
+        List<String> result = new ArrayList<>();
+        for (Object item : list) {
+            String text = String.valueOf(item == null ? "" : item).trim();
+            if (StringUtils.hasText(text) && !result.contains(text)) {
+                result.add(text);
+            }
+        }
+        return result;
+    }
+
+    private long toLong(Object value, long defaultValue) {
+        if (value == null) {
+            return defaultValue;
+        }
+        try {
+            return Long.parseLong(String.valueOf(value));
+        } catch (Exception ignored) {
+            return defaultValue;
+        }
+    }
+
     private Map<String, Object> buildRiskList() {
         LocalDateTime from = LocalDateTime.now().minusDays(30);
         Long companyId = currentUserService.requireCurrentUser().getCompanyId();
@@ -134,6 +337,9 @@ public class AiRiskRatingController {
             if (officialId != null && TRUSTED_SERVICE_IDS.contains(officialId) && !official.containsKey(officialId)) {
                 official.put(officialId, model);
             }
+        }
+        for (String trustedId : TRUSTED_SERVICE_IDS) {
+            official.computeIfAbsent(trustedId, this::fallbackTrustedModel);
         }
 
         List<Map<String, Object>> services = new ArrayList<>();
@@ -194,12 +400,27 @@ public class AiRiskRatingController {
     private AiModel fallbackTrustedModel(String officialId) {
         AiModel model = new AiModel();
         model.setModelCode(officialId);
-        model.setModelName(officialId);
+        model.setModelName(fallbackModelName(officialId));
         model.setProvider(officialId);
         model.setModelType("chat");
         model.setRiskLevel("medium");
         model.setStatus("enabled");
         return model;
+    }
+
+    private String fallbackModelName(String officialId) {
+        return switch (officialId) {
+            case "tongyi" -> "通义千问";
+            case "wenxin" -> "文心一言";
+            case "deepseek" -> "DeepSeek";
+            case "doubao" -> "豆包";
+            case "hunyuan" -> "混元";
+            case "kimi" -> "Kimi";
+            case "spark" -> "讯飞星火";
+            case "zhipu" -> "智谱GLM";
+            case "modelwhale" -> "和鲸";
+            default -> officialId;
+        };
     }
 
     private Map<String, Object> buildServiceSummary(String officialId, AiModel model, List<AiCallLog> logs) {
@@ -316,6 +537,10 @@ public class AiRiskRatingController {
             case "deepseek" -> "🧠";
             case "doubao" -> "🫘";
             case "hunyuan" -> "🌀";
+            case "kimi" -> "🌙";
+            case "spark" -> "✨";
+            case "zhipu" -> "🧩";
+            case "modelwhale" -> "🐋";
             default -> "🤖";
         };
     }

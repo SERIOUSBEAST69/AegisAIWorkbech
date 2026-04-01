@@ -92,11 +92,9 @@ public class UserController {
                               @RequestParam(required = false) String accountStatus,
                               @RequestParam(required = false) String accountType) {
         currentUserService.requirePermission("user:manage");
-        Long companyId = currentUserService.requireCurrentUser().getCompanyId();
+        Long companyId = requireBoundCompanyId();
         QueryWrapper<User> qw = new QueryWrapper<>();
-        if (companyId != null) {
-            qw.eq("company_id", companyId);
-        }
+        qw.eq("company_id", companyId);
         if (username != null && !username.isEmpty()) qw.like("username", username);
         if (accountStatus != null && !accountStatus.isEmpty()) qw.eq("account_status", accountStatus);
         if (accountType != null && !accountType.isEmpty()) qw.eq("account_type", accountType);
@@ -114,11 +112,9 @@ public class UserController {
                                        @RequestParam(required = false) String accountStatus,
                                        @RequestParam(required = false) String accountType) {
         currentUserService.requirePermission("user:manage");
-        Long companyId = currentUserService.requireCurrentUser().getCompanyId();
+        Long companyId = requireBoundCompanyId();
         QueryWrapper<User> qw = new QueryWrapper<>();
-        if (companyId != null) {
-            qw.eq("company_id", companyId);
-        }
+        qw.eq("company_id", companyId);
         if (StringUtils.hasText(username)) {
             qw.like("username", username);
         }
@@ -145,13 +141,11 @@ public class UserController {
     @PreAuthorize("@currentUserService.hasPermission('user:manage')")
     public R<List<User>> pendingList() {
         currentUserService.requirePermission("user:manage");
-        Long companyId = currentUserService.requireCurrentUser().getCompanyId();
+        Long companyId = requireBoundCompanyId();
         QueryWrapper<User> qw = new QueryWrapper<User>()
             .eq("account_type", "real")
-            .eq("account_status", ACCOUNT_STATUS_PENDING);
-        if (companyId != null) {
-            qw.eq("company_id", companyId);
-        }
+            .eq("account_status", ACCOUNT_STATUS_PENDING)
+            .eq("company_id", companyId);
         List<User> list = userService.list(qw);
         list.forEach(u -> u.setPassword(null));
         return R.ok(list);
@@ -163,7 +157,7 @@ public class UserController {
         currentUserService.requirePermission("user:manage");
         User admin = currentUserService.requireCurrentUser();
         ensureGovernanceDuty(admin, "approve");
-        User user = requireCompanyUser(req.getId(), admin.getCompanyId());
+        User user = requireCompanyUser(req.getId(), requireBoundCompanyId());
         user.setAccountStatus(ACCOUNT_STATUS_ACTIVE);
         user.setRejectReason(null);
         user.setApprovedBy(admin.getId());
@@ -181,7 +175,7 @@ public class UserController {
         currentUserService.requirePermission("user:manage");
         User admin = currentUserService.requireCurrentUser();
         ensureGovernanceDuty(admin, "approve");
-        User user = requireCompanyUser(req.getId(), admin.getCompanyId());
+        User user = requireCompanyUser(req.getId(), requireBoundCompanyId());
         user.setAccountStatus(ACCOUNT_STATUS_REJECTED);
         user.setRejectReason(req.getReason());
         user.setApprovedBy(admin.getId());
@@ -449,10 +443,26 @@ public class UserController {
 
     private User requireCompanyUser(Long id, Long companyId) {
         User existing = userService.getById(id);
-        if (existing == null || !Objects.equals(existing.getCompanyId(), companyId)) {
+        if (existing == null) {
+            throw new BizException(40400, "用户不存在或不在当前公司");
+        }
+        if (existing.getCompanyId() == null && companyId != null && companyId > 0L) {
+            existing.setCompanyId(companyId);
+            existing.setUpdateTime(new Date());
+            userService.updateById(existing);
+        }
+        if (!Objects.equals(existing.getCompanyId(), companyId)) {
             throw new BizException(40400, "用户不存在或不在当前公司");
         }
         return existing;
+    }
+
+    private Long requireBoundCompanyId() {
+        Long companyId = currentUserService.requireCurrentUser().getCompanyId();
+        if (companyId == null || companyId <= 0L) {
+            throw new BizException(40300, "当前账号未绑定企业，无法执行公司范围管理操作");
+        }
+        return companyId;
     }
 
     private void writeApprovalAudit(User admin, User target, String action, String detail) {

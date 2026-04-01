@@ -217,9 +217,15 @@
                         </div>
                       </div>
 
-                      <div class="field-group">
-                        <label for="register-company-name">公司名称</label>
-                        <input id="register-company-name" v-model.trim="registerForm.companyName" class="field-input" type="text" placeholder="例如：Aegis 科技有限公司" />
+                      <div class="compact-grid">
+                        <div class="field-group">
+                          <label for="register-invite-code">企业邀请码</label>
+                          <input id="register-invite-code" v-model.trim="registerForm.inviteCode" class="field-input" type="text" placeholder="例如：AEGIS-1A2B3C4D5E" />
+                        </div>
+                        <div class="field-group">
+                          <label for="register-company-name">公司名称</label>
+                          <input id="register-company-name" v-model.trim="registerForm.companyName" class="field-input" type="text" placeholder="将根据邀请码自动识别" readonly />
+                        </div>
                       </div>
 
                       <div class="field-group">
@@ -356,6 +362,7 @@ const registerForm = reactive({
   accountType: 'real',
   loginType: 'password',
   companyName: '',
+  inviteCode: '',
   username: '',
   password: '',
   confirmPassword: '',
@@ -524,7 +531,7 @@ const reviewDepartment = computed(() => {
 
 const reviewCompany = computed(() => {
   if (flowType.value === 'register') {
-    return registerForm.companyName || '未填写';
+    return registerForm.companyName || `邀请码: ${registerForm.inviteCode || '未填写'}`;
   }
   return '已绑定公司';
 });
@@ -622,8 +629,8 @@ function ensureRegistrationBasics() {
   if (!registerForm.roleId && !registerForm.roleCode) {
     throw new Error('请选择身份');
   }
-  if (!registerForm.companyName) {
-    throw new Error('请填写公司名称');
+  if (!registerForm.inviteCode) {
+    throw new Error('请输入企业邀请码');
   }
   if (!registerForm.department) {
     throw new Error('请填写部门或团队');
@@ -1095,11 +1102,21 @@ onMounted(async () => {
 
   try {
     const companyIdFromQuery = Number(route.query.companyId || 0);
+    const inviteCodeFromQuery = String(route.query.inviteCode || '').trim();
+    if (inviteCodeFromQuery) {
+      registerForm.inviteCode = inviteCodeFromQuery;
+    }
     const roleResult = companyIdFromQuery > 0
       ? await authApi.getPublicRoles(companyIdFromQuery)
       : null;
-    const result = await authApi.getRegistrationOptions(companyIdFromQuery > 0 ? companyIdFromQuery : undefined);
+    const result = await authApi.getRegistrationOptions(
+      companyIdFromQuery > 0 ? companyIdFromQuery : undefined,
+      inviteCodeFromQuery || undefined
+    );
     const roleOptions = Array.isArray(roleResult) && roleResult.length > 0 ? roleResult : result?.identities;
+    if (result?.companyName) {
+      registerForm.companyName = result.companyName;
+    }
     registrationOptions.identities = normalizeOptions(result?.identities, DEFAULT_IDENTITIES);
     registrationOptions.organizations = normalizeOptions(result?.organizations, DEFAULT_ORGANIZATIONS);
     registrationOptions.demoAccounts = Array.isArray(result?.demoAccounts) && result.demoAccounts.length > 0

@@ -2,6 +2,13 @@
   <div class="page-grid">
     <el-card class="card-glass">
       <div class="card-header">数据主体权利工单</div>
+      <el-alert
+        type="info"
+        :closable="false"
+        show-icon
+        style="margin-bottom:12px"
+        title="用途说明：用于个人数据查询/导出/删除请求履约。权限策略：员工提交本人请求，治理管理员统一处理与闭环。"
+      />
       <el-form :inline="true" @submit.prevent ref="formRef" :model="form" :rules="rules">
         <el-form-item v-if="showUserIdField" label="用户ID" prop="userId"><el-input v-model="form.userId" /></el-form-item>
         <el-form-item label="类型" prop="type">
@@ -22,6 +29,24 @@
           </template>
         </el-table-column>
         <el-table-column prop="userId" label="用户ID" />
+        <el-table-column label="申请账号" min-width="130">
+          <template #default="scope">{{ userNameById(scope.row.userId) }}</template>
+        </el-table-column>
+        <el-table-column label="申请角色" min-width="120">
+          <template #default="scope">{{ roleById(scope.row.userId) }}</template>
+        </el-table-column>
+        <el-table-column label="申请部门" min-width="120">
+          <template #default="scope">{{ departmentById(scope.row.userId) }}</template>
+        </el-table-column>
+        <el-table-column label="申请岗位" min-width="120">
+          <template #default="scope">{{ traceValue(scope.row.comment, 'position') || positionById(scope.row.userId) }}</template>
+        </el-table-column>
+        <el-table-column label="申请公司" min-width="120">
+          <template #default="scope">{{ traceValue(scope.row.comment, 'companyId') || companyById(scope.row.userId) }}</template>
+        </el-table-column>
+        <el-table-column label="申请设备" min-width="160" show-overflow-tooltip>
+          <template #default="scope">{{ traceValue(scope.row.comment, 'device') || deviceById(scope.row.userId) }}</template>
+        </el-table-column>
         <el-table-column prop="type" label="类型" />
         <el-table-column prop="status" label="状态" />
         <el-table-column prop="comment" label="备注">
@@ -32,6 +57,15 @@
           </template>
         </el-table-column>
         <el-table-column prop="handlerId" label="处理人" />
+        <el-table-column label="处理账号" min-width="130">
+          <template #default="scope">{{ userNameById(scope.row.handlerId) }}</template>
+        </el-table-column>
+        <el-table-column label="处理角色" min-width="120">
+          <template #default="scope">{{ roleById(scope.row.handlerId) }}</template>
+        </el-table-column>
+        <el-table-column label="处理部门" min-width="120">
+          <template #default="scope">{{ departmentById(scope.row.handlerId) }}</template>
+        </el-table-column>
         <el-table-column label="处理" width="220">
           <template #default="scope">
             <template v-if="canProcessRequest">
@@ -69,6 +103,7 @@ function getSafeComment(comment) {
 
 const form = ref({ userId: '', type: 'access', comment: '' });
 const list = ref([]);
+const userDirectory = ref(new Map());
 const loading = ref(false);
 const saving = ref(false);
 const formRef = ref();
@@ -78,7 +113,7 @@ const rules = {
   comment: [{ required: true, message: '备注不能为空', trigger: 'blur' }]
 };
 const currentUser = computed(() => userStore.userInfo || {});
-const showUserIdField = computed(() => hasAnyRole(currentUser.value, ['ADMIN', 'DATA_ADMIN', 'BUSINESS_OWNER']));
+const showUserIdField = computed(() => hasAnyRole(currentUser.value, ['ADMIN']));
 const canCreateRequest = computed(() => canCreateSubjectRequest(currentUser.value));
 const canSelectDeleteType = computed(() => canCreateSubjectRequestType(currentUser.value, 'delete'));
 const canProcessRequest = computed(() => canProcessSubjectRequest(currentUser.value));
@@ -91,6 +126,7 @@ function removeRequestFromList(id) {
 async function load() {
   loading.value = true;
   try {
+    await ensureUserDirectory();
     const data = await request.get('/subject-request/list');
     list.value = (Array.isArray(data) ? data : []).map(item => ({
       ...item,
@@ -101,6 +137,65 @@ async function load() {
   } finally {
     loading.value = false;
   }
+}
+
+async function ensureUserDirectory() {
+  if (userDirectory.value.size > 0) {
+    return;
+  }
+  try {
+    const users = await request.get('/user/list');
+    const map = new Map();
+    (Array.isArray(users) ? users : []).forEach(item => {
+      if (item?.id != null) {
+        map.set(String(item.id), item);
+      }
+    });
+    userDirectory.value = map;
+  } catch {
+    userDirectory.value = new Map();
+  }
+}
+
+function userById(id) {
+  if (id == null) return null;
+  return userDirectory.value.get(String(id)) || null;
+}
+
+function userNameById(id) {
+  const user = userById(id);
+  return user?.username || '-';
+}
+
+function roleById(id) {
+  const user = userById(id);
+  return user?.roleCode || '-';
+}
+
+function departmentById(id) {
+  const user = userById(id);
+  return user?.department || '-';
+}
+
+function positionById(id) {
+  const user = userById(id);
+  return user?.jobTitle || '-';
+}
+
+function companyById(id) {
+  const user = userById(id);
+  return user?.companyId != null ? String(user.companyId) : '-';
+}
+
+function deviceById(id) {
+  const user = userById(id);
+  return user?.deviceId || '-';
+}
+
+function traceValue(comment, key) {
+  const text = String(comment || '');
+  const match = text.match(new RegExp(`${key}=([^\] ]+)`));
+  return match?.[1] || '';
 }
 
 async function create() {

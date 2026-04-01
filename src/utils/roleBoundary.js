@@ -167,14 +167,14 @@ export function isEmployeeObserver(user) {
 }
 
 export function canCreateSubjectRequest(user) {
-  if (hasAnyRole(user, [ROLE.ADMIN, ROLE.DATA_ADMIN, ROLE.BUSINESS_OWNER])) {
+  if (hasAnyRole(user, [ROLE.ADMIN])) {
     return true;
   }
   return isEmployeeRequesterFull(user) || isEmployeeRequesterLimited(user);
 }
 
 export function canCreateSubjectRequestType(user, requestType) {
-  if (hasAnyRole(user, [ROLE.ADMIN, ROLE.DATA_ADMIN, ROLE.BUSINESS_OWNER])) {
+  if (hasAnyRole(user, [ROLE.ADMIN])) {
     return true;
   }
   if (isEmployeeRequesterFull(user)) {
@@ -187,7 +187,7 @@ export function canCreateSubjectRequestType(user, requestType) {
 }
 
 export function canProcessSubjectRequest(user) {
-  return hasAnyRole(user, [ROLE.ADMIN, ROLE.DATA_ADMIN, ROLE.BUSINESS_OWNER]);
+  return hasAnyRole(user, [ROLE.ADMIN]);
 }
 
 export function canDeleteSubjectRequest(user) {

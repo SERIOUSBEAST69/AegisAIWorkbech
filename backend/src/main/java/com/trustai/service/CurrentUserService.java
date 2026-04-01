@@ -132,6 +132,14 @@ public class CurrentUserService {
             .anyMatch(code -> code.equalsIgnoreCase(current));
     }
 
+    public boolean hasAuthority(String permissionCode) {
+        return hasPermission(permissionCode);
+    }
+
+    public boolean hasAnyAuthority(String... permissionCodes) {
+        return hasAnyPermission(permissionCodes);
+    }
+
     public boolean hasPermission(String permissionCode) {
         if (!StringUtils.hasText(permissionCode)) {
             return false;

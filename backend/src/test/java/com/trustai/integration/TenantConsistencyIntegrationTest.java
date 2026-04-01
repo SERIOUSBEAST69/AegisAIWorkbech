@@ -8,6 +8,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.trustai.repository.AssetEsRepository;
+import com.trustai.repository.AuditLogEsRepository;
+import com.trustai.repository.ModelEsRepository;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -39,6 +42,15 @@ class TenantConsistencyIntegrationTest {
 
     @MockBean(name = "awardSchemaInitializer")
     private CommandLineRunner awardSchemaInitializerRunner;
+
+    @MockBean
+    private AssetEsRepository assetEsRepository;
+
+    @MockBean
+    private ModelEsRepository modelEsRepository;
+
+    @MockBean
+    private AuditLogEsRepository auditLogEsRepository;
 
     @Test
     void rejectMismatchedCompanyHeader() throws Exception {

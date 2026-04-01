@@ -37,7 +37,8 @@ public class ApprovalController {
     @Autowired private KeyTaskMetricService keyTaskMetricService;
     @Autowired private AuditLogService auditLogService;
 
-    private static final Set<String> APPROVE_STATUS = new HashSet<>(Arrays.asList("通过", "拒绝"));
+    private static final String STATUS_APPROVE = "\u901A\u8FC7";
+    private static final String STATUS_REJECT = "\u62D2\u7EDD";
     private static final String ROLE_ADMIN = "ADMIN";
     private static final String ROLE_DATA_ADMIN = "DATA_ADMIN";
     private static final String ROLE_BUSINESS_OWNER = "BUSINESS_OWNER";
@@ -112,7 +113,7 @@ public class ApprovalController {
             String roleCode = currentUserService.currentRoleCode();
             req.setCompanyId(companyScopeService.requireCompanyId());
             req.setApplicantId(currentUser.getId());
-            req.setReason(normalizeApplyReason(req.getReason(), roleCode));
+            req.setReason(normalizeApplyReason(req.getReason(), roleCode, currentUser));
             req.setApproverId(null);
             req.setStatus(null);
             req.setTaskId(null);
@@ -143,7 +144,7 @@ public class ApprovalController {
                 throw new BizException(40300, "当前身份无权审批该类型申请");
             }
             String prevStatus = before.getStatus();
-            approvalRequestService.approve(req.getRequestId(), currentUser.getId(), "拒绝");
+            approvalRequestService.approve(req.getRequestId(), currentUser.getId(), STATUS_REJECT);
             ApprovalRequest after = approvalRequestService.getById(req.getRequestId());
             java.util.Map<String, Object> detail = new java.util.HashMap<>();
             detail.put("requestId", req.getRequestId());
@@ -164,11 +165,12 @@ public class ApprovalController {
     @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN','BUSINESS_OWNER')")
     public R<?> approve(@RequestBody ApproveReq req) {
         try {
-            if (!APPROVE_STATUS.contains(req.getStatus())) return R.error(40000, "不支持的状态");
+            String targetStatus = normalizeDecisionStatus(req.getStatus());
+            if (targetStatus == null) return R.error(40000, "不支持的状态");
             User currentUser = currentUserService.requireCurrentUser();
             String roleCode = currentUserService.currentRoleCode();
             enforceDataAdminDutyForApproval(currentUser, roleCode);
-            enforceBusinessOwnerDutyForApproval(currentUser, roleCode, "approve");
+            enforceBusinessOwnerDutyForApproval(currentUser, roleCode, STATUS_APPROVE.equals(targetStatus) ? "approve" : "reject");
             ApprovalRequest request = approvalRequestService.getOne(
                 companyScopeService.withCompany(new QueryWrapper<ApprovalRequest>()).eq("id", req.getRequestId())
             );
@@ -176,7 +178,7 @@ public class ApprovalController {
             if (!canOperateRequest(roleCode, request, currentUser)) {
                 throw new BizException(40300, "当前身份无权审批该类型申请");
             }
-            ApprovalRequest after = approvalRequestService.approve(req.getRequestId(), currentUser.getId(), req.getStatus());
+            ApprovalRequest after = approvalRequestService.approve(req.getRequestId(), currentUser.getId(), targetStatus);
             writeApprovalAudit(currentUser, "approval_approve", "requestId=" + req.getRequestId() + ", to=" + (after == null ? req.getStatus() : after.getStatus()));
             keyTaskMetricService.record("approval.flow", true);
             return R.okMsg("审批完成");
@@ -332,22 +334,56 @@ public class ApprovalController {
         return request.getAssetId() == null ? TYPE_BUSINESS : TYPE_DATA;
     }
 
-    private String normalizeApplyReason(String reason, String roleCode) {
+    private String normalizeApplyReason(String reason, String roleCode, User currentUser) {
         String base = reason == null ? "" : reason.trim();
         String upper = base.toUpperCase();
-        if (upper.startsWith("[DATA]") || upper.startsWith("[BUSINESS]") || upper.startsWith("[PERSONAL]")) {
-            return base;
+        String normalized = base;
+        if (!upper.startsWith("[DATA]") && !upper.startsWith("[BUSINESS]") && !upper.startsWith("[PERSONAL]")) {
+            if (ROLE_EMPLOYEE.equalsIgnoreCase(roleCode)) {
+                normalized = "[PERSONAL] " + base;
+            } else if (ROLE_BUSINESS_OWNER.equalsIgnoreCase(roleCode)) {
+                normalized = "[BUSINESS] " + base;
+            } else if (ROLE_DATA_ADMIN.equalsIgnoreCase(roleCode)) {
+                normalized = "[DATA] " + base;
+            } else {
+                normalized = "[DATA] " + base;
+            }
         }
-        if (ROLE_EMPLOYEE.equalsIgnoreCase(roleCode)) {
-            return "[PERSONAL] " + base;
+        return normalized + buildTraceSnapshot(currentUser, roleCode);
+    }
+
+    private String normalizeDecisionStatus(String raw) {
+        if (!StringUtils.hasText(raw)) {
+            return null;
         }
-        if (ROLE_BUSINESS_OWNER.equalsIgnoreCase(roleCode)) {
-            return "[BUSINESS] " + base;
+        String normalized = raw.trim().toLowerCase();
+        if (STATUS_APPROVE.equals(raw.trim()) || "approve".equals(normalized) || "approved".equals(normalized) || "pass".equals(normalized)) {
+            return STATUS_APPROVE;
         }
-        if (ROLE_DATA_ADMIN.equalsIgnoreCase(roleCode)) {
-            return "[DATA] " + base;
+        if (STATUS_REJECT.equals(raw.trim()) || "reject".equals(normalized) || "rejected".equals(normalized) || "deny".equals(normalized)) {
+            return STATUS_REJECT;
         }
-        return "[DATA] " + base;
+        return null;
+    }
+
+    private String buildTraceSnapshot(User currentUser, String roleCode) {
+        if (currentUser == null) {
+            return "";
+        }
+        String username = currentUser.getUsername() == null ? "-" : currentUser.getUsername();
+        String department = currentUser.getDepartment() == null ? "-" : currentUser.getDepartment();
+        String position = currentUser.getJobTitle() == null ? "-" : currentUser.getJobTitle();
+        String deviceId = currentUser.getDeviceId() == null ? "-" : currentUser.getDeviceId();
+        Long companyId = currentUser.getCompanyId();
+        return String.format(" [TRACE username=%s userId=%s role=%s department=%s position=%s companyId=%s device=%s]",
+            username,
+            currentUser.getId(),
+            roleCode == null ? "-" : roleCode,
+            department,
+            position,
+            companyId == null ? "-" : companyId,
+            deviceId
+        );
     }
 
     public static class ApproveReq { public Long getRequestId(){return requestId;} public void setRequestId(Long id){this.requestId=id;} public String getStatus(){return status;} public void setStatus(String s){this.status=s;} private Long requestId; private String status; }

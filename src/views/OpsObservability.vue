@@ -15,7 +15,7 @@
             <div class="card-header">风险趋势（近7天）</div>
           </template>
           <div v-if="hasRiskTrendData" ref="riskTrendChartRef" class="chart-canvas"></div>
-          <el-empty v-else description="暂无记录" :image-size="72" />
+          <el-empty v-else :description="riskTrendStateText" :image-size="72" />
         </el-card>
       </el-col>
 
@@ -25,7 +25,7 @@
             <div class="card-header">告警统计</div>
           </template>
           <div v-if="hasAlertStatsData" ref="alertStatsChartRef" class="chart-canvas"></div>
-          <el-empty v-else description="暂无记录" :image-size="72" />
+          <el-empty v-else :description="alertStatsStateText" :image-size="72" />
         </el-card>
       </el-col>
 
@@ -35,10 +35,17 @@
             <div class="card-header">AI使用分析（近30天）</div>
           </template>
           <div v-if="hasAiUsageData" ref="aiUsageChartRef" class="chart-canvas"></div>
-          <el-empty v-else description="暂无记录" :image-size="72" />
+          <el-empty v-else :description="aiUsageStateText" :image-size="72" />
         </el-card>
       </el-col>
     </el-row>
+    <el-alert
+      type="info"
+      :closable="false"
+      show-icon
+      style="margin-top:16px"
+      title="隐私盾告警明细已归并至“员工AI行为监控-隐私盾告警”模块，运维观测仅保留趋势与统计。"
+    />
   </el-card>
 </template>
 
@@ -52,6 +59,7 @@ const loading = ref(false);
 const riskTrend = ref({ labels: [], riskSeries: [], auditSeries: [], aiCallSeries: [], forecastNextDay: 0 });
 const alertStats = ref({});
 const aiUsage = ref({ models: [] });
+const moduleFailure = ref({ riskTrend: false, alertStats: false, aiUsage: false });
 
 const riskTrendChartRef = ref(null);
 const alertStatsChartRef = ref(null);
@@ -84,6 +92,21 @@ const evidenceText = computed(() => {
   const auditSamples = Number(trend.auditLogSampleCount || 0);
   const modelSamples = Number(trend.modelStatSampleCount || 0);
   return `数据窗${days}天 · 风险样本${riskSamples} · 审计样本${auditSamples} · 调用样本${modelSamples}`;
+});
+
+const riskTrendStateText = computed(() => {
+  if (moduleFailure.value.riskTrend) return '风险趋势接口暂不可用';
+  return '风险样本为空，暂无可绘制趋势';
+});
+
+const alertStatsStateText = computed(() => {
+  if (moduleFailure.value.alertStats) return '告警统计接口暂不可用';
+  return '告警统计为0，暂无可绘制数据';
+});
+
+const aiUsageStateText = computed(() => {
+  if (moduleFailure.value.aiUsage) return 'AI使用分析接口暂不可用';
+  return 'AI调用样本为空，暂无可绘制数据';
 });
 
 function disposeCharts() {
@@ -191,11 +214,9 @@ function renderAiUsageChart() {
 }
 
 function renderCharts() {
-  if (!loading.value) {
-    renderRiskTrendChart();
-    renderAlertStatsChart();
-    renderAiUsageChart();
-  }
+  renderRiskTrendChart();
+  renderAlertStatsChart();
+  renderAiUsageChart();
 }
 
 function handleResize() {
@@ -207,11 +228,20 @@ function handleResize() {
 async function loadAll() {
   loading.value = true;
   try {
-    const [workbench, alerts, aiSummary] = await Promise.all([
+    const [workbenchResult, alertsResult, aiSummaryResult] = await Promise.allSettled([
       request.get('/dashboard/workbench'),
       request.get('/alert-center/stats'),
       request.get('/ai/monitor/summary')
     ]);
+
+    const workbench = workbenchResult.status === 'fulfilled' ? workbenchResult.value : {};
+    const alerts = alertsResult.status === 'fulfilled' ? alertsResult.value : {};
+    const aiSummary = aiSummaryResult.status === 'fulfilled' ? aiSummaryResult.value : [];
+    moduleFailure.value = {
+      riskTrend: workbenchResult.status === 'rejected',
+      alertStats: alertsResult.status === 'rejected',
+      aiUsage: aiSummaryResult.status === 'rejected'
+    };
 
     riskTrend.value = {
       labels: workbench?.trend?.labels || [],
@@ -232,6 +262,14 @@ async function loadAll() {
     await nextTick();
     disposeCharts();
     renderCharts();
+
+    const failedModules = [];
+    if (workbenchResult.status === 'rejected') failedModules.push('风险趋势');
+    if (alertsResult.status === 'rejected') failedModules.push('告警统计');
+    if (aiSummaryResult.status === 'rejected') failedModules.push('AI使用分析');
+    if (failedModules.length > 0) {
+      ElMessage.warning(`${failedModules.join('、')} 暂不可用，已展示可用模块`);
+    }
   } catch (err) {
     disposeCharts();
     ElMessage.error(err?.message || '加载治理观测失败');

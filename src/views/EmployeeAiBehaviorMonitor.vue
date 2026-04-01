@@ -46,15 +46,21 @@
           <div v-else class="event-list">
             <div v-for="(ev, idx) in anomalyEvents" :key="ev.id || idx" class="event-row" :class="{ anomaly: !!ev.is_anomaly }">
               <div class="event-main">
-                <strong>{{ ev.employee_id || '-' }}</strong>
-                <span>{{ ev.department || '-' }}</span>
-                <span>{{ ev.ai_service || '-' }}</span>
+                <strong>{{ anomalyAccountName(ev) }}</strong>
+                <span>账号ID：{{ anomalyAccountId(ev) }}</span>
+                <span>角色：{{ anomalyRole(ev) }}</span>
+                <span>岗位：{{ anomalyPosition(ev) }}</span>
+                <span>部门：{{ anomalyDepartment(ev) }}</span>
+                <span>公司：{{ anomalyCompany(ev) }}</span>
+                <span>设备/IP：{{ anomalyDevice(ev) }}</span>
+                <span>服务：{{ ev.ai_service || '-' }}</span>
               </div>
               <div class="event-meta">
                 <span>分数 {{ formatScore(ev.anomaly_score) }}</span>
                 <span>{{ ev.risk_level || '-' }}</span>
                 <span>{{ formatDate(ev.created_at) }}</span>
               </div>
+              <div v-if="ev.description" class="masked-text">{{ sanitizeText(ev.description) }}</div>
             </div>
           </div>
         </div>
@@ -95,7 +101,13 @@
           <div v-else class="event-list">
             <div v-for="ev in privacyEvents" :key="ev.id" class="event-row privacy">
               <div class="event-main">
-                <strong>{{ ev.userId || '-' }}</strong>
+                <strong>{{ privacyAccountName(ev) }}</strong>
+                <span>账号ID：{{ privacyAccountId(ev) }}</span>
+                <span>角色：{{ privacyRole(ev) }}</span>
+                <span>岗位：{{ privacyPosition(ev) }}</span>
+                <span>部门：{{ privacyDepartment(ev) }}</span>
+                <span>公司：{{ privacyCompany(ev) }}</span>
+                <span>设备/IP：{{ privacyDevice(ev) }}</span>
                 <span>{{ ev.source || '-' }}</span>
                 <span>{{ ev.action || '-' }}</span>
               </div>
@@ -202,6 +214,7 @@ const canExportPrivacy = computed(() => canUsePrivacyOps(userStore.userInfo));
 const canQueryOthers = computed(() => canUsePrivacyOps(userStore.userInfo));
 
 const activeTab = ref('anomaly');
+const userDirectory = ref(new Map());
 
 const anomalyLoading = ref(false);
 const anomalyEvents = ref([]);
@@ -253,6 +266,118 @@ function formatScore(value) {
   const num = Number(value);
   if (Number.isNaN(num)) return '-';
   return num.toFixed(4);
+}
+
+function sanitizeText(value) {
+  const text = String(value || '');
+  return text.replace(/\?{2,}/g, '[编码异常文本]').trim() || '-';
+}
+
+async function ensureUserDirectory() {
+  if (userDirectory.value.size > 0) {
+    return;
+  }
+  try {
+    const users = await request.get('/user/list');
+    const map = new Map();
+    (Array.isArray(users) ? users : []).forEach(item => {
+      if (item?.id != null) {
+        map.set(String(item.id), item);
+      }
+      if (item?.username) {
+        map.set(`username:${String(item.username).toLowerCase()}`, item);
+      }
+    });
+    userDirectory.value = map;
+  } catch {
+    userDirectory.value = new Map();
+  }
+}
+
+function userByAny(value) {
+  if (value == null) return null;
+  const key = String(value);
+  return userDirectory.value.get(key)
+    || userDirectory.value.get(`username:${key.toLowerCase()}`)
+    || null;
+}
+
+function anomalyUser(ev) {
+  return userByAny(ev?.employee_id);
+}
+
+function anomalyAccountName(ev) {
+  const user = anomalyUser(ev);
+  return user?.username || ev?.employee_id || '-';
+}
+
+function anomalyAccountId(ev) {
+  const user = anomalyUser(ev);
+  return user?.id ?? '-';
+}
+
+function anomalyRole(ev) {
+  const user = anomalyUser(ev);
+  return user?.roleCode || '-';
+}
+
+function anomalyPosition(ev) {
+  const user = anomalyUser(ev);
+  return user?.jobTitle || '-';
+}
+
+function anomalyDepartment(ev) {
+  const user = anomalyUser(ev);
+  return user?.department || ev?.department || '-';
+}
+
+function anomalyDevice(ev) {
+  const user = anomalyUser(ev);
+  return user?.deviceId || '-';
+}
+
+function anomalyCompany(ev) {
+  const user = anomalyUser(ev);
+  return user?.companyId != null ? String(user.companyId) : '-';
+}
+
+function privacyUser(ev) {
+  return userByAny(ev?.userId || ev?.username || ev?.employeeId);
+}
+
+function privacyAccountName(ev) {
+  const user = privacyUser(ev);
+  return user?.username || ev?.userId || '-';
+}
+
+function privacyAccountId(ev) {
+  const user = privacyUser(ev);
+  return user?.id ?? '-';
+}
+
+function privacyRole(ev) {
+  const user = privacyUser(ev);
+  return user?.roleCode || '-';
+}
+
+function privacyPosition(ev) {
+  const user = privacyUser(ev);
+  return user?.jobTitle || '-';
+}
+
+function privacyDepartment(ev) {
+  const user = privacyUser(ev);
+  return user?.department || '-';
+}
+
+function privacyDevice(ev) {
+  const user = privacyUser(ev);
+  return user?.deviceId || '-';
+}
+
+function privacyCompany(ev) {
+  const user = privacyUser(ev);
+  return user?.companyId != null ? String(user.companyId) : '-';
 }
 
 function normalizeAnomalyEvent(item = {}) {
@@ -390,6 +515,7 @@ async function loadProfile() {
 }
 
 onMounted(async () => {
+  await ensureUserDirectory();
   await Promise.all([loadAnomalyStatus(), loadAnomaly(), loadProfile()]);
 });
 </script>

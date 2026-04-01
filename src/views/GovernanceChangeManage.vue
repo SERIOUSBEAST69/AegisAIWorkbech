@@ -26,8 +26,40 @@
       <el-table-column prop="module" label="模块" width="120" />
       <el-table-column prop="action" label="动作" width="120" />
       <el-table-column prop="riskLevel" label="风险等级" width="120" />
+      <el-table-column prop="requesterId" label="申请人ID" width="120" />
+      <el-table-column label="申请账号" min-width="130">
+        <template #default="scope">{{ userNameById(scope.row.requesterId) }}</template>
+      </el-table-column>
       <el-table-column prop="requesterRoleCode" label="申请角色" width="120" />
+      <el-table-column label="申请部门" min-width="120">
+        <template #default="scope">{{ traceValue(scope.row.payloadJson, 'department') || departmentById(scope.row.requesterId) }}</template>
+      </el-table-column>
+      <el-table-column label="申请岗位" min-width="120">
+        <template #default="scope">{{ traceValue(scope.row.payloadJson, 'position') || positionById(scope.row.requesterId) }}</template>
+      </el-table-column>
+      <el-table-column label="申请公司" min-width="120">
+        <template #default="scope">{{ traceValue(scope.row.payloadJson, 'companyId') || companyById(scope.row.requesterId) }}</template>
+      </el-table-column>
+      <el-table-column label="申请设备/IP" min-width="160" show-overflow-tooltip>
+        <template #default="scope">{{ traceValue(scope.row.payloadJson, 'device') || traceValue(scope.row.payloadJson, 'deviceId') || '-' }}</template>
+      </el-table-column>
+      <el-table-column prop="approverId" label="复核人ID" width="120" />
+      <el-table-column label="复核账号" min-width="130">
+        <template #default="scope">{{ userNameById(scope.row.approverId) }}</template>
+      </el-table-column>
       <el-table-column prop="approverRoleCode" label="复核角色" width="120" />
+      <el-table-column label="复核部门" min-width="120">
+        <template #default="scope">{{ departmentById(scope.row.approverId) }}</template>
+      </el-table-column>
+      <el-table-column label="复核岗位" min-width="120">
+        <template #default="scope">{{ positionById(scope.row.approverId) }}</template>
+      </el-table-column>
+      <el-table-column label="复核公司" min-width="120">
+        <template #default="scope">{{ companyById(scope.row.approverId) }}</template>
+      </el-table-column>
+      <el-table-column label="复核设备/IP" min-width="160" show-overflow-tooltip>
+        <template #default="scope">{{ traceValue(scope.row.approveNote, 'device') || traceValue(scope.row.approveNote, 'deviceId') || '-' }}</template>
+      </el-table-column>
       <el-table-column prop="status" label="状态" width="120" />
       <el-table-column prop="approveNote" label="复核备注" min-width="200" />
       <el-table-column label="操作" width="220" fixed="right">
@@ -104,6 +136,7 @@ import { getSession } from '../utils/auth';
 import { canReviewGovernanceChange, canSubmitGovernanceChange } from '../utils/roleBoundary';
 
 const requests = ref([]);
+const userDirectory = ref(new Map());
 const loading = ref(false);
 const saving = ref(false);
 const showSubmit = ref(false);
@@ -150,6 +183,7 @@ function isSelfRequest(row) {
 async function fetchRequests() {
   loading.value = true;
   try {
+    await ensureUserDirectory();
     const res = await request.get('/governance-change/page', {
       params: {
         ...query.value,
@@ -258,6 +292,66 @@ async function review(row, approve) {
   } catch (err) {
     ElMessage.error(err?.message || '治理变更复核失败');
   }
+}
+
+async function ensureUserDirectory() {
+  if (userDirectory.value.size > 0) {
+    return;
+  }
+  try {
+    const users = await request.get('/user/list');
+    const map = new Map();
+    (Array.isArray(users) ? users : []).forEach(item => {
+      if (item?.id != null) {
+        map.set(String(item.id), item);
+      }
+    });
+    userDirectory.value = map;
+  } catch {
+    userDirectory.value = new Map();
+  }
+}
+
+function userById(id) {
+  if (id == null) return null;
+  return userDirectory.value.get(String(id)) || null;
+}
+
+function userNameById(id) {
+  const user = userById(id);
+  return user?.username || '-';
+}
+
+function departmentById(id) {
+  const user = userById(id);
+  return user?.department || '-';
+}
+
+function positionById(id) {
+  const user = userById(id);
+  return user?.jobTitle || '-';
+}
+
+function companyById(id) {
+  const user = userById(id);
+  return user?.companyId != null ? String(user.companyId) : '-';
+}
+
+function traceValue(raw, key) {
+  const text = String(raw || '');
+  if (text.startsWith('{')) {
+    try {
+      const obj = JSON.parse(text);
+      const trace = obj?.trace;
+      if (trace && trace[key] != null) {
+        return String(trace[key]);
+      }
+    } catch {
+      // Fall back to legacy TRACE text parsing.
+    }
+  }
+  const match = text.match(new RegExp(`${key}=([^\] ]+)`));
+  return match?.[1] || '';
 }
 
 fetchRequests();

@@ -81,6 +81,7 @@ public class DataInitializer implements CommandLineRunner {
         }
         seedEnterpriseDataAssets(DEFAULT_COMPANY_ID);
         seedTraceableObservabilityBaseline(DEFAULT_COMPANY_ID);
+        seedShadowAiClientBaseline(DEFAULT_COMPANY_ID);
         repairHistoricalTraceability(DEFAULT_COMPANY_ID);
         if (seedDemoData) {
             seedGovernanceAdminDemoData(DEFAULT_COMPANY_ID, roleMap);
@@ -99,12 +100,12 @@ public class DataInitializer implements CommandLineRunner {
         for (User user : users) {
             userByName.put(String.valueOf(user.getUsername()).toLowerCase(Locale.ROOT), user);
         }
-        List<User> actors = users.stream().filter(user -> !"employee1".equalsIgnoreCase(user.getUsername())).toList();
-        if (actors.isEmpty()) {
-            actors = users;
-        }
+        List<User> actors = users;
 
         Date now = new Date();
+        Long aiModelId = querySingleLong(
+            "SELECT id FROM ai_model WHERE LOWER(provider) IN ('qwen','wenxin','deepseek','doubao','hunyuan','kimi','spark','zhipu','modelwhale') ORDER BY id ASC LIMIT 1"
+        );
         for (int dayOffset = 13; dayOffset >= 0; dayOffset--) {
             Date day = new Date(now.getTime() - dayOffset * 24L * 3600_000L);
             Date dayStart = atStartOfDay(day);
@@ -118,17 +119,22 @@ public class DataInitializer implements CommandLineRunner {
                 dayStart,
                 dayEnd
             );
-            if (dailyAuditCount == null || dailyAuditCount == 0) {
-                AuditLog log = new AuditLog();
-                log.setUserId(actor.getId());
-                log.setOperation("demo_observability_baseline");
-                log.setOperationTime(day);
-                log.setInputOverview("companyId=" + companyId + ", actor=" + actor.getUsername());
-                log.setOutputOverview("seed=trend-baseline");
-                log.setResult("success");
-                log.setRiskLevel(dayOffset % 4 == 0 ? "MEDIUM" : "LOW");
-                log.setCreateTime(day);
-                auditLogService.saveAudit(log);
+            int auditBurst = 3 + (dayOffset % 4);
+            if (dailyAuditCount == null || dailyAuditCount < auditBurst) {
+                int deficit = auditBurst - (dailyAuditCount == null ? 0 : dailyAuditCount);
+                for (int i = 0; i < deficit; i++) {
+                    Date auditTime = new Date(dayStart.getTime() + (2L + i * 3L) * 3600_000L);
+                    AuditLog log = new AuditLog();
+                    log.setUserId(actor.getId());
+                    log.setOperation("demo_observability_baseline");
+                    log.setOperationTime(auditTime);
+                    log.setInputOverview("companyId=" + companyId + ", actor=" + actor.getUsername() + ", burst=" + i);
+                    log.setOutputOverview("seed=trend-baseline, traceUser=" + actor.getUsername());
+                    log.setResult("success");
+                    log.setRiskLevel((i + dayOffset) % 4 == 0 ? "MEDIUM" : "LOW");
+                    log.setCreateTime(auditTime);
+                    auditLogService.saveAudit(log);
+                }
             }
 
             Integer dailyModelStats = jdbcTemplate.queryForObject(
@@ -139,18 +145,98 @@ public class DataInitializer implements CommandLineRunner {
                 dayEnd
             );
             if (dailyModelStats == null || dailyModelStats == 0) {
-                Long modelId = querySingleLong(
-                    "SELECT id FROM ai_model WHERE LOWER(provider) IN ('qwen','wenxin','deepseek','doubao','hunyuan') ORDER BY id ASC LIMIT 1"
-                );
                 jdbcTemplate.update(
                     "INSERT INTO model_call_stat(model_id, user_id, date, call_count, total_latency_ms, cost_cents) VALUES(?, ?, ?, ?, ?, ?)",
-                    modelId,
+                    aiModelId,
                     actor.getId(),
                     day,
                     6 + (dayOffset % 5),
                     6000L + dayOffset * 200L,
                     80 + dayOffset * 5
                 );
+            }
+
+            if (tableExists("ai_call_log")) {
+                Integer dailyAiCalls = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(1) FROM ai_call_log WHERE company_id = ? AND user_id = ? AND create_time >= ? AND create_time < ?",
+                    Integer.class,
+                    companyId,
+                    actor.getId(),
+                    dayStart,
+                    dayEnd
+                );
+                int callBurst = 2 + (dayOffset % 3);
+                if (dailyAiCalls == null || dailyAiCalls < callBurst) {
+                    int deficit = callBurst - (dailyAiCalls == null ? 0 : dailyAiCalls);
+                    for (int i = 0; i < deficit; i++) {
+                        Date callTime = new Date(dayStart.getTime() + (3L + i * 2L) * 3600_000L);
+                        String provider = switch ((dayOffset + i) % 5) {
+                            case 0 -> "qwen";
+                            case 1 -> "wenxin";
+                            case 2 -> "deepseek";
+                            case 3 -> "doubao";
+                            default -> "hunyuan";
+                        };
+                        String modelCode = switch (provider) {
+                            case "qwen" -> "qwen-max";
+                            case "wenxin" -> "ernie-4";
+                            case "deepseek" -> "deepseek-chat";
+                            case "doubao" -> "doubao-pro";
+                            default -> "hunyuan-standard";
+                        };
+                        jdbcTemplate.update(
+                            "INSERT INTO ai_call_log(user_id, company_id, username, model_code, provider, input_preview, output_preview, status, duration_ms, token_usage, ip, create_time) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            actor.getId(),
+                            companyId,
+                            actor.getUsername(),
+                            modelCode,
+                            provider,
+                            "[seed] observability call by " + actor.getUsername(),
+                            "[seed] response ok",
+                            (i + dayOffset) % 6 == 0 ? "fail" : "success",
+                            700 + (dayOffset * 40L) + i * 60L,
+                            220 + dayOffset * 10 + i * 20,
+                            "10.20." + ((dayOffset % 5) + 1) + "." + (20 + i),
+                            callTime
+                        );
+                    }
+                }
+            }
+
+            if (tableExists("governance_event")) {
+                Integer dailyGovEvents = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(1) FROM governance_event WHERE company_id = ? AND user_id = ? AND event_time >= ? AND event_time < ?",
+                    Integer.class,
+                    companyId,
+                    actor.getId(),
+                    dayStart,
+                    dayEnd
+                );
+                if (dailyGovEvents == null || dailyGovEvents == 0) {
+                    String eventType = dayOffset % 2 == 0 ? "PRIVACY_ALERT" : "ANOMALY_ALERT";
+                    String severity = dayOffset % 5 == 0 ? "high" : "medium";
+                    Date eventTime = new Date(dayStart.getTime() + 8L * 3600_000L);
+                    String payload = "{\"trace\":{\"username\":\"" + actor.getUsername() + "\",\"userId\":" + actor.getId() + ",\"role\":\"" + resolveRoleCode(actor.getRoleId()) + "\",\"department\":\"" + String.valueOf(actor.getDepartment()) + "\",\"position\":\"" + String.valueOf(actor.getJobTitle()) + "\",\"companyId\":" + companyId + ",\"device\":\"" + String.valueOf(actor.getDeviceId()) + "\"}}";
+                    jdbcTemplate.update(
+                        "INSERT INTO governance_event(company_id, user_id, username, event_type, source_module, severity, status, title, description, source_event_id, attack_type, policy_version, payload_json, event_time, create_time, update_time) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        companyId,
+                        actor.getId(),
+                        actor.getUsername(),
+                        eventType,
+                        "behavior-monitor",
+                        severity,
+                        "pending",
+                        "[seed] 可追溯观测事件",
+                        "用于运维观测与员工行为监控联动展示",
+                        "SEED-OBS-" + actor.getId() + "-" + dayOffset,
+                        eventType.equals("PRIVACY_ALERT") ? "data_exfil_plain" : "abnormal_access",
+                        1L,
+                        payload,
+                        eventTime,
+                        eventTime,
+                        eventTime
+                    );
+                }
             }
 
             Integer dailyRisk = jdbcTemplate.queryForObject(
@@ -179,6 +265,57 @@ public class DataInitializer implements CommandLineRunner {
                     day
                 );
             }
+        }
+    }
+
+    private void seedShadowAiClientBaseline(Long companyId) {
+        if (!tableExists("client_report")) {
+            return;
+        }
+        List<User> users = userService.lambdaQuery().eq(User::getCompanyId, companyId).list();
+        if (users.isEmpty()) {
+            return;
+        }
+        Date now = new Date();
+        int idx = 0;
+        for (User user : users) {
+            String username = String.valueOf(user.getUsername()).toLowerCase(Locale.ROOT);
+            if (username.startsWith("walkthrough_")) {
+                continue;
+            }
+            String clientId = "seed-client-" + username;
+            Integer exists = jdbcTemplate.queryForObject(
+                "SELECT COUNT(1) FROM client_report WHERE company_id = ? AND client_id = ?",
+                Integer.class,
+                companyId,
+                clientId
+            );
+            if (exists != null && exists > 0) {
+                idx++;
+                continue;
+            }
+            String osType = idx % 2 == 0 ? "Windows" : "macOS";
+            String riskLevel = idx % 4 == 0 ? "high" : (idx % 3 == 0 ? "medium" : "low");
+            int shadowCount = String.valueOf(user.getUsername()).toLowerCase(Locale.ROOT).startsWith("employee") ? 1 : 2;
+            String services = "[{\"name\":\"ChatGPT\",\"domain\":\"chat.openai.com\",\"riskLevel\":\"" + riskLevel + "\"},{\"name\":\"Doubao\",\"domain\":\"www.doubao.com\",\"riskLevel\":\"medium\"}]";
+            Date scanTime = new Date(now.getTime() - (long) (idx + 1) * 1800_000L);
+            jdbcTemplate.update(
+                "INSERT INTO client_report(company_id, client_id, hostname, ip_address, os_username, os_type, client_version, discovered_services, shadow_ai_count, risk_level, scan_time, create_time, update_time) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                companyId,
+                clientId,
+                "WS-" + username.toUpperCase(Locale.ROOT).replace('_', '-'),
+                "10.30." + ((idx % 10) + 1) + "." + (20 + idx),
+                user.getUsername(),
+                osType,
+                "1.0.3",
+                services,
+                shadowCount,
+                riskLevel,
+                scanTime,
+                scanTime,
+                scanTime
+            );
+            idx++;
         }
     }
 
@@ -300,11 +437,42 @@ public class DataInitializer implements CommandLineRunner {
         if (!tableExists("ai_model")) {
             return;
         }
+
+        List<String> trustedProviders = List.of("qwen", "wenxin", "deepseek", "doubao", "hunyuan", "kimi", "spark", "zhipu", "modelwhale");
+        List<Object[]> modelSeeds = List.of(
+            new Object[] {"通义千问", "qwen-max", "qwen", "chat", "low", "enabled", "官方可信白名单模型"},
+            new Object[] {"文心一言", "ernie-4", "wenxin", "chat", "low", "enabled", "官方可信白名单模型"},
+            new Object[] {"DeepSeek", "deepseek-chat", "deepseek", "chat", "medium", "enabled", "官方可信白名单模型"},
+            new Object[] {"豆包", "doubao-pro", "doubao", "chat", "medium", "enabled", "官方可信白名单模型"},
+            new Object[] {"混元", "hunyuan-standard", "hunyuan", "chat", "medium", "enabled", "官方可信白名单模型"},
+            new Object[] {"Kimi", "kimi-k2", "kimi", "chat", "medium", "enabled", "官方可信白名单模型"},
+            new Object[] {"讯飞星火", "spark-max", "spark", "chat", "medium", "enabled", "官方可信白名单模型"},
+            new Object[] {"智谱GLM", "glm-4-flash", "zhipu", "chat", "medium", "enabled", "官方可信白名单模型"},
+            new Object[] {"和鲸", "modelwhale-chat", "modelwhale", "chat", "medium", "enabled", "官方可信白名单模型"}
+        );
+
+        for (Object[] seed : modelSeeds) {
+            String modelCode = String.valueOf(seed[1]);
+            Long exists = querySingleLong("SELECT id FROM ai_model WHERE LOWER(COALESCE(model_code,'')) = ? ORDER BY id ASC LIMIT 1", modelCode.toLowerCase(Locale.ROOT));
+            if (exists != null) {
+                jdbcTemplate.update(
+                    "UPDATE ai_model SET status = 'enabled', provider = ?, model_name = COALESCE(NULLIF(model_name,''), ?), model_type = COALESCE(NULLIF(model_type,''), ?), risk_level = COALESCE(NULLIF(risk_level,''), ?), description = COALESCE(NULLIF(description,''), ?), update_time = CURRENT_TIMESTAMP WHERE id = ?",
+                    seed[2], seed[0], seed[3], seed[4], seed[6], exists
+                );
+                continue;
+            }
+            jdbcTemplate.update(
+                "INSERT INTO ai_model(model_name, model_code, provider, model_type, risk_level, status, description, call_limit, current_calls, create_time, update_time) VALUES(?, ?, ?, ?, ?, ?, ?, 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+                seed[0], seed[1], seed[2], seed[3], seed[4], seed[5], seed[6]
+            );
+        }
+
+        String inClause = trustedProviders.stream().map(v -> "'" + v + "'").collect(java.util.stream.Collectors.joining(","));
         jdbcTemplate.update(
-            "UPDATE ai_model SET status = 'disabled' WHERE LOWER(COALESCE(provider,'')) NOT IN ('qwen','wenxin','deepseek','doubao','hunyuan')"
+            "UPDATE ai_model SET status = 'disabled' WHERE LOWER(COALESCE(provider,'')) NOT IN (" + inClause + ")"
         );
         jdbcTemplate.update(
-            "UPDATE ai_model SET status = 'enabled' WHERE LOWER(COALESCE(provider,'')) IN ('qwen','wenxin','deepseek','doubao','hunyuan')"
+            "UPDATE ai_model SET status = 'enabled' WHERE LOWER(COALESCE(provider,'')) IN (" + inClause + ")"
         );
     }
 
@@ -720,6 +888,18 @@ public class DataInitializer implements CommandLineRunner {
     private Long querySingleLong(String sql, Object... args) {
         List<Long> rows = jdbcTemplate.query(sql, (rs, rowNum) -> rs.getLong(1), args);
         return rows.isEmpty() ? null : rows.get(0);
+    }
+
+    private String resolveRoleCode(Long roleId) {
+        if (roleId == null) {
+            return "-";
+        }
+        List<String> rows = jdbcTemplate.query(
+            "SELECT code FROM role WHERE id = ? LIMIT 1",
+            (rs, rowNum) -> rs.getString(1),
+            roleId
+        );
+        return rows.isEmpty() ? "-" : String.valueOf(rows.get(0));
     }
 
     private boolean tableExists(String tableName) {

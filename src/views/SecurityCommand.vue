@@ -26,6 +26,9 @@
       <el-table-column prop="eventType" label="事件类型" width="160"/>
       <el-table-column prop="severity" label="等级" width="100"/>
       <el-table-column prop="status" label="状态" width="100"/>
+      <el-table-column prop="employeeId" label="账号" width="140"/>
+      <el-table-column prop="hostname" label="设备主机" width="160"/>
+      <el-table-column prop="targetAddr" label="目标地址/IP" min-width="180" show-overflow-tooltip/>
       <el-table-column prop="filePath" label="文件路径" min-width="240"/>
       <el-table-column label="操作" width="180" fixed="right">
         <template #default="scope">

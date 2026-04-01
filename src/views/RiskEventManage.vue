@@ -20,6 +20,21 @@
       <el-table-column prop="level" label="风险等级" />
       <el-table-column prop="status" label="状态" />
       <el-table-column prop="handlerId" label="处置人ID" />
+      <el-table-column label="处置账号" min-width="130">
+        <template #default="scope">{{ userNameById(scope.row.handlerId) }}</template>
+      </el-table-column>
+      <el-table-column label="处置角色" min-width="120">
+        <template #default="scope">{{ roleById(scope.row.handlerId) }}</template>
+      </el-table-column>
+      <el-table-column label="处置部门" min-width="120">
+        <template #default="scope">{{ departmentById(scope.row.handlerId) }}</template>
+      </el-table-column>
+      <el-table-column label="处置岗位" min-width="120">
+        <template #default="scope">{{ positionById(scope.row.handlerId) }}</template>
+      </el-table-column>
+      <el-table-column label="处置公司" min-width="120">
+        <template #default="scope">{{ companyById(scope.row.handlerId) }}</template>
+      </el-table-column>
       <el-table-column label="操作">
         <template #default="scope">
           <el-button size="small" @click="editEvent(scope.row)">编辑</el-button>
@@ -58,6 +73,7 @@ import { ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import request from '../api/request';
 const events = ref([]);
+const userDirectory = ref(new Map());
 const loading = ref(false);
 const showAdd = ref(false);
 const showEdit = ref(false);
@@ -75,6 +91,7 @@ const rules = {
 async function fetchEvents() {
   loading.value = true;
   try {
+    await ensureUserDirectory();
     const res = await request.get('/risk-event/list', { params: query.value });
     events.value = res || [];
   } catch (err) {
@@ -82,6 +99,54 @@ async function fetchEvents() {
   } finally {
     loading.value = false;
   }
+}
+
+async function ensureUserDirectory() {
+  if (userDirectory.value.size > 0) {
+    return;
+  }
+  try {
+    const users = await request.get('/user/list');
+    const map = new Map();
+    (Array.isArray(users) ? users : []).forEach(item => {
+      if (item?.id != null) {
+        map.set(String(item.id), item);
+      }
+    });
+    userDirectory.value = map;
+  } catch {
+    userDirectory.value = new Map();
+  }
+}
+
+function userById(id) {
+  if (id == null) return null;
+  return userDirectory.value.get(String(id)) || null;
+}
+
+function userNameById(id) {
+  const user = userById(id);
+  return user?.username || '-';
+}
+
+function roleById(id) {
+  const user = userById(id);
+  return user?.roleCode || '-';
+}
+
+function departmentById(id) {
+  const user = userById(id);
+  return user?.department || '-';
+}
+
+function positionById(id) {
+  const user = userById(id);
+  return user?.jobTitle || '-';
+}
+
+function companyById(id) {
+  const user = userById(id);
+  return user?.companyId != null ? String(user.companyId) : '-';
 }
 function openAdd() {
   addForm.value = { type: '', level: '', status: '' };

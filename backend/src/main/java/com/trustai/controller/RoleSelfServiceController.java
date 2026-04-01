@@ -28,6 +28,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.Data;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -52,19 +53,24 @@ public class RoleSelfServiceController {
     private final CurrentUserService currentUserService;
     private final UserService userService;
     private final UserRoleService userRoleService;
+    private final JdbcTemplate jdbcTemplate;
+
+    private static final Set<String> HIGH_RISK_SELF_REGISTER_CODES = Set.of("ADMIN", "EXECUTIVE", "SECOPS", "DATA_ADMIN");
 
     public RoleSelfServiceController(RoleService roleService,
                                      PermissionService permissionService,
                                      RolePermissionService rolePermissionService,
                                      CurrentUserService currentUserService,
                                      UserService userService,
-                                     UserRoleService userRoleService) {
+                                     UserRoleService userRoleService,
+                                     JdbcTemplate jdbcTemplate) {
         this.roleService = roleService;
         this.permissionService = permissionService;
         this.rolePermissionService = rolePermissionService;
         this.currentUserService = currentUserService;
         this.userService = userService;
         this.userRoleService = userRoleService;
+        this.jdbcTemplate = jdbcTemplate;
     }
 
     @GetMapping("/roles")
@@ -94,19 +100,30 @@ public class RoleSelfServiceController {
         User currentUser = requireRoleManageAccess();
         String code = normalizeRoleCode(req.getCode());
         ensureRoleCodeUnique(currentUser.getCompanyId(), code, null);
+        boolean requestedSelfRegister = Boolean.TRUE.equals(req.getAllowSelfRegister());
+        boolean needsApproval = requestedSelfRegister && requiresSelfRegisterApproval(code);
 
         Role role = new Role();
         role.setCompanyId(currentUser.getCompanyId());
         role.setName(req.getName().trim());
         role.setCode(code);
         role.setDescription(req.getDescription());
-        role.setAllowSelfRegister(Boolean.TRUE.equals(req.getAllowSelfRegister()));
+        role.setAllowSelfRegister(requestedSelfRegister && !needsApproval);
         role.setIsSystem(false);
         role.setCreateTime(new Date());
         role.setUpdateTime(new Date());
         roleService.save(role);
 
         replaceRolePermissions(currentUser.getCompanyId(), role.getId(), req.getPermissionCodes());
+        if (needsApproval) {
+            Long requestId = createSelfRegisterApprovalRequest(currentUser, role, true, req.getReviewNote());
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("role", role);
+            payload.put("pendingApproval", true);
+            payload.put("requestId", requestId);
+            payload.put("message", "高风险角色开放注册已提交审批，审批通过后生效");
+            return R.ok(payload);
+        }
         return R.ok(role);
     }
 
@@ -121,12 +138,127 @@ public class RoleSelfServiceController {
         role.setName(req.getName().trim());
         role.setCode(code);
         role.setDescription(req.getDescription());
-        role.setAllowSelfRegister(Boolean.TRUE.equals(req.getAllowSelfRegister()));
+        boolean requestedSelfRegister = Boolean.TRUE.equals(req.getAllowSelfRegister());
+        boolean needsApproval = requestedSelfRegister && requiresSelfRegisterApproval(code) && !Boolean.TRUE.equals(role.getAllowSelfRegister());
+        role.setAllowSelfRegister(requestedSelfRegister && !needsApproval);
         role.setUpdateTime(new Date());
         roleService.updateById(role);
 
         replaceRolePermissions(currentUser.getCompanyId(), role.getId(), req.getPermissionCodes());
+        if (needsApproval) {
+            Long requestId = createSelfRegisterApprovalRequest(currentUser, role, true, req.getReviewNote());
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("role", role);
+            payload.put("pendingApproval", true);
+            payload.put("requestId", requestId);
+            payload.put("message", "高风险角色开放注册已提交审批，审批通过后生效");
+            return R.ok(payload);
+        }
         return R.ok(role);
+    }
+
+    @GetMapping("/roles/self-register-requests")
+    public R<?> listSelfRegisterRequests(@RequestParam(defaultValue = "1") int page,
+                                         @RequestParam(defaultValue = "10") int pageSize,
+                                         @RequestParam(required = false) String status) {
+        User currentUser = requireRoleManageAccess();
+        int safePage = Math.max(1, page);
+        int safeSize = Math.max(1, Math.min(100, pageSize));
+        int offset = (safePage - 1) * safeSize;
+        String normalizedStatus = StringUtils.hasText(status) ? status.trim().toLowerCase(Locale.ROOT) : null;
+        boolean hasStatus = StringUtils.hasText(normalizedStatus);
+
+        Integer total = jdbcTemplate.queryForObject(
+            hasStatus
+                ? "SELECT COUNT(1) FROM role_self_register_change WHERE company_id = ? AND status = ?"
+                : "SELECT COUNT(1) FROM role_self_register_change WHERE company_id = ?",
+            Integer.class,
+            hasStatus ? new Object[] { currentUser.getCompanyId(), normalizedStatus } : new Object[] { currentUser.getCompanyId() }
+        );
+
+        List<Map<String, Object>> list = jdbcTemplate.query(
+            hasStatus
+                ? "SELECT id, role_id, role_code, requested_allow_self_register, status, requested_by, reviewed_by, review_note, create_time, update_time FROM role_self_register_change WHERE company_id = ? AND status = ? ORDER BY id DESC LIMIT ? OFFSET ?"
+                : "SELECT id, role_id, role_code, requested_allow_self_register, status, requested_by, reviewed_by, review_note, create_time, update_time FROM role_self_register_change WHERE company_id = ? ORDER BY id DESC LIMIT ? OFFSET ?",
+            ps -> {
+                int idx = 1;
+                ps.setLong(idx++, currentUser.getCompanyId());
+                if (hasStatus) {
+                    ps.setString(idx++, normalizedStatus);
+                }
+                ps.setInt(idx++, safeSize);
+                ps.setInt(idx, offset);
+            },
+            (rs, rowNum) -> {
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("id", rs.getLong("id"));
+                row.put("roleId", rs.getLong("role_id"));
+                row.put("roleCode", rs.getString("role_code"));
+                row.put("requestedAllowSelfRegister", rs.getBoolean("requested_allow_self_register"));
+                row.put("status", rs.getString("status"));
+                row.put("requestedBy", rs.getObject("requested_by"));
+                row.put("reviewedBy", rs.getObject("reviewed_by"));
+                row.put("reviewNote", rs.getString("review_note"));
+                row.put("createTime", rs.getTimestamp("create_time"));
+                row.put("updateTime", rs.getTimestamp("update_time"));
+                return row;
+            }
+        );
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("current", safePage);
+        payload.put("pageSize", safeSize);
+        payload.put("total", total == null ? 0 : total);
+        payload.put("list", list);
+        return R.ok(payload);
+    }
+
+    @PutMapping("/roles/self-register-requests/{id}/approve")
+    public R<?> approveSelfRegisterRequest(@PathVariable Long id, @RequestBody(required = false) ReviewReq req) {
+        User reviewer = requireRoleManageAccess();
+        Map<String, Object> request = requirePendingSelfRegisterRequest(id, reviewer.getCompanyId());
+        Long requestedBy = toLong(request.get("requestedBy"));
+        if (requestedBy != null && requestedBy.equals(reviewer.getId())) {
+            throw new BizException(40000, "申请人与审批人不能是同一人");
+        }
+        Long roleId = toLong(request.get("roleId"));
+        Boolean requestedAllow = (Boolean) request.get("requestedAllowSelfRegister");
+        if (roleId == null || requestedAllow == null) {
+            throw new BizException(40000, "审批请求数据异常");
+        }
+
+        Role role = requireCompanyRole(roleId, reviewer.getCompanyId());
+        role.setAllowSelfRegister(requestedAllow);
+        role.setUpdateTime(new Date());
+        roleService.updateById(role);
+
+        jdbcTemplate.update(
+            "UPDATE role_self_register_change SET status = 'approved', reviewed_by = ?, review_note = ?, update_time = CURRENT_TIMESTAMP WHERE id = ? AND company_id = ?",
+            reviewer.getId(),
+            req == null ? null : req.getReviewNote(),
+            id,
+            reviewer.getCompanyId()
+        );
+        return R.okMsg("审批通过，角色开放注册状态已更新");
+    }
+
+    @PutMapping("/roles/self-register-requests/{id}/reject")
+    public R<?> rejectSelfRegisterRequest(@PathVariable Long id, @RequestBody(required = false) ReviewReq req) {
+        User reviewer = requireRoleManageAccess();
+        Map<String, Object> request = requirePendingSelfRegisterRequest(id, reviewer.getCompanyId());
+        Long requestedBy = toLong(request.get("requestedBy"));
+        if (requestedBy != null && requestedBy.equals(reviewer.getId())) {
+            throw new BizException(40000, "申请人与审批人不能是同一人");
+        }
+
+        jdbcTemplate.update(
+            "UPDATE role_self_register_change SET status = 'rejected', reviewed_by = ?, review_note = ?, update_time = CURRENT_TIMESTAMP WHERE id = ? AND company_id = ?",
+            reviewer.getId(),
+            req == null ? null : req.getReviewNote(),
+            id,
+            reviewer.getCompanyId()
+        );
+        return R.okMsg("审批已拒绝");
     }
 
     @DeleteMapping("/roles/{id}")
@@ -302,6 +434,73 @@ public class RoleSelfServiceController {
         }
     }
 
+    private boolean requiresSelfRegisterApproval(String roleCode) {
+        return StringUtils.hasText(roleCode) && HIGH_RISK_SELF_REGISTER_CODES.contains(roleCode.trim().toUpperCase(Locale.ROOT));
+    }
+
+    private Long createSelfRegisterApprovalRequest(User requester, Role role, boolean allowSelfRegister, String reviewNote) {
+        jdbcTemplate.update(
+            "INSERT INTO role_self_register_change(company_id, role_id, role_code, requested_allow_self_register, status, requested_by, review_note, create_time, update_time) VALUES(?, ?, ?, ?, 'pending', ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+            requester.getCompanyId(),
+            role.getId(),
+            role.getCode(),
+            allowSelfRegister,
+            requester.getId(),
+            StringUtils.hasText(reviewNote) ? reviewNote.trim() : null
+        );
+        return jdbcTemplate.query(
+            "SELECT id FROM role_self_register_change WHERE company_id = ? AND role_id = ? ORDER BY id DESC LIMIT 1",
+            ps -> {
+                ps.setLong(1, requester.getCompanyId());
+                ps.setLong(2, role.getId());
+            },
+            rs -> rs.next() ? rs.getLong(1) : null
+        );
+    }
+
+    private Map<String, Object> requirePendingSelfRegisterRequest(Long id, Long companyId) {
+        Map<String, Object> row = jdbcTemplate.query(
+            "SELECT role_id, requested_allow_self_register, status, requested_by FROM role_self_register_change WHERE id = ? AND company_id = ? LIMIT 1",
+            ps -> {
+                ps.setLong(1, id);
+                ps.setLong(2, companyId);
+            },
+            rs -> {
+                if (!rs.next()) {
+                    return null;
+                }
+                Map<String, Object> item = new LinkedHashMap<>();
+                item.put("roleId", rs.getLong("role_id"));
+                item.put("requestedAllowSelfRegister", rs.getBoolean("requested_allow_self_register"));
+                item.put("status", rs.getString("status"));
+                item.put("requestedBy", rs.getObject("requested_by"));
+                return item;
+            }
+        );
+        if (row == null) {
+            throw new BizException(40400, "审批请求不存在");
+        }
+        String status = String.valueOf(row.get("status") == null ? "" : row.get("status")).trim().toLowerCase(Locale.ROOT);
+        if (!"pending".equals(status)) {
+            throw new BizException(40000, "审批请求已处理");
+        }
+        return row;
+    }
+
+    private Long toLong(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        try {
+            return Long.parseLong(String.valueOf(value));
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
     @Data
     public static class RoleUpsertReq {
         @NotBlank(message = "角色名称不能为空")
@@ -311,11 +510,17 @@ public class RoleSelfServiceController {
         private String description;
         private Boolean allowSelfRegister;
         private List<String> permissionCodes;
+        private String reviewNote;
     }
 
     @Data
     public static class RolePermissionUpdateReq {
         @NotNull(message = "权限列表不能为空")
         private List<String> permissionCodes;
+    }
+
+    @Data
+    public static class ReviewReq {
+        private String reviewNote;
     }
 }

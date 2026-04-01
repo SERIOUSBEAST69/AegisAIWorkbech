@@ -164,17 +164,17 @@ public class ClientReportController {
      * 返回所有客户端的最新一条扫描报告（按 client_id 去重，取最新）。
      */
     @GetMapping("/list")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','EMPLOYEE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','EXECUTIVE','SECOPS','DATA_ADMIN','AI_BUILDER','BUSINESS_OWNER','EMPLOYEE')")
     public R<List<Map<String, Object>>> list() {
-        currentUserService.requireAnyRole("ADMIN", "SECOPS", "EMPLOYEE");
+        currentUserService.requireAnyRole("ADMIN", "EXECUTIVE", "SECOPS", "DATA_ADMIN", "AI_BUILDER", "BUSINESS_OWNER", "EMPLOYEE");
         User currentUser = currentUserService.requireCurrentUser();
         Long companyId = currentUser.getCompanyId();
-        boolean employeeOnly = currentUserService.hasRole("EMPLOYEE");
+        boolean ownOnly = !currentUserService.hasAnyRole("ADMIN", "SECOPS");
         // 取全部报告，按 clientId 分组，每组保留最新一条
         List<ClientReport> all = clientReportService.list(
             new QueryWrapper<ClientReport>()
                 .eq(companyId != null, "company_id", companyId)
-                .eq(employeeOnly, "os_username", currentUser.getUsername())
+                .eq(ownOnly, "os_username", currentUser.getUsername())
                 .orderByDesc("scan_time")
         );
 
@@ -215,16 +215,16 @@ public class ClientReportController {
      * 查询指定客户端的历史报告（最近 50 条）。
      */
     @GetMapping("/history")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','EMPLOYEE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','EXECUTIVE','SECOPS','DATA_ADMIN','AI_BUILDER','BUSINESS_OWNER','EMPLOYEE')")
     public R<List<ClientReport>> history(@RequestParam String clientId) {
-        currentUserService.requireAnyRole("ADMIN", "SECOPS", "EMPLOYEE");
+        currentUserService.requireAnyRole("ADMIN", "EXECUTIVE", "SECOPS", "DATA_ADMIN", "AI_BUILDER", "BUSINESS_OWNER", "EMPLOYEE");
         User currentUser = currentUserService.requireCurrentUser();
         Long companyId = currentUser.getCompanyId();
-        boolean employeeOnly = currentUserService.hasRole("EMPLOYEE");
+        boolean ownOnly = !currentUserService.hasAnyRole("ADMIN", "SECOPS");
         List<ClientReport> records = clientReportService.list(
                 new QueryWrapper<ClientReport>()
                 .eq(companyId != null, "company_id", companyId)
-                        .eq(employeeOnly, "os_username", currentUser.getUsername())
+                        .eq(ownOnly, "os_username", currentUser.getUsername())
                         .eq("client_id", clientId)
                         .orderByDesc("scan_time")
                         .last("LIMIT 50")
@@ -238,16 +238,16 @@ public class ClientReportController {
      * 返回影子AI治理摘要，供工作台首页和 ShadowAiDiscovery 视图使用。
      */
     @GetMapping("/stats")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','EMPLOYEE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','EXECUTIVE','SECOPS','DATA_ADMIN','AI_BUILDER','BUSINESS_OWNER','EMPLOYEE')")
     public R<Map<String, Object>> stats() {
-        currentUserService.requireAnyRole("ADMIN", "SECOPS", "EMPLOYEE");
+        currentUserService.requireAnyRole("ADMIN", "EXECUTIVE", "SECOPS", "DATA_ADMIN", "AI_BUILDER", "BUSINESS_OWNER", "EMPLOYEE");
         User currentUser = currentUserService.requireCurrentUser();
         Long companyId = currentUser.getCompanyId();
-        boolean employeeOnly = currentUserService.hasRole("EMPLOYEE");
+        boolean ownOnly = !currentUserService.hasAnyRole("ADMIN", "SECOPS");
         List<ClientReport> all = clientReportService.list(
             new QueryWrapper<ClientReport>()
                 .eq(companyId != null, "company_id", companyId)
-                .eq(employeeOnly, "os_username", currentUser.getUsername())
+                .eq(ownOnly, "os_username", currentUser.getUsername())
                 .orderByDesc("scan_time")
         );
 

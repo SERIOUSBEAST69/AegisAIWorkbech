@@ -90,7 +90,7 @@ public class GovernanceChangeController {
         request.setModule(normalize(req.getModule()));
         request.setAction(normalize(req.getAction()));
         request.setTargetId(req.getTargetId());
-        request.setPayloadJson(req.getPayloadJson());
+        request.setPayloadJson(enrichPayloadWithTrace(req.getPayloadJson(), requester, request.getRequesterRoleCode()));
         request.setStatus(STATUS_PENDING);
         request.setRiskLevel(resolveRiskLevel(request.getModule(), request.getAction()));
         request.setRequesterId(requester.getId());
@@ -170,7 +170,7 @@ public class GovernanceChangeController {
             }
             request.setApproverId(approver.getId());
             request.setApproverRoleCode(approverRole);
-            request.setApproveNote(StringUtils.hasText(req.getNote()) ? req.getNote().trim() : "");
+            request.setApproveNote(appendTraceToNote(req.getNote(), approver, approverRole));
             request.setApprovedAt(new Date());
             request.setUpdateTime(new Date());
             governanceChangeRequestService.updateById(request);
@@ -313,6 +313,59 @@ public class GovernanceChangeController {
 
     private String stringValue(Object value) {
         return value == null ? "" : String.valueOf(value);
+    }
+
+    @SuppressWarnings("unchecked")
+    private String enrichPayloadWithTrace(String rawPayload, User operator, String roleCode) {
+        Map<String, Object> payload;
+        try {
+            payload = MAPPER.readValue(StringUtils.hasText(rawPayload) ? rawPayload : "{}", new TypeReference<Map<String, Object>>() {});
+        } catch (Exception ex) {
+            payload = new LinkedHashMap<>();
+            payload.put("rawPayload", rawPayload == null ? "" : rawPayload);
+        }
+        payload.put("trace", buildTraceSnapshot(operator, roleCode));
+        try {
+            return MAPPER.writeValueAsString(payload);
+        } catch (Exception ex) {
+            return rawPayload == null ? "{}" : rawPayload;
+        }
+    }
+
+    private String appendTraceToNote(String note, User operator, String roleCode) {
+        String base = StringUtils.hasText(note) ? note.trim() : "";
+        Map<String, Object> trace = buildTraceSnapshot(operator, roleCode);
+        return base + String.format(" [TRACE username=%s userId=%s role=%s department=%s position=%s companyId=%s device=%s]",
+            trace.getOrDefault("username", "-"),
+            trace.getOrDefault("userId", "-"),
+            trace.getOrDefault("role", "-"),
+            trace.getOrDefault("department", "-"),
+            trace.getOrDefault("position", "-"),
+            trace.getOrDefault("companyId", "-"),
+            trace.getOrDefault("device", "-")
+        );
+    }
+
+    private Map<String, Object> buildTraceSnapshot(User user, String roleCode) {
+        Map<String, Object> trace = new LinkedHashMap<>();
+        if (user == null) {
+            trace.put("username", "-");
+            trace.put("userId", "-");
+            trace.put("role", roleCode == null ? "-" : roleCode);
+            trace.put("department", "-");
+            trace.put("position", "-");
+            trace.put("companyId", "-");
+            trace.put("device", "-");
+            return trace;
+        }
+        trace.put("username", user.getUsername() == null ? "-" : user.getUsername());
+        trace.put("userId", user.getId() == null ? "-" : user.getId());
+        trace.put("role", roleCode == null ? "-" : roleCode);
+        trace.put("department", user.getDepartment() == null ? "-" : user.getDepartment());
+        trace.put("position", user.getJobTitle() == null ? "-" : user.getJobTitle());
+        trace.put("companyId", user.getCompanyId() == null ? "-" : user.getCompanyId());
+        trace.put("device", user.getDeviceId() == null ? "-" : user.getDeviceId());
+        return trace;
     }
 
     private void writeAudit(User user, String operation, String detail) {

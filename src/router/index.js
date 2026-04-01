@@ -29,10 +29,15 @@ import { canAccessPath } from '../utils/persona';
 import { isEmployeeUser } from '../utils/employeePolicy';
 import { hasPermissionByUser } from '../utils/permission';
 
+function isPlatformAdmin(user) {
+  const roleCode = String(user?.roleCode || '').trim().toUpperCase();
+  return roleCode === 'ADMIN';
+}
+
 const routes = [
   { path: '/login', name: 'Login', component: Login, meta: { public: true, depth: 0 } },
   { path: '/', name: 'Home', component: Home, meta: { depth: 1 } },
-  { path: '/data-asset', name: 'DataAsset', component: DataAsset, meta: { depth: 2, permission: 'menu:data_asset' } },
+  { path: '/data-asset', name: 'DataAsset', component: DataAsset, meta: { depth: 2 } },
   { path: '/audit-log', name: 'AuditLog', component: AuditLog, meta: { depth: 2, permission: 'audit:log:view' } },
   { path: '/audit-report', name: 'AuditReport', component: AuditReport, meta: { depth: 2, permission: 'audit:report:view' } },
   { path: '/user-manage', name: 'UserManage', component: UserManage, meta: { depth: 3, permission: 'user:manage' } },
@@ -69,7 +74,7 @@ router.beforeEach((to, from, next) => {
   }
 
   const session = getSession();
-  if (to.meta?.permission && !hasPermissionByUser(session?.user, to.meta.permission)) {
+  if (to.meta?.permission && !hasPermissionByUser(session?.user, to.meta.permission) && !isPlatformAdmin(session?.user)) {
     return next('/');
   }
   if (!canAccessPath(to.path, session?.user)) {

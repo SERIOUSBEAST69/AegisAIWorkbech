@@ -36,11 +36,30 @@ function realSendPhoneCode(payload) {
   return request.post('/auth/phone-code', payload);
 }
 
-function realRegistrationOptions(companyId) {
-  if (companyId) {
-    return request.get('/auth/registration-options', { params: { companyId } });
+function realRegistrationOptions(companyId, inviteCode) {
+  if (companyId || inviteCode) {
+    const params = {};
+    if (companyId) params.companyId = companyId;
+    if (inviteCode) params.inviteCode = inviteCode;
+    return request.get('/auth/registration-options', { params });
   }
   return request.get('/auth/registration-options');
+}
+
+function realCreateInviteCode() {
+  return request.post('/auth/invite-code/create');
+}
+
+function realListInviteCodes(params) {
+  return request.get('/auth/invite-code/list', { params });
+}
+
+function realRevokeInviteCode(id, payload) {
+  return request.put(`/auth/invite-code/${id}/revoke`, payload || {});
+}
+
+function realReactivateInviteCode(id) {
+  return request.put(`/auth/invite-code/${id}/reactivate`, {});
 }
 
 function realPublicRoles(companyId) {
@@ -88,8 +107,24 @@ export const authApi = {
     return realSendPhoneCode(payload);
   },
 
-  getRegistrationOptions(companyId) {
-    return realRegistrationOptions(companyId);
+  getRegistrationOptions(companyId, inviteCode) {
+    return realRegistrationOptions(companyId, inviteCode);
+  },
+
+  createInviteCode() {
+    return realCreateInviteCode();
+  },
+
+  listInviteCodes(params) {
+    return realListInviteCodes(params);
+  },
+
+  revokeInviteCode(id, payload) {
+    return realRevokeInviteCode(id, payload);
+  },
+
+  reactivateInviteCode(id) {
+    return realReactivateInviteCode(id);
   },
 
   getPublicRoles(companyId) {

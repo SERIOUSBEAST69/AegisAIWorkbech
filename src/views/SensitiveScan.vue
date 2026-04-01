@@ -2,6 +2,13 @@
   <div class="page-grid">
     <el-card class="card-glass">
       <div class="card-header">敏感数据自动扫描</div>
+      <el-alert
+        type="info"
+        :closable="false"
+        show-icon
+        style="margin-bottom:12px"
+        title="用途说明：用于发现数据样本中的敏感字段（身份证、手机号等）。权限策略：治理管理员可全量管理，数据管理员仅管理本人提交任务。"
+      />
       <el-form :inline="true" @submit.prevent ref="formRef" :model="form" :rules="rules">
         <el-form-item label="来源类型" prop="sourceType">
           <el-select v-model="form.sourceType" style="width:140px">
@@ -23,6 +30,17 @@
         <el-table-column prop="sourceType" label="类型" width="80" />
         <el-table-column prop="sourcePath" label="来源" />
         <el-table-column prop="status" label="状态" width="80" />
+        <el-table-column prop="companyId" label="公司" width="90" />
+        <el-table-column prop="userId" label="提交人ID" width="110" />
+        <el-table-column label="提交人账号" min-width="130">
+          <template #default="scope">{{ traceValue(scope.row.traceJson, 'username') || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="提交角色" width="120">
+          <template #default="scope">{{ traceValue(scope.row.traceJson, 'role') || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="设备/IP" min-width="150" show-overflow-tooltip>
+          <template #default="scope">{{ traceValue(scope.row.traceJson, 'device') || '-' }}</template>
+        </el-table-column>
         <el-table-column label="敏感占比(%)" width="110">
           <template #default="scope">
             <span :class="sensitiveClass(scope.row.sensitiveRatio)">
@@ -140,6 +158,19 @@ function sensitiveClass(ratio) {
   if (ratio >= 40) return 'ratio-high';
   if (ratio >= 15) return 'ratio-medium';
   return 'ratio-low';
+}
+
+function traceValue(raw, key) {
+  const text = String(raw || '');
+  if (text.startsWith('{')) {
+    try {
+      const obj = JSON.parse(text);
+      return obj?.[key] != null ? String(obj[key]) : '';
+    } catch {
+      return '';
+    }
+  }
+  return '';
 }
 
 async function fetchList() {

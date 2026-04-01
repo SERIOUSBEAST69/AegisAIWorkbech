@@ -1,0 +1,10 @@
+﻿{
+    "generatedAt":  "2026-04-01T23:45:30",
+    "baseUrl":  "http://localhost:8080",
+    "totalChecks":  22,
+    "mismatchCount":  0,
+    "serverErrorCount":  0,
+    "loginFailedAccounts":  [
+
+                            ]
+}

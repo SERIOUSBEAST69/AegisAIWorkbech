@@ -13,6 +13,7 @@ import com.trustai.service.CurrentUserService;
 import com.trustai.service.RoleService;
 import com.trustai.service.UserService;
 import com.trustai.utils.R;
+import java.security.SecureRandom;
 import java.util.Date;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -33,8 +34,11 @@ import org.springframework.util.StringUtils;
 import org.springframework.validation.annotation.Validated;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -50,6 +54,7 @@ public class AuthController {
     private static final String ACCOUNT_STATUS_ACTIVE = "active";
     private static final String ACCOUNT_STATUS_REJECTED = "rejected";
     private static final String ACCOUNT_STATUS_DISABLED = "disabled";
+    private static final SecureRandom INVITE_RANDOM = new SecureRandom();
     private static final Map<String, String> ROLE_LABELS = Map.of(
         "ADMIN", "治理管理员",
         "EXECUTIVE", "管理层",
@@ -104,6 +109,7 @@ public class AuthController {
     @Autowired private RoleService roleService;
     @Autowired private AuthVerificationService authVerificationService;
     @Autowired private CompanyService companyService;
+    @Autowired private JdbcTemplate jdbcTemplate;
 
     @PostMapping("/login")
     public R<?> login(@Valid @RequestBody LoginReq req) {
@@ -169,7 +175,11 @@ public class AuthController {
     }
 
     @GetMapping("/registration-options")
-    public R<?> registrationOptions(@RequestParam(required = false) Long companyId) {
+    public R<?> registrationOptions(@RequestParam(required = false) Long companyId,
+                                    @RequestParam(required = false) String inviteCode) {
+        if (StringUtils.hasText(inviteCode)) {
+            companyId = resolveCompanyIdByInviteCode(inviteCode.trim());
+        }
         List<Map<String, Object>> identities = resolveSelfRegisterIdentities(companyId);
         List<Map<String, String>> organizations = List.of(
             option("enterprise", "企业"),
@@ -189,7 +199,136 @@ public class AuthController {
         result.put("identities", identities);
         result.put("organizations", organizations);
         result.put("demoAccounts", demoAccounts);
+        if (companyId != null && companyId > 0L) {
+            result.put("companyId", companyId);
+            result.put("companyName", resolveCompanyName(companyId));
+        }
         return R.ok(result);
+    }
+
+    @PostMapping("/invite-code/create")
+    @PreAuthorize("@currentUserService.hasAuthority('user:manage') or @currentUserService.hasRole('ADMIN')")
+    public R<?> createInviteCode(@RequestBody(required = false) InviteCodeCreateReq req) {
+        User currentUser = currentUserService.requireCurrentUser();
+        Long companyId = currentUser.getCompanyId();
+        if (companyId == null || companyId <= 0L) {
+            throw new BizException(40000, "当前账号未绑定企业，无法生成邀请码");
+        }
+        int expireHours = req == null || req.getExpireHours() == null ? 72 : Math.max(1, Math.min(24 * 30, req.getExpireHours()));
+        String inviteCode = generateUniqueInviteCode();
+        Date expiresAt = new Date(System.currentTimeMillis() + expireHours * 3600_000L);
+        jdbcTemplate.update(
+            "INSERT INTO company_invite_code(company_id, invite_code, status, created_by, expires_at, create_time, update_time) VALUES(?, ?, 'active', ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+            companyId,
+            inviteCode,
+            currentUser.getId(),
+            new java.sql.Timestamp(expiresAt.getTime())
+        );
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("companyId", companyId);
+        payload.put("companyName", resolveCompanyName(companyId));
+        payload.put("inviteCode", inviteCode);
+        payload.put("expireHours", expireHours);
+        return R.ok(payload);
+    }
+
+    @GetMapping("/invite-code/list")
+    @PreAuthorize("@currentUserService.hasAuthority('user:manage') or @currentUserService.hasRole('ADMIN')")
+    public R<?> listInviteCodes(@RequestParam(defaultValue = "1") int page,
+                                @RequestParam(defaultValue = "10") int pageSize,
+                                @RequestParam(required = false) String status) {
+        User currentUser = currentUserService.requireCurrentUser();
+        Long companyId = currentUser.getCompanyId();
+        if (companyId == null || companyId <= 0L) {
+            throw new BizException(40000, "当前账号未绑定企业");
+        }
+        int safePage = Math.max(1, page);
+        int safeSize = Math.max(1, Math.min(100, pageSize));
+        int offset = (safePage - 1) * safeSize;
+
+        String normalizedStatus = StringUtils.hasText(status) ? status.trim().toLowerCase() : null;
+        boolean filterStatus = StringUtils.hasText(normalizedStatus);
+
+        Integer total = jdbcTemplate.queryForObject(
+            filterStatus
+                ? "SELECT COUNT(1) FROM company_invite_code WHERE company_id = ? AND status = ?"
+                : "SELECT COUNT(1) FROM company_invite_code WHERE company_id = ?",
+            Integer.class,
+            filterStatus ? new Object[] { companyId, normalizedStatus } : new Object[] { companyId }
+        );
+
+        List<Map<String, Object>> list = jdbcTemplate.query(
+            filterStatus
+                ? "SELECT id, invite_code, status, created_by, expires_at, create_time, update_time, disable_reason FROM company_invite_code WHERE company_id = ? AND status = ? ORDER BY id DESC LIMIT ? OFFSET ?"
+                : "SELECT id, invite_code, status, created_by, expires_at, create_time, update_time, disable_reason FROM company_invite_code WHERE company_id = ? ORDER BY id DESC LIMIT ? OFFSET ?",
+            ps -> {
+                int idx = 1;
+                ps.setLong(idx++, companyId);
+                if (filterStatus) {
+                    ps.setString(idx++, normalizedStatus);
+                }
+                ps.setInt(idx++, safeSize);
+                ps.setInt(idx, offset);
+            },
+            (rs, rowNum) -> {
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("id", rs.getLong("id"));
+                row.put("inviteCode", rs.getString("invite_code"));
+                row.put("status", rs.getString("status"));
+                row.put("createdBy", rs.getObject("created_by"));
+                row.put("expiresAt", rs.getTimestamp("expires_at"));
+                row.put("createTime", rs.getTimestamp("create_time"));
+                row.put("updateTime", rs.getTimestamp("update_time"));
+                row.put("disableReason", rs.getString("disable_reason"));
+                return row;
+            }
+        );
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("current", safePage);
+        payload.put("pageSize", safeSize);
+        payload.put("total", total == null ? 0 : total);
+        payload.put("list", list);
+        return R.ok(payload);
+    }
+
+    @PutMapping("/invite-code/{id}/revoke")
+    @PreAuthorize("@currentUserService.hasAuthority('user:manage') or @currentUserService.hasRole('ADMIN')")
+    public R<?> revokeInviteCode(@PathVariable Long id, @RequestBody(required = false) InviteCodeStatusReq req) {
+        User currentUser = currentUserService.requireCurrentUser();
+        Long companyId = currentUser.getCompanyId();
+        if (companyId == null || companyId <= 0L) {
+            throw new BizException(40000, "当前账号未绑定企业");
+        }
+        int updated = jdbcTemplate.update(
+            "UPDATE company_invite_code SET status = 'revoked', disable_reason = ?, update_time = CURRENT_TIMESTAMP WHERE id = ? AND company_id = ?",
+            req == null ? null : req.getReason(),
+            id,
+            companyId
+        );
+        if (updated <= 0) {
+            throw new BizException(40400, "邀请码不存在或不属于当前企业");
+        }
+        return R.okMsg("邀请码已停用");
+    }
+
+    @PutMapping("/invite-code/{id}/reactivate")
+    @PreAuthorize("@currentUserService.hasAuthority('user:manage') or @currentUserService.hasRole('ADMIN')")
+    public R<?> reactivateInviteCode(@PathVariable Long id) {
+        User currentUser = currentUserService.requireCurrentUser();
+        Long companyId = currentUser.getCompanyId();
+        if (companyId == null || companyId <= 0L) {
+            throw new BizException(40000, "当前账号未绑定企业");
+        }
+        int updated = jdbcTemplate.update(
+            "UPDATE company_invite_code SET status = 'active', disable_reason = NULL, update_time = CURRENT_TIMESTAMP WHERE id = ? AND company_id = ?",
+            id,
+            companyId
+        );
+        if (updated <= 0) {
+            throw new BizException(40400, "邀请码不存在或不属于当前企业");
+        }
+        return R.okMsg("邀请码已恢复");
     }
 
     @GetMapping("/me")
@@ -432,8 +571,11 @@ public class AuthController {
     }
 
     private Long resolveCompanyId(RegisterReq req, String accountType) {
+        if (StringUtils.hasText(req.getInviteCode())) {
+            return resolveCompanyIdByInviteCode(req.getInviteCode().trim());
+        }
         if (!StringUtils.hasText(req.getCompanyName())) {
-            throw new BizException(40000, "真实账号注册必须填写公司名称");
+            throw new BizException(40000, "请输入企业邀请码");
         }
         String companyName = req.getCompanyName().trim();
         Company existing = companyService.lambdaQuery()
@@ -445,14 +587,43 @@ public class AuthController {
         if (existing != null) {
             return existing.getId();
         }
-        Company company = new Company();
-        company.setCompanyName(companyName);
-        company.setCompanyCode(buildCompanyCode(companyName));
-        company.setStatus(1);
-        company.setCreateTime(new Date());
-        company.setUpdateTime(new Date());
-        companyService.save(company);
-        return company.getId();
+        throw new BizException(40000, "未识别企业信息，请联系治理管理员获取邀请码");
+    }
+
+    private Long resolveCompanyIdByInviteCode(String inviteCode) {
+        Long companyId = jdbcTemplate.query(
+            "SELECT company_id FROM company_invite_code WHERE invite_code = ? AND status = 'active' AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP) ORDER BY id DESC LIMIT 1",
+            ps -> ps.setString(1, inviteCode),
+            rs -> rs.next() ? rs.getLong(1) : null
+        );
+        if (companyId == null || companyId <= 0L) {
+            throw new BizException(40000, "邀请码无效或已过期");
+        }
+        return companyId;
+    }
+
+    private String generateUniqueInviteCode() {
+        for (int i = 0; i < 8; i++) {
+            String code = "AEGIS-" + randomUpperHex(10);
+            Integer exists = jdbcTemplate.queryForObject(
+                "SELECT COUNT(1) FROM company_invite_code WHERE invite_code = ?",
+                Integer.class,
+                code
+            );
+            if (exists == null || exists == 0) {
+                return code;
+            }
+        }
+        return "AEGIS-" + UUID.randomUUID().toString().replace("-", "").substring(0, 10).toUpperCase();
+    }
+
+    private String randomUpperHex(int length) {
+        char[] hex = "0123456789ABCDEF".toCharArray();
+        StringBuilder sb = new StringBuilder(length);
+        for (int i = 0; i < length; i++) {
+            sb.append(hex[INVITE_RANDOM.nextInt(hex.length)]);
+        }
+        return sb.toString();
     }
 
     private String buildCompanyCode(String companyName) {
@@ -645,6 +816,16 @@ public class AuthController {
     }
 
     @Data
+    public static class InviteCodeCreateReq {
+        private Integer expireHours;
+    }
+
+    @Data
+    public static class InviteCodeStatusReq {
+        private String reason;
+    }
+
+    @Data
     public static class RegisterReq {
         private String username;
         private String password;
@@ -662,6 +843,7 @@ public class AuthController {
         private String email;
         private String loginType;
         private String wechatOpenId;
+        private String inviteCode;
     }
 
     @Data

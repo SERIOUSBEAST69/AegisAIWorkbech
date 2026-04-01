@@ -7,6 +7,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.trustai.entity.User;
+import com.trustai.repository.AssetEsRepository;
+import com.trustai.repository.AuditLogEsRepository;
+import com.trustai.repository.ModelEsRepository;
 import com.trustai.service.UserService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -49,6 +52,15 @@ class AccountApprovalIntegrationTest {
 
     @MockBean(name = "awardSchemaInitializer")
     private CommandLineRunner awardSchemaInitializerRunner;
+
+    @MockBean
+    private AssetEsRepository assetEsRepository;
+
+    @MockBean
+    private ModelEsRepository modelEsRepository;
+
+    @MockBean
+    private AuditLogEsRepository auditLogEsRepository;
 
     @Test
     void realAccountMustBeApprovedOrRejectedBeforeLogin() throws Exception {

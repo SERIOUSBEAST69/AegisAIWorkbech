@@ -1,0 +1,23 @@
+﻿"Category","Check","Account","Expected","Actual","Passed","HttpStatus","ResponseCode","Message"
+"governance-admin","reviewer_can_approve","admin_reviewer","allow","allow","True","200","20000","å®¡æ¹éè¿"
+"governance-admin","ops_cannot_approve","admin_ops","deny","deny","True","200","40300","ä»æ²»çå¤æ ¸åå¯æ§è¡å®¡æ¹å¨ä½"
+"governance-admin","ops_can_write","admin_ops","allow","allow","True","200","20000","æ³¨åæå"
+"governance-admin","reviewer_cannot_write","admin_reviewer","deny","deny","True","200","40300","ä»æ²»çè¿è¥ä¸åå¯æ§è¡è´¦å·åæä½"
+"secops","secops2_cannot_block","secops_2","deny","deny","True","200","40300","å½åè´¦å·èè´£ä¸åè®¸æ§è¡é»æ­æè§åç®¡ç"
+"secops","secops2_can_ignore","secops_2","allow","allow","True","200","20000","å·²å¿½ç¥"
+"secops","secops3_cannot_ignore","secops_3","deny","deny","True","200","40300","å½åè´¦å·èè´£ä¸åè®¸æ§è¡è¯¯æ¥æ è®°æè§åç®¡ç"
+"secops","secops3_can_block","secops_3","allow","allow","True","200","20000","å·²é»æ¦"
+"data-admin","dataadmin2_cannot_delete","dataadmin_2","deny","deny","True","200","40300","æ°æ®ç®¡çåäºå·ä¸å¯å é¤èµäº§ï¼ä»å¯ç»´æ¤ä¸ä¸ä¼ "
+"data-admin","dataadmin2_can_update","dataadmin_2","allow","allow","True","200","20000","æ´æ°æå"
+"data-admin","dataadmin3_cannot_write","dataadmin_3","deny","deny","True","200","40300","æ°æ®ç®¡çåä¸å·ä¸ºå®¡æ¹å²ï¼ä¸å¯æ§è¡èµäº§åæ´"
+"business-owner","bizowner2_cannot_reject","bizowner_2","deny","deny","True","200","40300","ä¸å¡è´è´£äººäºå·ä¸ºæææ¾è¡å²ï¼ä¸å¯æ§è¡é©³å"
+"business-owner","bizowner2_can_approve","bizowner_2","allow","allow","True","200","20000","å®¡æ¹å®æ"
+"business-owner","bizowner3_cannot_approve","bizowner_3","deny","deny","True","200","40300","ä¸å¡è´è´£äººä¸å·ä¸ºé£é©å¤æ ¸å²ï¼ä¸å¯æ§è¡éè¿"
+"business-owner","bizowner3_can_reject","bizowner_3","allow","allow","True","200","20000","success"
+"ai-builder","aibuilder2_cannot_events","aibuilder_2","deny","deny","True","200","40300","AIå¼åèäºå·ä¸ºæç¤ºå·¥ç¨å²ï¼ä¸å¯è®¿é®å¼å¸¸äºä»¶å¤æ ¸è§å¾"
+"ai-builder","aibuilder2_can_check","aibuilder_2","allow","allow","True","200","20000","success"
+"ai-builder","aibuilder3_cannot_check","aibuilder_3","deny","deny","True","200","40300","AIå¼åèä¸å·ä¸ºæ¨¡åå®¡è®¡å²ï¼ä¸å¯æ§è¡å®æ¶æ£æµæäº¤"
+"ai-builder","aibuilder3_can_events","aibuilder_3","allow","allow","True","200","20000","success"
+"employee","employee1_can_delete_request","employee1","allow","allow","True","200","20000","success"
+"employee","employee2_cannot_delete_request","employee2","deny","deny","True","200","40300","å½ååå·¥è´¦å·ä¸å¯æäº¤å é¤ç±»ä¸»ä½è¯·æ±"
+"employee","employee3_view_only","employee3","deny","deny","True","200","40300","å½ååå·¥è´¦å·ä»å¯æ¥çå·¥å"

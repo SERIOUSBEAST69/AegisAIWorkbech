@@ -1,8 +1,8 @@
 ﻿{
-    "generatedAt":  "2026-03-30T22:46:37",
+    "generatedAt":  "2026-04-01T21:05:39",
     "baseUrl":  "http://localhost:8080",
     "totalChecks":  140,
-    "mismatchCount":  0,
+    "mismatchCount":  7,
     "loginFailedRoles":  [
 
                          ]

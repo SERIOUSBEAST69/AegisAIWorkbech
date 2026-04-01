@@ -21,10 +21,37 @@
         </template>
       </el-table-column>
       <el-table-column prop="applicantId" label="申请人ID" />
+      <el-table-column label="申请账号" min-width="130">
+        <template #default="scope">{{ userNameById(scope.row.applicantId) }}</template>
+      </el-table-column>
+      <el-table-column label="申请角色" min-width="130">
+        <template #default="scope">{{ roleById(scope.row.applicantId) }}</template>
+      </el-table-column>
+      <el-table-column label="申请部门" min-width="130">
+        <template #default="scope">{{ departmentById(scope.row.applicantId) }}</template>
+      </el-table-column>
+      <el-table-column label="申请岗位" min-width="130">
+        <template #default="scope">{{ traceValue(scope.row.reason, 'position') || positionById(scope.row.applicantId) }}</template>
+      </el-table-column>
+      <el-table-column label="申请公司" min-width="120">
+        <template #default="scope">{{ traceValue(scope.row.reason, 'companyId') || companyById(scope.row.applicantId) }}</template>
+      </el-table-column>
+      <el-table-column label="申请设备" min-width="160" show-overflow-tooltip>
+        <template #default="scope">{{ traceValue(scope.row.reason, 'device') || deviceById(scope.row.applicantId) }}</template>
+      </el-table-column>
       <el-table-column prop="assetId" label="资产ID" />
       <el-table-column prop="reason" label="理由" />
       <el-table-column prop="status" label="状态" />
       <el-table-column prop="approverId" label="审批人ID" />
+      <el-table-column label="审批账号" min-width="130">
+        <template #default="scope">{{ userNameById(scope.row.approverId) }}</template>
+      </el-table-column>
+      <el-table-column label="审批角色" min-width="130">
+        <template #default="scope">{{ roleById(scope.row.approverId) }}</template>
+      </el-table-column>
+      <el-table-column label="审批部门" min-width="130">
+        <template #default="scope">{{ departmentById(scope.row.approverId) }}</template>
+      </el-table-column>
       <el-table-column label="操作">
         <template #default="scope">
           <el-button v-if="canApprove" size="small" @click="approve(scope.row, '通过')">通过</el-button>
@@ -69,6 +96,7 @@ const userStore = useUserStore();
 const canApprove = computed(() => canApproveApprovalFlow(userStore.userInfo));
 const canReject = computed(() => canRejectApprovalFlow(userStore.userInfo));
 const approvals = ref([]);
+const userDirectory = ref(new Map());
 const loading = ref(false);
 const showAdd = ref(false);
 const saving = ref(false);
@@ -83,6 +111,7 @@ const rules = {
 async function fetchApprovals() {
   loading.value = true;
   try {
+    await ensureUserDirectory();
     const params = {
       ...query.value,
       page: pagination.value.current,
@@ -112,6 +141,7 @@ function onPageSizeChange(size) {
 async function fetchTodo() {
   loading.value = true;
   try {
+    await ensureUserDirectory();
     approvals.value = await request.get('/approval/todo');
     pagination.value.total = approvals.value.length;
   } catch (err) {
@@ -162,6 +192,65 @@ async function remove(id) {
   } catch (err) {
     if (err !== 'cancel') ElMessage.error(err?.message || '删除失败');
   }
+}
+
+async function ensureUserDirectory() {
+  if (userDirectory.value.size > 0) {
+    return;
+  }
+  try {
+    const users = await request.get('/user/list');
+    const map = new Map();
+    (Array.isArray(users) ? users : []).forEach(item => {
+      if (item?.id != null) {
+        map.set(String(item.id), item);
+      }
+    });
+    userDirectory.value = map;
+  } catch {
+    userDirectory.value = new Map();
+  }
+}
+
+function userById(id) {
+  if (id == null) return null;
+  return userDirectory.value.get(String(id)) || null;
+}
+
+function userNameById(id) {
+  const user = userById(id);
+  return user?.username || '-';
+}
+
+function roleById(id) {
+  const user = userById(id);
+  return user?.roleCode || '-';
+}
+
+function departmentById(id) {
+  const user = userById(id);
+  return user?.department || '-';
+}
+
+function positionById(id) {
+  const user = userById(id);
+  return user?.jobTitle || '-';
+}
+
+function companyById(id) {
+  const user = userById(id);
+  return user?.companyId != null ? String(user.companyId) : '-';
+}
+
+function deviceById(id) {
+  const user = userById(id);
+  return user?.deviceId || '-';
+}
+
+function traceValue(reason, key) {
+  const text = String(reason || '');
+  const match = text.match(new RegExp(`${key}=([^\] ]+)`));
+  return match?.[1] || '';
 }
 fetchApprovals();
 </script>

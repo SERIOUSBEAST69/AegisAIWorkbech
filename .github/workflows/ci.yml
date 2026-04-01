@@ -83,6 +83,14 @@ jobs:
           done
           echo "Backend failed to start" && cat backend-ci.log && exit 1
 
+      - name: Run Account Duty Segregation Regression
+        shell: pwsh
+        run: ./scripts/run-account-duty-segregation-regression.ps1
+
+      - name: Run Identity Issue Regression Matrix
+        shell: pwsh
+        run: ./scripts/run-identity-issue-regression.ps1
+
       - name: Run k6 Load Test
         run: npm run test:load
 
@@ -94,6 +102,24 @@ jobs:
         with:
           name: k6-summary
           path: e2e-report.json
+
+      - name: Upload account duty regression artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: account-duty-regression
+          path: |
+            docs/account-duty-segregation-results.csv
+            docs/account-duty-segregation-summary.json
+
+      - name: Upload identity issue regression artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: identity-issue-regression
+          path: |
+            docs/identity-issue-regression-results.csv
+            docs/identity-issue-regression-summary.json
 
   backend:
     runs-on: ubuntu-latest
@@ -114,4 +140,4 @@ jobs:
 
       - name: Run Integration Regression Tests
         working-directory: backend
-        run: mvn -q "-Dtest=AccountApprovalIntegrationTest,DashboardSecurityIntegrationTest,ValidationGuardIntegrationTest,PermissionMatrixIntegrationTest,TenantConsistencyIntegrationTest,RoleEndpointAuthorizationMatrixIntegrationTest,GovernanceAdminDutySegregationIntegrationTest,GovernanceAdminAttackResilienceIntegrationTest,GovernanceAdminSecurityHardeningIntegrationTest,SecOpsDutySegregationIntegrationTest,DataAdminDutySegregationIntegrationTest,BusinessOwnerDutySegregationIntegrationTest,AiBuilderDutySegregationIntegrationTest,ExecutiveDutySegregationIntegrationTest,EmployeeDutySegregationIntegrationTest,SubjectRequestWorkflowIntegrationTest,ClientIdentityBindingIntegrationTest,ClientCloudConsistencyIntegrationTest,RoleSelfServiceIntegrationTest,TraceabilityAndObservabilityIntegrationTest" test
+        run: mvn -q "-Dtest=AccountApprovalIntegrationTest,DashboardSecurityIntegrationTest,ValidationGuardIntegrationTest,PermissionMatrixIntegrationTest,TenantConsistencyIntegrationTest,RoleEndpointAuthorizationMatrixIntegrationTest,GovernanceAdminDutySegregationIntegrationTest,GovernanceAdminAttackResilienceIntegrationTest,GovernanceAdminSecurityHardeningIntegrationTest,SecOpsDutySegregationIntegrationTest,DataAdminDutySegregationIntegrationTest,BusinessOwnerDutySegregationIntegrationTest,AiBuilderDutySegregationIntegrationTest,ExecutiveDutySegregationIntegrationTest,EmployeeDutySegregationIntegrationTest,SubjectRequestWorkflowIntegrationTest,ClientIdentityBindingIntegrationTest,ClientCloudConsistencyIntegrationTest,RoleSelfServiceIntegrationTest,InviteCodeLifecycleIntegrationTest,RoleSelfRegisterApprovalIntegrationTest,TraceabilityAndObservabilityIntegrationTest" test

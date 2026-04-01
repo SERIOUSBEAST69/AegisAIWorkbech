@@ -22,6 +22,8 @@ public class CompanySchemaInitializer implements CommandLineRunner {
     @Override
     public void run(String... args) {
         ensureCompanyTable();
+        ensureCompanyInviteTable();
+        ensureRoleSelfRegisterChangeTable();
         ensureUnifiedEventTables();
         ensureUserRoleTable();
         ensureUserRecycleBinTable();
@@ -60,6 +62,10 @@ public class CompanySchemaInitializer implements CommandLineRunner {
         ensureIndex("ai_call_log", "idx_ai_call_company_user_time", "company_id, user_id, create_time");
         ensureIndex("permission", "idx_permission_company_code", "company_id, code");
         ensureIndex("role", "idx_role_company_code", "company_id, code");
+        ensureIndex("company_invite_code", "idx_company_invite_code", "invite_code");
+        ensureIndex("company_invite_code", "idx_company_invite_company_status", "company_id, status");
+        ensureIndex("role_self_register_change", "idx_role_src_company_status", "company_id, status");
+        ensureIndex("role_self_register_change", "idx_role_src_role", "role_id");
         ensureIndex("user_role", "idx_user_role_user", "user_id");
         ensureIndex("user_role", "idx_user_role_role", "role_id");
         ensureIndex("governance_event", "idx_governance_company", "company_id");
@@ -226,6 +232,43 @@ public class CompanySchemaInitializer implements CommandLineRunner {
         log.info("Schema check complete: company");
     }
 
+    private void ensureCompanyInviteTable() {
+        jdbcTemplate.execute("""
+            CREATE TABLE IF NOT EXISTS company_invite_code (
+              id BIGINT AUTO_INCREMENT PRIMARY KEY,
+              company_id BIGINT NOT NULL,
+              invite_code VARCHAR(64) NOT NULL,
+              status VARCHAR(20) DEFAULT 'active',
+              created_by BIGINT,
+              expires_at TIMESTAMP NULL,
+                            disable_reason VARCHAR(255),
+              create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """);
+                ensureColumn("company_invite_code", "disable_reason", "VARCHAR(255)");
+        log.info("Schema check complete: company_invite_code");
+    }
+
+    private void ensureRoleSelfRegisterChangeTable() {
+        jdbcTemplate.execute("""
+            CREATE TABLE IF NOT EXISTS role_self_register_change (
+              id BIGINT AUTO_INCREMENT PRIMARY KEY,
+              company_id BIGINT NOT NULL,
+              role_id BIGINT NOT NULL,
+              role_code VARCHAR(64) NOT NULL,
+              requested_allow_self_register BOOLEAN NOT NULL,
+              status VARCHAR(20) NOT NULL DEFAULT 'pending',
+              requested_by BIGINT NOT NULL,
+              reviewed_by BIGINT,
+              review_note VARCHAR(255),
+              create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """);
+        log.info("Schema check complete: role_self_register_change");
+    }
+
     private void ensureCompanyColumns() {
         ensureColumn("sys_user", "company_id", "BIGINT");
         ensureColumn("sys_user", "nickname", "VARCHAR(50)");
@@ -262,6 +305,9 @@ public class CompanySchemaInitializer implements CommandLineRunner {
         ensureColumn("privacy_event", "company_id", "BIGINT NOT NULL");
         ensureColumn("privacy_event", "policy_version", "BIGINT");
         ensureColumn("privacy_event", "severity", "VARCHAR(20)");
+        ensureColumn("sensitive_scan_task", "company_id", "BIGINT");
+        ensureColumn("sensitive_scan_task", "user_id", "BIGINT");
+        ensureColumn("sensitive_scan_task", "trace_json", "LONGTEXT");
     }
 
     private void ensureColumn(String table, String column, String type) {

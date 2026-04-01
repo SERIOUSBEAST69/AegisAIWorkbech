@@ -1,0 +1,165 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "echo-test",
+			"type": "shell",
+			"command": "echo hello"
+		},
+		{
+			"label": "docker-ps",
+			"type": "shell",
+			"command": "docker compose ps"
+		},
+		{
+			"label": "docker-build-backend",
+			"type": "shell",
+			"command": "docker compose build aegisai-backend"
+		},
+		{
+			"label": "docker-up-backend",
+			"type": "shell",
+			"command": "docker compose up -d aegisai-backend"
+		},
+		{
+			"label": "docker-ps2",
+			"type": "shell",
+			"command": "docker compose ps"
+		},
+		{
+			"label": "api-smoke-invite",
+			"type": "shell",
+			"command": "$login = Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body '{\"username\":\"admin\",\"password\":\"admin\"}'; $token = $login.data.token; if (-not $token) { throw 'login token missing' }; $invite = Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/invite-code/create' -Headers @{Authorization=\"Bearer $token\"} -ContentType 'application/json' -Body '{\"expireHours\":24}'; $invite | ConvertTo-Json -Depth 8"
+		},
+		{
+			"label": "backend-logs-tail",
+			"type": "shell",
+			"command": "docker logs --tail 80 aegisai-backend"
+		},
+		{
+			"label": "api-smoke-invite-2",
+			"type": "shell",
+			"command": "$login = Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body '{\"username\":\"admin\",\"password\":\"admin\"}'; $token = $login.data.token; if (-not $token) { throw 'login token missing' }; $invite = Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/invite-code/create' -Headers @{Authorization=\"Bearer $token\"} -ContentType 'application/json' -Body '{\"expireHours\":24}'; $invite | ConvertTo-Json -Depth 8"
+		},
+		{
+			"label": "api-login-dump",
+			"type": "shell",
+			"command": "$login = Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body '{\"username\":\"admin\",\"password\":\"admin\"}'; $login | ConvertTo-Json -Depth 8"
+		},
+		{
+			"label": "api-login-dump2",
+			"type": "shell",
+			"command": "$payload = @{ username = 'admin'; password = 'admin' } | ConvertTo-Json; $login = Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body $payload; $login | ConvertTo-Json -Depth 8"
+		},
+		{
+			"label": "api-invite-dump",
+			"type": "shell",
+			"command": "$payload = @{ username = 'admin'; password = 'admin' } | ConvertTo-Json; $login = Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body $payload; $token = $login.data.token; $inviteReq = @{ expireHours = 24 } | ConvertTo-Json; $invite = Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/invite-code/create' -Headers @{ Authorization = \"Bearer $token\" } -ContentType 'application/json' -Body $inviteReq; $invite | ConvertTo-Json -Depth 8"
+		},
+		{
+			"label": "api-invite-dump2",
+			"type": "shell",
+			"command": "$payload = @{ username = 'admin'; password = 'admin' } | ConvertTo-Json; $login = Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body $payload; $token = $login.data.token; $inviteReq = @{ expireHours = 24 } | ConvertTo-Json; $headers = @{ Authorization = ('Bearer ' + $token) }; $invite = Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/invite-code/create' -Headers $headers -ContentType 'application/json' -Body $inviteReq; $invite | ConvertTo-Json -Depth 8"
+		},
+		{
+			"label": "run-walkthrough",
+			"type": "shell",
+			"command": "$secure = ConvertTo-SecureString 'admin' -AsPlainText -Force; $cred = New-Object System.Management.Automation.PSCredential ('admin', $secure); powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\run-enterprise-identity-walkthrough.ps1 -BaseUrl 'http://localhost:8080' -AdminCredential $cred"
+		},
+		{
+			"label": "run-walkthrough2",
+			"type": "shell",
+			"command": "$secure = ConvertTo-SecureString 'admin' -AsPlainText -Force; $cred = New-Object System.Management.Automation.PSCredential ('admin', $secure); & .\\scripts\\run-enterprise-identity-walkthrough.ps1 -BaseUrl 'http://localhost:8080' -AdminCredential $cred"
+		},
+		{
+			"label": "run-walkthrough3",
+			"type": "shell",
+			"command": "Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force; $secure = ConvertTo-SecureString 'admin' -AsPlainText -Force; $cred = New-Object System.Management.Automation.PSCredential ('admin', $secure); & .\\scripts\\run-enterprise-identity-walkthrough.ps1 -BaseUrl 'http://localhost:8080' -AdminCredential $cred"
+		},
+		{
+			"label": "api-new-user-verify",
+			"type": "shell",
+			"command": "$u='walkthrough_20260401190232'; $p=@{ username=$u; password='Passw0rd!' } | ConvertTo-Json; $login=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body $p; $token=$login.data.token; if (-not $token) { throw 'new user login failed' }; $headers=@{ Authorization=('Bearer ' + $token) }; $me=Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/api/auth/me' -Headers $headers; [pscustomobject]@{ loginCode=$login.code; meCode=$me.code; username=$me.data.user.username; roleCode=$me.data.user.roleCode; companyId=$me.data.user.companyId; accountStatus=$me.data.user.accountStatus } | ConvertTo-Json -Depth 6"
+		},
+		{
+			"label": "api-new-user-login-dump",
+			"type": "shell",
+			"command": "$u='walkthrough_20260401190232'; $p=@{ username=$u; password='Passw0rd!' } | ConvertTo-Json; $login=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body $p; $login | ConvertTo-Json -Depth 8"
+		},
+		{
+			"label": "api-pending-user-status-check",
+			"type": "shell",
+			"command": "$admin=@{ username='admin'; password='admin' } | ConvertTo-Json; $login=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body $admin; $token=$login.data.token; $headers=@{ Authorization=('Bearer ' + $token) }; $list=Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/api/user/list' -Headers $headers; $target=$list.data | Where-Object { $_.username -eq 'walkthrough_20260401190232' } | Select-Object -First 1; if (-not $target) { throw 'user not found in list' }; [pscustomobject]@{ code=$list.code; username=$target.username; accountStatus=$target.accountStatus; companyId=$target.companyId; roleId=$target.roleId } | ConvertTo-Json -Depth 6"
+		},
+		{
+			"label": "api-approve-new-user",
+			"type": "shell",
+			"command": "$u='walkthrough_20260401190232'; $admin=@{ username='admin'; password='admin' } | ConvertTo-Json; $login=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body $admin; $token=$login.data.token; if (-not $token) { throw 'admin login failed' }; $headers=@{ Authorization=('Bearer ' + $token) }; $list=Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/api/user/list' -Headers $headers; $target=$list.data | Where-Object { $_.username -eq $u } | Select-Object -First 1; if (-not $target) { throw 'user not found in list' }; $approveBody=@{ id=$target.id } | ConvertTo-Json; $approve=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/user/approve' -Headers $headers -ContentType 'application/json' -Body $approveBody; [pscustomobject]@{ approveCode=$approve.code; approveMsg=$approve.msg; username=$target.username; userId=$target.id } | ConvertTo-Json -Depth 6"
+		},
+		{
+			"label": "api-new-user-login-after-approve",
+			"type": "shell",
+			"command": "$u='walkthrough_20260401190232'; $p=@{ username=$u; password='Passw0rd!' } | ConvertTo-Json; $login=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body $p; $token=$login.data.token; if (-not $token) { throw ('new user login failed code=' + $login.code) }; $headers=@{ Authorization=('Bearer ' + $token) }; $me=Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/api/auth/me' -Headers $headers; [pscustomobject]@{ loginCode=$login.code; meCode=$me.code; username=$me.data.user.username; accountStatus=$me.data.user.accountStatus; roleCode=$me.data.user.roleCode; companyId=$me.data.user.companyId } | ConvertTo-Json -Depth 6"
+		},
+		{
+			"label": "frontend-build-check",
+			"type": "shell",
+			"command": "npm run build"
+		},
+		{
+			"label": "api-ai-risk-list-smoke",
+			"type": "shell",
+			"command": "$payload = @{ username = 'admin'; password = 'admin' } | ConvertTo-Json; $login = Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body $payload; $token = $login.data.token; $headers = @{ Authorization = ('Bearer ' + $token) }; $res = Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/api/ai-risk/list' -Headers $headers; [pscustomobject]@{ code=$res.code; total=$res.data.total } | ConvertTo-Json -Depth 4"
+		},
+		{
+			"label": "backend-compile-check",
+			"type": "shell",
+			"command": "cd backend; mvn \"-DskipTests=true\" \"-Denforcer.skip=true\" clean compile"
+		},
+		{
+			"label": "backend-compile-check-2",
+			"type": "shell",
+			"command": "cd backend; mvn -DskipTests=true -Denforcer.skip=true clean compile"
+		},
+		{
+			"label": "backend-compile-check-3",
+			"type": "shell",
+			"command": "cd backend; mvn clean compile -DskipTests"
+		},
+		{
+			"label": "docker-build-backend-latest",
+			"type": "shell",
+			"command": "docker compose build aegisai-backend"
+		},
+		{
+			"label": "frontend-build-check",
+			"type": "shell",
+			"command": "npm run build"
+		},
+		{
+			"label": "backend-compile-check-3",
+			"type": "shell",
+			"command": "cd backend; mvn clean compile -DskipTests"
+		},
+		{
+			"label": "docker-build-backend-latest",
+			"type": "shell",
+			"command": "docker compose build aegisai-backend"
+		},
+		{
+			"label": "docker-up-backend",
+			"type": "shell",
+			"command": "docker compose up -d aegisai-backend"
+		},
+		{
+			"label": "api-ai-risk-list-smoke",
+			"type": "shell",
+			"command": "$payload = @{ username = 'admin'; password = 'admin' } | ConvertTo-Json; $login = Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body $payload; $token = $login.data.token; $headers = @{ Authorization = ('Bearer ' + $token) }; $res = Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/api/ai-risk/list' -Headers $headers; [pscustomobject]@{ code=$res.code; total=$res.data.total } | ConvertTo-Json -Depth 4"
+		},
+		{
+			"label": "api-pending-user-status-check",
+			"type": "shell",
+			"command": "$admin=@{ username='admin'; password='admin' } | ConvertTo-Json; $login=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body $admin; $token=$login.data.token; $headers=@{ Authorization=('Bearer ' + $token) }; $list=Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/api/user/list' -Headers $headers; $target=$list.data | Where-Object { $_.username -eq 'walkthrough_20260401190232' } | Select-Object -First 1; if (-not $target) { throw 'user not found in list' }; $approveBody=@{ id=$target.id } | ConvertTo-Json; $approve=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/user/approve' -Headers $headers -ContentType 'application/json' -Body $approveBody; [pscustomobject]@{ listCode=$list.code; approveCode=$approve.code; approveMsg=$approve.msg; username=$target.username; companyId=$target.companyId } | ConvertTo-Json -Depth 6"
+		}
+	]
+}

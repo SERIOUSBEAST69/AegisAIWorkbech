@@ -71,6 +71,9 @@
         <el-form-item label="开放注册">
           <el-switch v-model="editor.allowSelfRegister" active-text="允许" inactive-text="不允许" />
         </el-form-item>
+        <el-form-item v-if="editor.allowSelfRegister" label="审批说明">
+          <el-input v-model="editor.reviewNote" type="textarea" :rows="2" maxlength="255" show-word-limit />
+        </el-form-item>
         <el-form-item label="描述">
           <el-input v-model="editor.description" type="textarea" :rows="3" maxlength="255" show-word-limit />
         </el-form-item>
@@ -151,6 +154,7 @@ const editor = ref({
   code: '',
   description: '',
   allowSelfRegister: false,
+  reviewNote: '',
 });
 
 const rules = {
@@ -210,6 +214,7 @@ function resetEditor() {
     code: '',
     description: '',
     allowSelfRegister: false,
+    reviewNote: '',
   };
 }
 
@@ -238,6 +243,7 @@ async function openEdit(role) {
     code: role.code,
     description: role.description || '',
     allowSelfRegister: Boolean(role.allowSelfRegister),
+    reviewNote: '',
   };
   await fetchPermissionTree();
   const currentCodes = await request.get(`/roles/${role.id}/permissions`);
@@ -259,15 +265,21 @@ async function saveRole() {
         code: String(editor.value.code || '').trim().toUpperCase(),
         description: editor.value.description,
         allowSelfRegister: Boolean(editor.value.allowSelfRegister),
+        reviewNote: editor.value.reviewNote || undefined,
         permissionCodes,
       };
 
+      let result = null;
       if (editing.value && editor.value.id) {
-        await request.put(`/roles/${editor.value.id}`, payload);
+        result = await request.put(`/roles/${editor.value.id}`, payload);
       } else {
-        await request.post('/roles', payload);
+        result = await request.post('/roles', payload);
       }
-      ElMessage.success('保存成功');
+      if (result?.pendingApproval) {
+        ElMessage.success(result?.message || '保存成功，已提交审批');
+      } else {
+        ElMessage.success('保存成功');
+      }
       showEditor.value = false;
       await fetchRoles();
     } catch (err) {
@@ -293,9 +305,10 @@ async function saveRolePermissions() {
   }
   savingPermission.value = true;
   try {
-    const allCodes = new Set(flattenTreeCodes(permissionTree.value));
+    const allCodes = new Set(flattenTreeCodes(permissionTree.value).map(code => String(code).trim().toLowerCase()));
     const selectedCodes = getCheckedPermissionCodes(permissionOnlyTreeRef.value)
-      .filter(code => allCodes.has(code));
+      .map(code => String(code).trim())
+      .filter(code => allCodes.has(code.toLowerCase()));
     await request.put(`/roles/${currentRole.value.id}/permissions`, { permissionCodes: selectedCodes });
     ElMessage.success('权限更新成功');
     showPermissionOnly.value = false;

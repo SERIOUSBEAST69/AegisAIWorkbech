@@ -131,7 +131,7 @@ public class PrivacyShieldConfigServiceImpl implements PrivacyShieldConfigServic
         root.put("desenseGlobalEnabled", true);
         root.put("desenseRules", Map.of(
             "phone", Map.of("enabled", true, "pattern", "(1\\\\d{2})\\\\d{4}(\\\\d{4})", "format", "$1****$2"),
-            "idCard", Map.of("enabled", true, "pattern", "(\\\\d{6})\\\\d{9}(\\\\d{3}[\\\\dXx])", "format", "$1*********$2"),
+            "idCard", Map.of("enabled", true, "pattern", "(\\\\d{6})\\\\d{8}(\\\\d{3}[\\\\dXx])", "format", "$1********$2"),
             "email", Map.of("enabled", true, "pattern", "([A-Za-z0-9._%+-]{2})([A-Za-z0-9._%+-]*)([A-Za-z0-9._%+-]{2})@([A-Za-z0-9.-]+\\\\.[A-Za-z]{2,})", "format", "$1****$3@$4")
         ));
 

@@ -57,6 +57,46 @@
       </div>
     </div>
 
+    <div class="score-legend scene-block card-glass">
+      <div class="legend-title">✅ 公司AI白名单（数据管理员提审，治理管理员审批生效）</div>
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
+        <el-tag type="success">当前生效：{{ whitelistState.whitelist.length }} 项</el-tag>
+        <el-tag type="warning">待审批：{{ pendingRows.length }} 项</el-tag>
+      </div>
+
+      <el-select
+        v-model="selectedWhitelist"
+        multiple
+        collapse-tags
+        collapse-tags-tooltip
+        :disabled="!whitelistState.canRequest"
+        placeholder="选择白名单AI服务"
+        style="width:100%;margin-bottom:10px"
+      >
+        <el-option v-for="item in whitelistState.catalog" :key="item" :label="item" :value="item" />
+      </el-select>
+
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+        <el-button :loading="whitelistLoading" @click="loadWhitelist">刷新白名单</el-button>
+        <el-button v-if="whitelistState.canRequest" type="primary" :disabled="selectedWhitelist.length===0" @click="submitWhitelistRequest">提交审批</el-button>
+      </div>
+
+      <el-table v-if="pendingRows.length>0" :data="pendingRows" size="small" style="margin-top:12px;">
+        <el-table-column prop="requestId" label="审批单" width="90" />
+        <el-table-column prop="requestedBy" label="提交人" width="120" />
+        <el-table-column label="目标白名单" min-width="260">
+          <template #default="scope">{{ (scope.row.targetWhitelist || []).join('、') }}</template>
+        </el-table-column>
+        <el-table-column prop="status" label="状态" width="100" />
+        <el-table-column v-if="whitelistState.canReview" label="处理" width="180">
+          <template #default="scope">
+            <el-button size="small" type="success" @click="reviewWhitelist(scope.row, 'approve')">通过</el-button>
+            <el-button size="small" type="danger" @click="reviewWhitelist(scope.row, 'reject')">拒绝</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
+
     <!-- 服务卡片列表 -->
     <div v-loading="loading" class="service-grid scene-block">
       <div
@@ -205,10 +245,11 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { computed, ref, onMounted } from 'vue';
 import { ElMessage } from 'element-plus';
 import { Refresh, RefreshRight } from '@element-plus/icons-vue';
 import request from '../api/request';
+import { useUserStore } from '../store/user';
 
 // ── State ─────────────────────────────────────────────────────────────────────
 const services  = ref([]);
@@ -217,6 +258,17 @@ const refreshing= ref(false);
 const showDetail= ref(false);
 const selected  = ref(null);
 const updatedAt = ref(null);
+const userStore = useUserStore();
+const whitelistState = ref({
+  catalog: [],
+  whitelist: [],
+  pending: [],
+  canRequest: false,
+  canReview: false,
+});
+const whitelistLoading = ref(false);
+const selectedWhitelist = ref([]);
+const pendingRows = computed(() => (whitelistState.value.pending || []).filter(item => item?.status === 'pending'));
 
 // ── API ───────────────────────────────────────────────────────────────────────
 async function loadList() {
@@ -243,6 +295,54 @@ async function refreshData() {
     ElMessage.warning('刷新失败，推理服务暂不可用');
   } finally {
     refreshing.value = false;
+  }
+}
+
+async function loadWhitelist() {
+  whitelistLoading.value = true;
+  try {
+    const data = await request.get('/ai-risk/whitelist');
+    whitelistState.value = {
+      catalog: Array.isArray(data?.catalog) ? data.catalog : [],
+      whitelist: Array.isArray(data?.whitelist) ? data.whitelist : [],
+      pending: Array.isArray(data?.pending) ? data.pending : [],
+      canRequest: !!data?.canRequest,
+      canReview: !!data?.canReview,
+    };
+    if (!selectedWhitelist.value.length) {
+      selectedWhitelist.value = [...whitelistState.value.whitelist];
+    }
+  } catch (err) {
+    ElMessage.error(err?.message || '加载白名单失败');
+  } finally {
+    whitelistLoading.value = false;
+  }
+}
+
+async function submitWhitelistRequest() {
+  try {
+    await request.post('/ai-risk/whitelist/request', {
+      whitelist: selectedWhitelist.value,
+      note: `submitted-by-${userStore.userInfo?.username || 'unknown'}`,
+    });
+    ElMessage.success('白名单变更已提交审批');
+    await loadWhitelist();
+  } catch (err) {
+    ElMessage.error(err?.message || '提交审批失败');
+  }
+}
+
+async function reviewWhitelist(row, decision) {
+  try {
+    await request.post('/ai-risk/whitelist/review', {
+      requestId: row.requestId,
+      decision,
+      note: decision === 'approve' ? 'approved' : 'rejected',
+    });
+    ElMessage.success(decision === 'approve' ? '已审批通过并生效' : '已拒绝');
+    await loadWhitelist();
+  } catch (err) {
+    ElMessage.error(err?.message || '审批失败');
   }
 }
 
@@ -321,7 +421,9 @@ function tagType(tag) {
 }
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
-onMounted(loadList);
+onMounted(async () => {
+  await Promise.all([loadList(), loadWhitelist()]);
+});
 </script>
 
 <style scoped>
