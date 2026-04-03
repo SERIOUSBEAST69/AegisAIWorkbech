@@ -7,7 +7,7 @@
       </el-form-item>
       <el-form-item>
         <el-button type="primary" :loading="loading" @click="fetchEvents">查询</el-button>
-        <el-button @click="openAdd">新增事件</el-button>
+        <el-button :disabled="!canHandleRiskEvent" @click="openAdd">新增事件</el-button>
       </el-form-item>
     </el-form>
     <el-table :data="events" style="width: 100%" v-loading="loading">
@@ -19,6 +19,9 @@
       <el-table-column prop="type" label="类型" />
       <el-table-column prop="level" label="风险等级" />
       <el-table-column prop="status" label="状态" />
+      <el-table-column label="处置记录" min-width="220" show-overflow-tooltip>
+        <template #default="scope">{{ cleanProcessLog(scope.row.processLog) }}</template>
+      </el-table-column>
       <el-table-column prop="handlerId" label="处置人ID" />
       <el-table-column label="处置账号" min-width="130">
         <template #default="scope">{{ userNameById(scope.row.handlerId) }}</template>
@@ -37,8 +40,11 @@
       </el-table-column>
       <el-table-column label="操作">
         <template #default="scope">
-          <el-button size="small" @click="editEvent(scope.row)">编辑</el-button>
-          <el-button size="small" type="danger" @click="deleteEvent(scope.row.id)">删除</el-button>
+          <template v-if="canHandleRiskEvent">
+            <el-button size="small" @click="editEvent(scope.row)">编辑</el-button>
+            <el-button size="small" type="danger" @click="deleteEvent(scope.row.id)">删除</el-button>
+          </template>
+          <span v-else class="cell">仅查看</span>
         </template>
       </el-table-column>
     </el-table>
@@ -48,6 +54,7 @@
         <el-form-item label="类型" prop="type"><el-input v-model="addForm.type" /></el-form-item>
         <el-form-item label="风险等级" prop="level"><el-input v-model="addForm.level" /></el-form-item>
         <el-form-item label="状态" prop="status"><el-input v-model="addForm.status" /></el-form-item>
+        <el-form-item label="处置记录"><el-input v-model="addForm.processLog" type="textarea" :rows="3" /></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="showAdd = false">取消</el-button>
@@ -60,6 +67,7 @@
         <el-form-item label="类型" prop="type"><el-input v-model="editForm.type" /></el-form-item>
         <el-form-item label="风险等级" prop="level"><el-input v-model="editForm.level" /></el-form-item>
         <el-form-item label="状态" prop="status"><el-input v-model="editForm.status" /></el-form-item>
+        <el-form-item label="处置记录"><el-input v-model="editForm.processLog" type="textarea" :rows="3" /></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="showEdit = false">取消</el-button>
@@ -69,26 +77,47 @@
   </el-card>
 </template>
 <script setup>
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import request from '../api/request';
+import { useUserStore } from '../store/user';
+import { hasPermissionByUser } from '../utils/permission';
+import { hasAnyRole } from '../utils/roleBoundary';
+
+const userStore = useUserStore();
 const events = ref([]);
 const userDirectory = ref(new Map());
 const loading = ref(false);
 const showAdd = ref(false);
 const showEdit = ref(false);
 const saving = ref(false);
-const addForm = ref({ type: '', level: '', status: '' });
+const addForm = ref({ type: '', level: '', status: '', processLog: '' });
 const editForm = ref({});
 const query = ref({ type: '' });
 const addFormRef = ref();
 const editFormRef = ref();
+const currentUser = computed(() => userStore.userInfo || {});
+const canViewRiskEvent = computed(() => {
+  const user = currentUser.value;
+  return hasAnyRole(user, ['ADMIN', 'SECOPS'])
+    || hasPermissionByUser(user, 'risk:event:view')
+    || hasPermissionByUser(user, 'risk:event:handle');
+});
+const canHandleRiskEvent = computed(() => {
+  const user = currentUser.value;
+  return hasAnyRole(user, ['SECOPS']) || hasPermissionByUser(user, 'risk:event:handle');
+});
 const rules = {
   type: [{ required: true, message: '类型不能为空', trigger: 'blur' }],
   level: [{ required: true, message: '风险等级不能为空', trigger: 'blur' }],
   status: [{ required: true, message: '状态不能为空', trigger: 'blur' }]
 };
 async function fetchEvents() {
+  if (!canViewRiskEvent.value) {
+    events.value = [];
+    ElMessage.warning('当前身份无权查看风险事件');
+    return;
+  }
   loading.value = true;
   try {
     await ensureUserDirectory();
@@ -149,10 +178,18 @@ function companyById(id) {
   return user?.companyId != null ? String(user.companyId) : '-';
 }
 function openAdd() {
-  addForm.value = { type: '', level: '', status: '' };
+  if (!canHandleRiskEvent.value) {
+    ElMessage.warning('当前身份仅可查看风险事件，不能新增');
+    return;
+  }
+  addForm.value = { type: '', level: '', status: '', processLog: '' };
   showAdd.value = true;
 }
 async function addEvent() {
+  if (!canHandleRiskEvent.value) {
+    ElMessage.warning('当前身份仅可查看风险事件，不能新增');
+    return;
+  }
   if (!addFormRef.value) return;
   addFormRef.value.validate(async valid => {
     if (!valid) return;
@@ -170,10 +207,23 @@ async function addEvent() {
   });
 }
 function editEvent(row) {
+  if (!canHandleRiskEvent.value) {
+    ElMessage.warning('当前身份仅可查看风险事件，不能编辑');
+    return;
+  }
   editForm.value = { ...row };
   showEdit.value = true;
 }
+
+function cleanProcessLog(value) {
+  const text = String(value || '');
+  return text.replace(/\s*\[TRACE\s+[^\]]+\]/gi, ' ').replace(/\s+/g, ' ').trim();
+}
 async function updateEvent() {
+  if (!canHandleRiskEvent.value) {
+    ElMessage.warning('当前身份仅可查看风险事件，不能编辑');
+    return;
+  }
   if (!editFormRef.value) return;
   editFormRef.value.validate(async valid => {
     if (!valid) return;
@@ -191,6 +241,10 @@ async function updateEvent() {
   });
 }
 async function deleteEvent(id) {
+  if (!canHandleRiskEvent.value) {
+    ElMessage.warning('当前身份仅可查看风险事件，不能删除');
+    return;
+  }
   try {
     await ElMessageBox.confirm('确认删除该事件吗？', '提示', { type: 'warning' });
     await request.post('/risk-event/delete', { id });

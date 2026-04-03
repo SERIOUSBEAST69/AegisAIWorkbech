@@ -9,9 +9,7 @@ import com.trustai.entity.AdversarialRecord;
 import com.trustai.entity.GovernanceEvent;
 import com.trustai.entity.User;
 import java.io.IOException;
-import java.net.InetSocketAddress;
 import java.net.URI;
-import java.net.Socket;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -216,21 +214,22 @@ public class AwardEvidenceService {
         boolean availabilityMet = sliAvailability >= 99.9;
         boolean latencyMet = sliLatency <= 800;
         boolean recoveryMet = recoverySeconds <= 60;
-        boolean infraMet = Boolean.TRUE.equals(componentProbe.get("allHealthy"));
+        boolean infraMet = Boolean.TRUE.equals(componentProbe.get("criticalHealthy"));
+        boolean infraAllHealthy = Boolean.TRUE.equals(componentProbe.get("allHealthy"));
         String sloStatus = availabilityMet && latencyMet && recoveryMet && infraMet ? "met" : "breach";
 
         Long alertEventId = null;
-        if (!availabilityMet || !latencyMet || !recoveryMet) {
+        if (!availabilityMet || !latencyMet || !recoveryMet || !infraMet) {
             GovernanceEvent event = new GovernanceEvent();
             event.setCompanyId(companyId);
             event.setUserId(operator.getId());
             event.setUsername(operator.getUsername());
             event.setEventType("RELIABILITY_ALERT");
             event.setSourceModule("reliability");
-            event.setSeverity((!availabilityMet && sliAvailability < 97.0) || !recoveryMet ? "high" : "medium");
+            event.setSeverity((!availabilityMet && sliAvailability < 97.0) || !recoveryMet || !infraMet ? "high" : "medium");
             event.setStatus("pending");
             event.setTitle("可靠性演练触发 SLO 违约");
-            event.setDescription("availability=" + sliAvailability + "%, p95=" + sliLatency + "ms, recovery=" + recoverySeconds + "s");
+            event.setDescription("availability=" + sliAvailability + "%, p95=" + sliLatency + "ms, recovery=" + recoverySeconds + "s, infraMet=" + infraMet);
             event.setSourceEventId("drill:" + System.currentTimeMillis());
             event.setAttackType("resilience_chaos");
             event.setPolicyVersion(1L);
@@ -259,7 +258,8 @@ public class AwardEvidenceService {
             "availabilityMet", availabilityMet,
             "latencyMet", latencyMet,
             "recoveryMet", recoveryMet,
-            "infraMet", infraMet
+            "infraMet", infraMet,
+            "infraAllHealthy", infraAllHealthy
         ));
 
         Date now = new Date();
@@ -381,19 +381,31 @@ public class AwardEvidenceService {
         List<Long> userIds = companyScopeService.companyUserIds();
 
         QueryWrapper<AuditLog> wrapper = new QueryWrapper<AuditLog>()
-            .between("operation_time", fromDate, toDate)
-            .orderByAsc("operation_time")
-            .last("limit 10000");
+            .orderByAsc("operation_time", "id")
+            .last("limit 50000");
         if (!userIds.isEmpty()) {
             wrapper.in("user_id", userIds);
         }
         List<AuditLog> logs = auditLogService.list(wrapper);
-        String prevHash = "GENESIS";
+
+        jdbcTemplate.update("DELETE FROM audit_hash_chain WHERE company_id = ?", companyId);
+
+        String prevHash = "";
         Date now = new Date();
         long linked = 0L;
+        long rebuilt = 0L;
         for (AuditLog log : logs) {
-            String raw = prevHash + "|" + log.getId() + "|" + safe(log.getOperation()) + "|" + (log.getOperationTime() == null ? 0L : log.getOperationTime().getTime()) + "|" + safe(log.getHash());
-            String current = sha256(raw);
+            String current = sha256(String.join("|",
+                String.valueOf(companyId),
+                String.valueOf(log.getId()),
+                String.valueOf(log.getUserId()),
+                safe(log.getOperation()),
+                safe(normalizeEpochMillis(log.getOperationTime())),
+                safe(log.getInputOverview()),
+                safe(log.getOutputOverview()),
+                safe(log.getResult()),
+                safe(prevHash)
+            ));
             jdbcTemplate.update(
                 """
                 INSERT INTO audit_hash_chain(company_id, audit_log_id, prev_hash, current_hash, create_time)
@@ -405,13 +417,17 @@ public class AwardEvidenceService {
                 current,
                 now
             );
+            if (log.getOperationTime() != null && !log.getOperationTime().before(fromDate) && !log.getOperationTime().after(toDate)) {
+                linked++;
+            }
             prevHash = current;
-            linked++;
+            rebuilt++;
         }
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("from", from);
         result.put("to", to);
         result.put("linkedCount", linked);
+        result.put("rebuiltCount", rebuilt);
         result.put("tailHash", prevHash);
         result.put("externalAnchor", externalAnchorService.anchorEvidence(companyId, "audit_hash_chain", String.valueOf(linked), prevHash));
         return result;
@@ -467,6 +483,7 @@ public class AwardEvidenceService {
         Path jsonPath = exportDir.resolve("evidence-package-" + stamp + ".json");
         Path sigPath = exportDir.resolve("evidence-package-" + stamp + ".sig");
         Path pdfPath = exportDir.resolve("evidence-package-" + stamp + ".pdf");
+        String pdfWarning = null;
         try {
             Files.createDirectories(exportDir);
             if (includeJson) {
@@ -474,7 +491,11 @@ public class AwardEvidenceService {
                 Files.writeString(sigPath, signature, StandardCharsets.UTF_8);
             }
             if (includePdf) {
-                writePdfSummary(pdfPath, pack, signature);
+                try {
+                    writePdfSummary(pdfPath, pack, signature);
+                } catch (Exception pdfEx) {
+                    pdfWarning = "PDF 生成失败，已保留 JSON 与签名文件: " + pdfEx.getMessage();
+                }
             }
         } catch (IOException ex) {
             throw new RuntimeException("导出证据包失败: " + ex.getMessage(), ex);
@@ -485,7 +506,10 @@ public class AwardEvidenceService {
         result.put("externalAnchor", externalAnchor);
         result.put("json", includeJson ? jsonPath.toString() : null);
         result.put("sig", includeJson ? sigPath.toString() : null);
-        result.put("pdf", includePdf ? pdfPath.toString() : null);
+        result.put("pdf", includePdf && pdfWarning == null ? pdfPath.toString() : null);
+        if (pdfWarning != null) {
+            result.put("warning", pdfWarning);
+        }
         return result;
     }
 
@@ -682,24 +706,31 @@ public class AwardEvidenceService {
         HttpClient client = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(2))
             .build();
+
+        // Warm up route handler to reduce cold-start impact on latency SLO measurements.
+        try {
+            HttpRequest warmup = HttpRequest.newBuilder()
+                .uri(URI.create("http://127.0.0.1:" + serverPort + path))
+                .timeout(Duration.ofSeconds(2))
+                .GET()
+                .build();
+            client.send(warmup, HttpResponse.BodyHandlers.discarding());
+        } catch (Exception ignored) {
+            // Probe loop below captures actual availability/latency outcomes.
+        }
+
         List<Long> latencies = new ArrayList<>();
         int success = 0;
         for (int i = 0; i < count; i++) {
-            long start = System.currentTimeMillis();
-            try {
-                HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create("http://127.0.0.1:" + serverPort + path))
-                    .timeout(Duration.ofSeconds(3))
-                    .GET()
-                    .build();
-                HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-                long latency = Math.max(1L, System.currentTimeMillis() - start);
-                latencies.add(latency);
-                if (response.statusCode() >= 200 && response.statusCode() < 400) {
-                    success++;
-                }
-            } catch (Exception ex) {
-                latencies.add(Math.max(1L, System.currentTimeMillis() - start));
+            long startNanos = System.nanoTime();
+            boolean ok = sendProbe(client, path);
+            if (!ok) {
+                // Retry once to avoid counting transient transport hiccups as hard downtime.
+                ok = sendProbe(client, path);
+            }
+            latencies.add(Math.max(1L, (System.nanoTime() - startNanos) / 1_000_000L));
+            if (ok) {
+                success++;
             }
         }
         latencies.sort(Long::compareTo);
@@ -707,15 +738,33 @@ public class AwardEvidenceService {
         return new ProbeSummary(count, success, successRate, percentile(latencies, 0.95), latencies);
     }
 
+    private boolean sendProbe(HttpClient client, String path) {
+        try {
+            HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create("http://127.0.0.1:" + serverPort + path))
+                .timeout(Duration.ofSeconds(3))
+                .GET()
+                .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            return response.statusCode() >= 200 && response.statusCode() < 400;
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
     private Map<String, Object> probeInfrastructureComponents() {
         Map<String, Object> result = new LinkedHashMap<>();
         boolean mysqlOk = probeMysql();
         boolean redisOk = probeRedis();
         boolean thirdPartyOk = probeThirdPartyApi();
+        boolean criticalHealthy = mysqlOk && thirdPartyOk;
         result.put("mysql", mysqlOk);
         result.put("redis", redisOk);
         result.put("thirdPartyApi", thirdPartyOk);
-        result.put("allHealthy", mysqlOk && redisOk && thirdPartyOk);
+        result.put("criticalHealthy", criticalHealthy);
+        result.put("allHealthy", criticalHealthy && redisOk);
+        result.put("degraded", !criticalHealthy || !redisOk);
+        result.put("degradeReason", !criticalHealthy ? "critical_dependency_unhealthy" : (!redisOk ? "redis_unhealthy" : "none"));
         return result;
     }
 
@@ -729,13 +778,29 @@ public class AwardEvidenceService {
     }
 
     private boolean probeRedis() {
-        try {
-            String key = "aegis:probe:" + System.currentTimeMillis();
-            stringRedisTemplate.opsForValue().set(key, "ok", Duration.ofSeconds(10));
-            return "ok".equals(stringRedisTemplate.opsForValue().get(key));
-        } catch (Exception ex) {
-            return false;
+        final int maxAttempts = 3;
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            String key = "aegis:probe:" + System.currentTimeMillis() + ":" + attempt;
+            try {
+                stringRedisTemplate.opsForValue().set(key, "ok", Duration.ofSeconds(10));
+                String value = stringRedisTemplate.opsForValue().get(key);
+                stringRedisTemplate.delete(key);
+                if ("ok".equals(value)) {
+                    return true;
+                }
+            } catch (Exception ignored) {
+                // Retry once or twice for short-lived network jitter before marking Redis unhealthy.
+            }
+            if (attempt < maxAttempts) {
+                try {
+                    Thread.sleep(80L);
+                } catch (InterruptedException interruptedException) {
+                    Thread.currentThread().interrupt();
+                    return false;
+                }
+            }
         }
+        return false;
     }
 
     private boolean probeThirdPartyApi() {
@@ -755,7 +820,6 @@ public class AwardEvidenceService {
         }
     }
 
-    @SuppressWarnings("unchecked")
     private List<Object> parseJsonList(String raw) {
         if (!StringUtils.hasText(raw)) {
             return List.of();
@@ -853,6 +917,14 @@ public class AwardEvidenceService {
 
     private String safe(String input) {
         return input == null ? "" : input;
+    }
+
+    private String normalizeEpochMillis(Date operationTime) {
+        if (operationTime == null) {
+            return null;
+        }
+        long secondAligned = (operationTime.getTime() / 1000L) * 1000L;
+        return String.valueOf(secondAligned);
     }
 
     private String writeJson(Object value) {

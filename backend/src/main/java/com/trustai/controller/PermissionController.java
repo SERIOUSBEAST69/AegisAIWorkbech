@@ -24,6 +24,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import org.springframework.util.StringUtils;
 
@@ -176,10 +177,22 @@ public class PermissionController {
     @PreAuthorize("@currentUserService.hasPermission('permission:matrix:view')")
     public R<Map<String, Object>> matrix() {
         User currentUser = currentUserService.requireCurrentUser();
-        List<Role> roles = roleService.lambdaQuery()
+        List<Role> rawRoles = roleService.lambdaQuery()
             .eq(Role::getCompanyId, currentUser.getCompanyId())
             .orderByAsc(Role::getId)
             .list();
+        Map<String, Role> roleByCode = new LinkedHashMap<>();
+        for (Role role : rawRoles) {
+            String roleCode = String.valueOf(role.getCode() == null ? "" : role.getCode()).trim().toUpperCase(Locale.ROOT);
+            if (!StringUtils.hasText(roleCode)) {
+                roleCode = "__ROLE_ID_" + role.getId();
+            }
+            Role existing = roleByCode.get(roleCode);
+            if (existing == null || shouldReplaceRole(existing, role)) {
+                roleByCode.put(roleCode, role);
+            }
+        }
+        List<Role> roles = new java.util.ArrayList<>(roleByCode.values());
         List<Permission> permissions = permissionService.lambdaQuery()
             .eq(Permission::getCompanyId, currentUser.getCompanyId())
             .orderByAsc(Permission::getId)
@@ -210,6 +223,17 @@ public class PermissionController {
         result.put("roles", rows);
         result.put("permissions", permissions);
         return R.ok(result);
+    }
+
+    private boolean shouldReplaceRole(Role existing, Role candidate) {
+        boolean existingSystem = Boolean.TRUE.equals(existing.getIsSystem());
+        boolean candidateSystem = Boolean.TRUE.equals(candidate.getIsSystem());
+        if (candidateSystem != existingSystem) {
+            return candidateSystem;
+        }
+        long existingId = existing.getId() == null ? Long.MAX_VALUE : existing.getId();
+        long candidateId = candidate.getId() == null ? Long.MAX_VALUE : candidate.getId();
+        return candidateId < existingId;
     }
 
     private void writePermissionAudit(User operator, String operation, String detail) {

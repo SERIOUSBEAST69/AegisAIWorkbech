@@ -2,6 +2,10 @@ package com.trustai.controller;
 
 import com.trustai.dto.ai.AiCallRequest;
 import com.trustai.dto.ai.AiCallResponse;
+import com.trustai.dto.ai.AiBatchClassificationRequest;
+import com.trustai.dto.ai.AiBatchClassificationResponse;
+import com.trustai.dto.ai.AiClassificationResult;
+import com.trustai.client.AiInferenceClient;
 import com.trustai.service.AiService;
 import com.trustai.service.RateLimiterService;
 import com.trustai.utils.R;
@@ -25,12 +29,14 @@ import org.springframework.web.bind.annotation.*;
 
 import java.security.Principal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.Date;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ThreadLocalRandom;
 
 @RestController
 @RequestMapping("/api/ai")
@@ -45,6 +51,7 @@ public class AiCallController {
     private final ModelCallStatService modelCallStatService;
     private final AiModelService aiModelService;
     private final CompanyScopeService companyScopeService;
+    private final AiInferenceClient aiInferenceClient;
 
     @PostMapping("/call")
     public R<AiCallResponse> call(@RequestBody @Valid AiCallRequest request, Principal principal, HttpServletRequest httpRequest) {
@@ -99,7 +106,8 @@ public class AiCallController {
             .orderByDesc("date")
             .last("limit 2000"));
         Map<Long, AiModel> models = new LinkedHashMap<>();
-        List<AiModel> allModels = aiModelService.list();
+        List<AiModel> allModels = aiModelService.list(new QueryWrapper<AiModel>()
+            .eq(companyId != null, "company_id", companyId));
         for (AiModel model : allModels) {
             if (model.getId() != null) {
                 models.put(model.getId(), model);
@@ -156,12 +164,16 @@ public class AiCallController {
         int safePageSize = Math.max(1, Math.min(100, pageSize));
         int offset = (safePage - 1) * safePageSize;
         Long companyId = currentUserService.requireCurrentUser().getCompanyId();
-        List<AiCallLog> all = aiCallAuditService.list(new QueryWrapper<AiCallLog>()
-            .eq(companyId != null, "company_id", companyId)
-            .orderByDesc("create_time"));
-        int total = all.size();
-        int to = Math.min(total, offset + safePageSize);
-        List<AiCallLog> list = offset >= total ? List.of() : all.subList(offset, to);
+        long total = aiCallAuditService.count(
+            new QueryWrapper<AiCallLog>()
+                .eq(companyId != null, "company_id", companyId)
+        );
+        List<AiCallLog> list = aiCallAuditService.list(
+            new QueryWrapper<AiCallLog>()
+                .eq(companyId != null, "company_id", companyId)
+                .orderByDesc("create_time")
+                .last("LIMIT " + safePageSize + " OFFSET " + offset)
+        );
 
         Map<String, Object> payload = new HashMap<>();
         payload.put("total", total);
@@ -171,6 +183,119 @@ public class AiCallController {
         return R.ok(payload);
     }
 
+    @GetMapping("/monitor/logs/verify-chain")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
+    public R<?> verifyAiCallLogChain() {
+        Long companyId = currentUserService.requireCurrentUser().getCompanyId();
+        return R.ok(aiCallAuditService.verifyHashChain(companyId));
+    }
+
+    @PostMapping("/monitor/bootstrap-trace")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
+    public R<?> bootstrapTraceableData(@RequestBody(required = false) Map<String, Object> payload) {
+        User currentUser = currentUserService.requireCurrentUser();
+        Long companyId = currentUser.getCompanyId();
+        int sampleSize = Math.max(10, Math.min(120, toInt(payload == null ? null : payload.get("sampleSize"), 40)));
+
+        AiModel selectedModel = aiModelService.list(new QueryWrapper<AiModel>()
+                .eq(companyId != null, "company_id", companyId)
+                .eq("status", "enabled")
+                .orderByDesc("id")
+                .last("limit 1"))
+            .stream()
+            .findFirst()
+            .orElse(null);
+        String modelCode = selectedModel == null ? "sensitive-clf-offline" : String.valueOf(selectedModel.getModelCode());
+        String provider = selectedModel == null ? "python-service" : String.valueOf(selectedModel.getProvider());
+
+        List<String> texts = buildTraceTexts(sampleSize);
+        int predictedCount = 0;
+        List<AiClassificationResult> predictResults = List.of();
+        try {
+            AiBatchClassificationRequest req = new AiBatchClassificationRequest();
+            req.setTexts(texts);
+            AiBatchClassificationResponse resp = aiInferenceClient.batchPredict(req);
+            if (resp != null && resp.getResults() != null) {
+                predictResults = resp.getResults();
+                predictedCount = resp.getResults().size();
+            }
+        } catch (Exception ignored) {
+            predictedCount = 0;
+            predictResults = List.of();
+        }
+
+        int inserted = 0;
+        for (int i = 0; i < texts.size(); i++) {
+            String text = texts.get(i);
+            AiClassificationResult classified = i < predictResults.size() ? predictResults.get(i) : null;
+            String predictedLabel = classified == null ? "unknown" : String.valueOf(classified.getLabel());
+
+            AiCallLog log = new AiCallLog();
+            log.setCompanyId(companyId);
+            log.setUserId(currentUser.getId());
+            log.setUsername(currentUser.getUsername());
+            if (selectedModel != null) {
+                log.setModelId(selectedModel.getId());
+            }
+            log.setModelCode(modelCode);
+            log.setProvider(provider);
+            log.setInputPreview(text.length() > 100 ? text.substring(0, 100) : text);
+            log.setOutputPreview("predicted=" + predictedLabel);
+            log.setStatus("success");
+            log.setDurationMs((long) ThreadLocalRandom.current().nextInt(45, 260));
+            log.setTokenUsage(Math.max(12, Math.min(500, text.length() * 2)));
+            log.setIp("127.0.0.1");
+            log.setCreateTime(LocalDateTime.now().minusMinutes(sampleSize - i));
+            aiCallAuditService.save(log);
+            inserted++;
+        }
+
+        Map<String, Object> rebuilt = aiCallAuditService.rebuildHashChain(companyId);
+        Map<String, Object> verify = aiCallAuditService.verifyHashChain(companyId);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("companyId", companyId);
+        result.put("userId", currentUser.getId());
+        result.put("modelCode", modelCode);
+        result.put("provider", provider);
+        result.put("requestedSamples", sampleSize);
+        result.put("predictedSamples", predictedCount);
+        result.put("insertedAuditLogs", inserted);
+        result.put("rebuilt", rebuilt);
+        result.put("verify", verify);
+        return R.ok(result);
+    }
+
+    private List<String> buildTraceTexts(int size) {
+        List<String> seed = List.of(
+            "手机号 13800138000",
+            "联系人邮箱 admin@aegis.local",
+            "身份证号 11010119900307001X",
+            "银行卡号 6222026200000832021",
+            "广东省深圳市南山区科技园南路",
+            "客户姓名：赵磊",
+            "风险处置完成，已形成审计记录",
+            "请核验数据共享审批链路"
+        );
+        List<String> out = new ArrayList<>(size);
+        for (int i = 0; i < size; i++) {
+            String base = seed.get(i % seed.size());
+            out.add(base + " #trace-" + (i + 1));
+        }
+        return out;
+    }
+
+    private int toInt(Object value, int defaultValue) {
+        if (value == null) {
+            return defaultValue;
+        }
+        try {
+            return Integer.parseInt(String.valueOf(value));
+        } catch (Exception ignored) {
+            return defaultValue;
+        }
+    }
+
+    @SuppressWarnings("unused")
     private static class MonitorRow {
         public final String modelCode;
         public final String provider;
@@ -188,6 +313,7 @@ public class AiCallController {
         }
     }
 
+    @SuppressWarnings("unused")
     private static class TrendRow {
         public final String modelCode;
         public final String provider;

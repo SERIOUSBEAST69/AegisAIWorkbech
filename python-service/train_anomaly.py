@@ -61,6 +61,8 @@ from sklearn.metrics import (
 )
 from sklearn.model_selection import StratifiedKFold
 
+from mlops_registry import record_model_run
+
 # ── 配置 ──────────────────────────────────────────────────────────────────────
 DATA_FILE  = Path(__file__).parent / "behavior_data.csv"
 MODEL_DIR  = Path(__file__).parent / "models"
@@ -336,11 +338,34 @@ def train():
     with open(META_FILE, "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False, indent=2)
 
+    run_ref = record_model_run(
+        model_key="anomaly_iforest",
+        run_source="offline_train_script",
+        metrics={
+            "evaluation": metrics,
+            "cross_validation": cv_metrics,
+        },
+        data_summary={
+            "dataset_path": str(DATA_FILE),
+            "training_samples": len(records),
+            "normal_samples": int(sum(y == 0)),
+            "anomaly_samples": int(sum(y == 1)),
+        },
+        hyper_params={
+            "if_contamination": IF_CONTAMINATION,
+            "if_n_estimators": IF_N_ESTIMATORS,
+            "cv_folds": CV_FOLDS,
+        },
+        artifact_paths=[str(MODEL_FILE), str(ENC_FILE), str(SCALER_FILE), str(META_FILE)],
+        notes="IsolationForest anomaly baseline training run.",
+    )
+
     print(f"\n[保存] 模型文件已保存至 {MODEL_DIR}/")
     print(f"  anomaly_model.joblib   ({MODEL_FILE.stat().st_size // 1024} KB)")
     print(f"  anomaly_encoder.joblib ({ENC_FILE.stat().st_size // 1024} KB)")
     print(f"  anomaly_scaler.joblib  ({SCALER_FILE.stat().st_size // 1024} KB)")
     print(f"  anomaly_meta.json")
+    print(f"  lineage_run_id: {run_ref['runId']}")
     print("\n训练完成 ✓  模型可通过 POST /api/anomaly/check 使用")
     return meta
 

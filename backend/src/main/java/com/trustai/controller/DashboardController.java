@@ -18,20 +18,24 @@ import com.trustai.utils.R;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDateTime;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @RestController
@@ -49,6 +53,7 @@ public class DashboardController {
     @Autowired private CurrentUserService currentUserService;
     @Autowired private CompanyScopeService companyScopeService;
     @Autowired private RiskForecastScheduler riskForecastScheduler;
+    @Autowired private AiCallAuditService aiCallAuditService;
 
     @GetMapping("/stats")
     public R<Map<String, Object>> stats() {
@@ -56,7 +61,7 @@ public class DashboardController {
         Long companyId = companyScopeService.requireCompanyId();
         Map<String, Object> map = new HashMap<>();
         map.put("dataAsset", dataAssetService.count(new QueryWrapper<DataAsset>().eq("company_id", companyId)));
-        map.put("aiModel", aiModelService.count());
+        map.put("aiModel", aiModelService.count(new QueryWrapper<AiModel>().eq(companyId != null, "company_id", companyId)));
         map.put("user", userService.count(new QueryWrapper<User>().eq("company_id", companyId)));
         map.put("riskEvent", riskEventService.count(new QueryWrapper<RiskEvent>().eq("company_id", companyId)));
         return R.ok(map);
@@ -170,7 +175,9 @@ public class DashboardController {
         long highRiskEvents = recentRiskEvents.stream()
             .filter(item -> Arrays.asList("high", "critical", "高").contains(normalizeLower(item.getLevel())))
             .count();
-        long enabledModels = aiModelService.count(new QueryWrapper<AiModel>().eq("status", "enabled"));
+        long enabledModels = aiModelService.count(new QueryWrapper<AiModel>()
+            .eq(companyId != null, "company_id", companyId)
+            .eq("status", "enabled"));
 
         WorkbenchOverviewDTO dto = new WorkbenchOverviewDTO();
         dto.setOperator(new WorkbenchOverviewDTO.Operator(
@@ -199,12 +206,165 @@ public class DashboardController {
 
     @GetMapping("/home-bundle")
     public R<Map<String, Object>> homeBundle() {
+        User currentUser = currentUserService.requireCurrentUser();
+        Long companyId = companyScopeService.requireCompanyId();
+        List<Long> companyUserIds = companyScopeService.companyUserIds();
         Map<String, Object> bundle = new LinkedHashMap<>();
         bundle.put("workbench", workbench().getData());
         bundle.put("insights", insights().getData());
         bundle.put("trustPulse", trustPulse().getData());
         bundle.put("forecast", riskForecastScheduler.getLatest());
+        Map<String, Object> traceContext = new LinkedHashMap<>();
+        traceContext.put("companyId", companyId);
+        traceContext.put("companyUserCount", companyUserIds.size());
+        traceContext.put("currentUserId", currentUser.getId());
+        traceContext.put("currentUsername", currentUser.getUsername());
+        traceContext.put("generatedAt", LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
+        traceContext.put("windowDays", 7);
+        traceContext.put("traceabilityStatement", "首页指标按公司与账号范围聚合，支持下钻到账号与上传数据记录");
+        bundle.put("traceContext", traceContext);
+        bundle.put("traceModules", buildTraceModules(companyId, companyUserIds));
         return R.ok(bundle);
+    }
+
+    @GetMapping("/trace/drilldown")
+    public R<Map<String, Object>> traceDrilldown(@RequestParam(defaultValue = "risk-events") String module,
+                                                 @RequestParam(defaultValue = "20") int limit) {
+        currentUserService.requireCurrentUser();
+        Long companyId = companyScopeService.requireCompanyId();
+        List<Long> companyUserIds = companyScopeService.companyUserIds();
+        int safeLimit = Math.max(1, Math.min(100, limit));
+        Map<Long, String> usernameMap = loadUsernameMap(companyUserIds);
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("module", module);
+        payload.put("companyId", companyId);
+        payload.put("limit", safeLimit);
+
+        if ("ai-audit".equalsIgnoreCase(module)) {
+            QueryWrapper<com.trustai.entity.AiCallLog> query = new QueryWrapper<com.trustai.entity.AiCallLog>()
+                .eq("company_id", companyId)
+                .orderByDesc("create_time")
+                .last("LIMIT " + safeLimit);
+            List<com.trustai.entity.AiCallLog> logs = aiCallAuditService.list(query);
+            List<Map<String, Object>> records = logs.stream().map(item -> {
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("id", item.getId());
+                row.put("userId", item.getUserId());
+                row.put("username", item.getUsername());
+                row.put("companyId", item.getCompanyId());
+                row.put("dataAssetId", item.getDataAssetId());
+                row.put("modelCode", item.getModelCode());
+                row.put("provider", item.getProvider());
+                row.put("status", item.getStatus());
+                row.put("durationMs", item.getDurationMs());
+                row.put("tokenUsage", item.getTokenUsage());
+                row.put("createTime", item.getCreateTime());
+                return row;
+            }).collect(Collectors.toList());
+            payload.put("records", records);
+            payload.put("traceRule", "按 company_id + user_id + data_asset_id 回溯 AI 调用");
+            return R.ok(payload);
+        }
+
+        if ("uploads".equalsIgnoreCase(module)) {
+            List<DataAsset> assets = dataAssetService.list(new QueryWrapper<DataAsset>()
+                .eq("company_id", companyId)
+                .orderByDesc("create_time")
+                .last("LIMIT " + safeLimit));
+            List<Map<String, Object>> records = assets.stream().map(item -> {
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("id", item.getId());
+                row.put("name", item.getName());
+                row.put("type", item.getType());
+                row.put("sensitivityLevel", item.getSensitivityLevel());
+                row.put("ownerId", item.getOwnerId());
+                row.put("ownerName", usernameMap.getOrDefault(item.getOwnerId(), "-"));
+                row.put("createTime", item.getCreateTime());
+                return row;
+            }).collect(Collectors.toList());
+            payload.put("records", records);
+            payload.put("traceRule", "按 company_id + owner_id 回溯上传数据资产");
+            return R.ok(payload);
+        }
+
+        if ("approvals".equalsIgnoreCase(module)) {
+            QueryWrapper<ApprovalRequest> query = new QueryWrapper<ApprovalRequest>()
+                .eq("company_id", companyId)
+                .orderByDesc("create_time")
+                .last("LIMIT " + safeLimit);
+            List<ApprovalRequest> approvals = approvalRequestService.list(query);
+            List<Map<String, Object>> records = approvals.stream().map(item -> {
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("id", item.getId());
+                row.put("applicantId", item.getApplicantId());
+                row.put("applicantName", usernameMap.getOrDefault(item.getApplicantId(), "-"));
+                row.put("assetId", item.getAssetId());
+                row.put("status", item.getStatus());
+                row.put("reason", item.getReason());
+                row.put("createTime", item.getCreateTime());
+                return row;
+            }).collect(Collectors.toList());
+            payload.put("records", records);
+            payload.put("traceRule", "按 company_id + applicant_id + asset_id 回溯审批链路");
+            return R.ok(payload);
+        }
+
+        QueryWrapper<RiskEvent> query = new QueryWrapper<RiskEvent>()
+            .eq("company_id", companyId)
+            .orderByDesc("create_time")
+            .last("LIMIT " + safeLimit);
+        List<RiskEvent> events = riskEventService.list(query);
+        List<Map<String, Object>> records = events.stream().map(item -> {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("id", item.getId());
+            row.put("type", item.getType());
+            row.put("level", item.getLevel());
+            row.put("status", item.getStatus());
+            row.put("relatedLogId", item.getRelatedLogId());
+            row.put("handlerId", item.getHandlerId());
+            row.put("handlerName", usernameMap.getOrDefault(item.getHandlerId(), "-"));
+            row.put("createTime", item.getCreateTime());
+            return row;
+        }).collect(Collectors.toList());
+        payload.put("records", records);
+        payload.put("traceRule", "按 company_id + handler_id + related_log_id 回溯风险闭环");
+        return R.ok(payload);
+    }
+
+    private Map<String, Object> buildTraceModules(Long companyId, List<Long> companyUserIds) {
+        Map<String, Object> modules = new LinkedHashMap<>();
+        modules.put("risk-events", Map.of(
+            "label", "风险事件",
+            "traceRule", "company_id + handler_id + related_log_id",
+            "count", riskEventService.count(new QueryWrapper<RiskEvent>().eq("company_id", companyId))
+        ));
+        modules.put("uploads", Map.of(
+            "label", "上传数据资产",
+            "traceRule", "company_id + owner_id",
+            "count", dataAssetService.count(new QueryWrapper<DataAsset>().eq("company_id", companyId))
+        ));
+        modules.put("approvals", Map.of(
+            "label", "审批流转",
+            "traceRule", "company_id + applicant_id + asset_id",
+            "count", approvalRequestService.count(new QueryWrapper<ApprovalRequest>().eq("company_id", companyId))
+        ));
+        modules.put("ai-audit", Map.of(
+            "label", "AI 调用审计",
+            "traceRule", "company_id + user_id + data_asset_id",
+            "count", aiCallAuditService.count(new QueryWrapper<com.trustai.entity.AiCallLog>().eq("company_id", companyId))
+        ));
+        modules.put("userScope", companyUserIds.size());
+        return modules;
+    }
+
+    private Map<Long, String> loadUsernameMap(List<Long> userIds) {
+        if (userIds == null || userIds.isEmpty()) {
+            return Map.of();
+        }
+        Set<Long> unique = new HashSet<>(userIds);
+        List<User> users = userService.list(new QueryWrapper<User>().in("id", unique));
+        return users.stream().collect(Collectors.toMap(User::getId, this::safeUserName, (a, b) -> a));
     }
 
         @GetMapping("/insights")
@@ -223,7 +383,10 @@ public class DashboardController {
             new QueryWrapper<RiskEvent>().eq("company_id", companyScopeService.requireCompanyId()).eq("status", "open").in("level", Arrays.asList("high", "HIGH", "critical", "CRITICAL", "高"))
         );
         long highRiskModels = aiModelService.count(
-            new QueryWrapper<AiModel>().eq("status", "enabled").in("risk_level", Arrays.asList("high", "HIGH", "高"))
+            new QueryWrapper<AiModel>()
+                .eq("company_id", companyScopeService.requireCompanyId())
+                .eq("status", "enabled")
+                .in("risk_level", Arrays.asList("high", "HIGH", "高"))
         );
         long pendingSubjectRequests = subjectRequestService.count(
             new QueryWrapper<SubjectRequest>().in("status", Arrays.asList("pending", "processing")).in(!companyUserIds.isEmpty(), "user_id", companyUserIds)
@@ -277,9 +440,14 @@ public class DashboardController {
         long highRiskEvents = riskEventService.count(
                 new QueryWrapper<RiskEvent>().eq("company_id", companyId).eq("status", "open").in("level", Arrays.asList("high", "HIGH", "critical", "CRITICAL", "高"))
         );
-        long enabledModels = aiModelService.count(new QueryWrapper<AiModel>().eq("status", "enabled"));
+        long enabledModels = aiModelService.count(new QueryWrapper<AiModel>()
+            .eq("company_id", companyId)
+            .eq("status", "enabled"));
         long highRiskModels = aiModelService.count(
-            new QueryWrapper<AiModel>().eq("status", "enabled").in("risk_level", Arrays.asList("high", "HIGH", "高"))
+            new QueryWrapper<AiModel>()
+                .eq("company_id", companyId)
+                .eq("status", "enabled")
+                .in("risk_level", Arrays.asList("high", "HIGH", "高"))
         );
         long pendingSubjectRequests = subjectRequestService.count(
             new QueryWrapper<SubjectRequest>().in("status", Arrays.asList("pending", "processing")).in(!companyUserIds.isEmpty(), "user_id", companyUserIds)

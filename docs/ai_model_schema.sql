@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS ai_model (
     api_key TEXT NOT NULL COMMENT '加密存储的 API 密钥',
     model_type VARCHAR(30) NOT NULL COMMENT 'chat/embedding/image',
     risk_level VARCHAR(20) DEFAULT 'low' COMMENT '风险等级',
+    isolation_level VARCHAR(8) DEFAULT 'L2' COMMENT '隔离等级（L0-L4）',
     status VARCHAR(20) DEFAULT 'enabled' COMMENT 'enabled/disabled',
     call_limit INT DEFAULT 0 COMMENT '每日调用限额，0 表示不限',
     current_calls INT DEFAULT 0 COMMENT '当日已调用次数',

@@ -1,6 +1,7 @@
 package com.trustai.entity;
 
 import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import java.util.Date;
@@ -21,4 +22,13 @@ public class DataAsset {
     private String description;
     private Date createTime;
     private Date updateTime;
+
+    @TableField(exist = false)
+    private Integer diaScore;
+    @TableField(exist = false)
+    private String diaRiskLevel;
+    @TableField(exist = false)
+    private String diaFramework;
+    @TableField(exist = false)
+    private Date diaUpdatedAt;
 }

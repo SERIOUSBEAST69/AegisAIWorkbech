@@ -160,6 +160,326 @@
 			"label": "api-pending-user-status-check",
 			"type": "shell",
 			"command": "$admin=@{ username='admin'; password='admin' } | ConvertTo-Json; $login=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body $admin; $token=$login.data.token; $headers=@{ Authorization=('Bearer ' + $token) }; $list=Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/api/user/list' -Headers $headers; $target=$list.data | Where-Object { $_.username -eq 'walkthrough_20260401190232' } | Select-Object -First 1; if (-not $target) { throw 'user not found in list' }; $approveBody=@{ id=$target.id } | ConvertTo-Json; $approve=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/user/approve' -Headers $headers -ContentType 'application/json' -Body $approveBody; [pscustomobject]@{ listCode=$list.code; approveCode=$approve.code; approveMsg=$approve.msg; username=$target.username; companyId=$target.companyId } | ConvertTo-Json -Depth 6"
+		},
+		{
+			"label": "docker-force-recreate-backend",
+			"type": "shell",
+			"command": "docker compose up -d --force-recreate aegisai-backend"
+		},
+		{
+			"label": "docker-psa-backend",
+			"type": "shell",
+			"command": "docker ps -a --filter name=aegisai-backend"
+		},
+		{
+			"label": "docker-start-backend-manual",
+			"type": "shell",
+			"command": "docker start aegisai-backend; docker ps --filter name=aegisai-backend; docker logs --tail 120 aegisai-backend"
+		},
+		{
+			"label": "docker-backend-status-check",
+			"type": "shell",
+			"command": "docker ps -a --filter name=aegisai-backend; docker logs --tail 200 aegisai-backend"
+		},
+		{
+			"label": "api-audit-hash-build-probe",
+			"type": "shell",
+			"command": "$p=@{ username='admin'; password='admin' } | ConvertTo-Json; $login=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body $p; $t=$login.data.token; $h=@{ Authorization=('Bearer '+$t) }; $body=@{ from='2026-03-27'; to='2026-04-02' } | ConvertTo-Json; $res=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/award/audit-hash-chain/build' -Headers $h -ContentType 'application/json' -Body $body; $res | ConvertTo-Json -Depth 8"
+		},
+		{
+			"label": "hash-verify-smoke-task",
+			"type": "shell",
+			"command": "powershell -ExecutionPolicy Bypass -File .\\scripts\\verify-audit-hash-chain.ps1 -Endpoint 127.0.0.1 -Port 3307 -Database aegisai -DbUser root -DbPassword root -CompanyId 1 -OutJson .\\docs\\governance-readiness-evidence\\hash-verify-smoke.json -MaxViolationDetails 20"
+		},
+		{
+			"label": "hash-verify-sql-task",
+			"type": "shell",
+			"command": "powershell -ExecutionPolicy Bypass -File .\\scripts\\verify-audit-hash-chain.ps1 -Endpoint 127.0.0.1 -Port 3307 -Database aegisai -DbUser root -DbPassword root -CompanyId 1 -OutJson .\\docs\\governance-readiness-evidence\\hash-verify-smoke.json -MaxViolationDetails 20"
+		},
+		{
+			"label": "api-award-hash-build-latest",
+			"type": "shell",
+			"command": "$payload=@{ username='admin'; password='admin' } | ConvertTo-Json; $login=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body $payload; $token=$login.data.token; if (-not $token) { throw ('login failed code=' + $login.code) }; $headers=@{ Authorization=('Bearer ' + $token) }; $today=Get-Date; $body=@{ from=$today.AddDays(-6).ToString('yyyy-MM-dd'); to=$today.ToString('yyyy-MM-dd') } | ConvertTo-Json; $resp=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/award/audit-hash-chain/build' -Headers $headers -ContentType 'application/json' -Body $body; $resp | ConvertTo-Json -Depth 12"
+		},
+		{
+			"label": "api-award-hash-verify-latest",
+			"type": "shell",
+			"command": ".\\scripts\\verify-audit-hash-chain.ps1 -Endpoint 127.0.0.1 -Port 3307 -Database aegisai -DbUser root -DbPassword root -CompanyId 1 -OutJson .\\docs\\governance-readiness-evidence\\latest-hash-verify.json -NoExit; Get-Content -Raw .\\docs\\governance-readiness-evidence\\latest-hash-verify.json"
+		},
+		{
+			"label": "api-award-hash-verify-latest-bypass",
+			"type": "shell",
+			"command": "Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass; .\\scripts\\verify-audit-hash-chain.ps1 -Endpoint 127.0.0.1 -Port 3307 -Database aegisai -DbUser root -DbPassword root -CompanyId 1 -OutJson .\\docs\\governance-readiness-evidence\\latest-hash-verify.json -NoExit; Get-Content -Raw .\\docs\\governance-readiness-evidence\\latest-hash-verify.json"
+		},
+		{
+			"label": "api-award-hash-verify-latest-bypass-2",
+			"type": "shell",
+			"command": "Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass; .\\scripts\\verify-audit-hash-chain.ps1 -Endpoint 127.0.0.1 -Port 3307 -Database aegisai -DbUser root -DbPassword root -CompanyId 1 -OutJson .\\docs\\governance-readiness-evidence\\latest-hash-verify.json -NoExit; Get-Content -Raw .\\docs\\governance-readiness-evidence\\latest-hash-verify.json"
+		},
+		{
+			"label": "debug-hash-mismatch-ids",
+			"type": "shell",
+			"command": "$sql=@'\nWITH chain AS (\n    SELECT c.id,c.company_id,c.current_hash,\n           LOWER(SHA2(CONCAT_WS('|',\n                COALESCE(CAST(c.company_id AS CHAR), ''),\n                COALESCE(CAST(c.audit_log_id AS CHAR), ''),\n                COALESCE(CAST(l.user_id AS CHAR), ''),\n                COALESCE(l.operation, ''),\n                COALESCE(CAST(FLOOR(UNIX_TIMESTAMP(CONVERT_TZ(l.operation_time, '+08:00', @@session.time_zone))) * 1000 AS CHAR), ''),\n                COALESCE(l.input_overview, ''),\n                COALESCE(l.output_overview, ''),\n                COALESCE(l.result, ''),\n                COALESCE(c.prev_hash, '')\n           ), 256)) AS expected_current_hash\n    FROM audit_hash_chain c JOIN audit_log l ON l.id=c.audit_log_id\n    WHERE c.company_id=1\n)\nSELECT id, company_id, expected_current_hash, current_hash\nFROM chain\nWHERE current_hash <> expected_current_hash\nORDER BY id\nLIMIT 20;\n'@; docker compose exec -T mysql mysql --default-character-set=utf8mb4 --batch --raw --skip-column-names -uroot -proot aegisai -e $sql"
+		},
+		{
+			"label": "debug-hash-prev-mismatch-count",
+			"type": "shell",
+			"command": "$sql=@'\nWITH chain AS (\n    SELECT c.id,c.company_id,COALESCE(c.prev_hash,'') AS prev_hash,\n           COALESCE(LAG(c.current_hash) OVER (PARTITION BY c.company_id ORDER BY c.id), '') AS expected_prev_hash\n    FROM audit_hash_chain c\n    WHERE c.company_id=1\n)\nSELECT\n  SUM(CASE WHEN prev_hash<>expected_prev_hash THEN 1 ELSE 0 END) AS prev_mismatch_count,\n  COUNT(1) AS total\nFROM chain;\n'@; docker compose exec -T mysql mysql --default-character-set=utf8mb4 --batch --raw --skip-column-names -uroot -proot aegisai -e $sql"
+		},
+		{
+			"label": "api-award-hash-verify-docker-forced",
+			"type": "shell",
+			"command": "Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass; .\\scripts\\verify-audit-hash-chain.ps1 -Endpoint mysql -Port 3306 -Database aegisai -DbUser root -DbPassword root -CompanyId 1 -OutJson .\\docs\\governance-readiness-evidence\\latest-hash-verify.json -NoExit; Get-Content -Raw .\\docs\\governance-readiness-evidence\\latest-hash-verify.json"
+		},
+		{
+			"label": "api-award-hash-verify-docker-forced-2",
+			"type": "shell",
+			"command": "Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass; .\\scripts\\verify-audit-hash-chain.ps1 -UseDockerCompose -Endpoint 127.0.0.1 -Port 3307 -Database aegisai -DbUser root -DbPassword root -CompanyId 1 -OutJson .\\docs\\governance-readiness-evidence\\latest-hash-verify.json -NoExit; Get-Content -Raw .\\docs\\governance-readiness-evidence\\latest-hash-verify.json"
+		},
+		{
+			"label": "debug-current-chain-count-company1",
+			"type": "shell",
+			"command": "$sql=\"SELECT COUNT(1) FROM audit_hash_chain WHERE company_id=1;\"; docker compose exec -T mysql mysql --default-character-set=utf8mb4 --batch --raw --skip-column-names -uroot -proot aegisai -e $sql"
+		},
+		{
+			"label": "debug-current-chain-count-company1-2",
+			"type": "shell",
+			"command": "$sql='SELECT COUNT(1) FROM audit_hash_chain WHERE company_id=1;'; docker compose exec -T mysql mysql --default-character-set=utf8mb4 --batch --raw --skip-column-names -uroot -proot aegisai -e $sql"
+		},
+		{
+			"label": "debug-chain-true-mismatch-count",
+			"type": "shell",
+			"command": "$sql=@'\nWITH chain AS (\n    SELECT c.id,c.company_id,\n           COALESCE(c.prev_hash,'') AS prev_hash,\n           COALESCE(c.current_hash,'') AS current_hash,\n           COALESCE(LAG(c.current_hash) OVER (PARTITION BY c.company_id ORDER BY c.id), '') AS expected_prev_hash,\n           LOWER(SHA2(CONCAT_WS('|',\n               COALESCE(CAST(c.company_id AS CHAR), ''),\n               COALESCE(CAST(c.audit_log_id AS CHAR), ''),\n               COALESCE(CAST(l.user_id AS CHAR), ''),\n               COALESCE(l.operation, ''),\n               COALESCE(CAST(FLOOR(UNIX_TIMESTAMP(CONVERT_TZ(l.operation_time, '+08:00', @@session.time_zone))) * 1000 AS CHAR), ''),\n               COALESCE(l.input_overview, ''),\n               COALESCE(l.output_overview, ''),\n               COALESCE(l.result, ''),\n               COALESCE(c.prev_hash, '')\n           ), 256)) AS expected_current_hash\n    FROM audit_hash_chain c JOIN audit_log l ON l.id=c.audit_log_id\n    WHERE c.company_id=1\n)\nSELECT COUNT(1) AS mismatches FROM chain WHERE prev_hash<>expected_prev_hash OR current_hash<>expected_current_hash;\n'@; docker compose exec -T mysql mysql --default-character-set=utf8mb4 --batch --raw --skip-column-names -uroot -proot aegisai -e $sql"
+		},
+		{
+			"label": "api-award-hash-verify-docker-forced-3",
+			"type": "shell",
+			"command": "Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass; .\\scripts\\verify-audit-hash-chain.ps1 -UseDockerCompose -Endpoint 127.0.0.1 -Port 3307 -Database aegisai -DbUser root -DbPassword root -CompanyId 1 -OutJson .\\docs\\governance-readiness-evidence\\latest-hash-verify.json -NoExit; Get-Content -Raw .\\docs\\governance-readiness-evidence\\latest-hash-verify.json"
+		},
+		{
+			"label": "run-governance-readiness-evidence-final",
+			"type": "shell",
+			"command": "Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass; .\\scripts\\run-governance-readiness-evidence.ps1 -RunRegressions"
+		},
+		{
+			"label": "api-reliability-drill-check",
+			"type": "shell",
+			"command": "$payload=@{ username='admin'; password='admin' } | ConvertTo-Json; $login=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body $payload; $token=$login.data.token; if(-not $token){ throw 'login failed' }; $headers=@{ Authorization=('Bearer ' + $token); 'Content-Type'='application/json' }; $body=@{ scenario='latency-and-failure-observe'; targetPath='/api/auth/registration-options'; injectPath='/api/non-existent-reliability-probe'; probeCount=4 } | ConvertTo-Json; $res=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/award/reliability/drill/run' -Headers $headers -Body $body; [pscustomobject]@{ code=$res.code; sloStatus=$res.data.sloStatus; availabilityMet=$res.data.detail.slo.availabilityMet; latencyMet=$res.data.detail.slo.latencyMet; recoveryMet=$res.data.detail.slo.recoveryMet; infraMet=$res.data.detail.slo.infraMet; infraAllHealthy=$res.data.detail.slo.infraAllHealthy; mysql=$res.data.detail.componentProbe.mysql; redis=$res.data.detail.componentProbe.redis; thirdParty=$res.data.detail.componentProbe.thirdPartyApi; criticalHealthy=$res.data.detail.componentProbe.criticalHealthy; degradeReason=$res.data.detail.componentProbe.degradeReason } | ConvertTo-Json -Depth 8"
+		},
+		{
+			"label": "api-reliability-drill-check-2",
+			"type": "shell",
+			"command": "$payload=@{ username='admin'; password='admin' } | ConvertTo-Json; $login=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body $payload; $token=$login.data.token; if(-not $token){ throw 'login failed' }; $headers=@{ Authorization=('Bearer ' + $token); 'Content-Type'='application/json' }; $body=@{ scenario='latency-and-failure-observe'; targetPath='/api/auth/registration-options'; injectPath='/api/non-existent-reliability-probe'; probeCount=4 } | ConvertTo-Json; $res=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/award/reliability/drill/run' -Headers $headers -Body $body; $res.data.detail.componentProbe | ConvertTo-Json -Depth 8; [pscustomobject]@{ sloStatus=$res.data.sloStatus; availabilityMet=$res.data.detail.slo.availabilityMet; latencyMet=$res.data.detail.slo.latencyMet; recoveryMet=$res.data.detail.slo.recoveryMet; infraMet=$res.data.detail.slo.infraMet; infraAllHealthy=$res.data.detail.slo.infraAllHealthy } | ConvertTo-Json -Depth 8"
+		},
+		{
+			"label": "run-governance-readiness-evidence-final-2",
+			"type": "shell",
+			"command": "Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass; .\\scripts\\run-governance-readiness-evidence.ps1 -RunRegressions"
+		},
+		{
+			"label": "api-reliability-drill-stability-5runs",
+			"type": "shell",
+			"command": "$payload=@{ username='admin'; password='admin' } | ConvertTo-Json; $login=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body $payload; $token=$login.data.token; if(-not $token){ throw 'login failed' }; $headers=@{ Authorization=('Bearer ' + $token); 'Content-Type'='application/json' }; $rows=@(); 1..5 | ForEach-Object { $body=@{ scenario='latency-and-failure-observe'; targetPath='/api/auth/registration-options'; injectPath='/api/non-existent-reliability-probe'; probeCount=4 } | ConvertTo-Json; $res=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/award/reliability/drill/run' -Headers $headers -Body $body; $rows += [pscustomobject]@{ run=$_; sloStatus=$res.data.sloStatus; p95=$res.data.detail.baselineProbe.p95LatencyMs; availabilityMet=$res.data.detail.slo.availabilityMet; latencyMet=$res.data.detail.slo.latencyMet; infraMet=$res.data.detail.slo.infraMet; infraAllHealthy=$res.data.detail.slo.infraAllHealthy; degradeReason=$res.data.detail.componentProbe.degradeReason } }; $rows | ConvertTo-Json -Depth 8; [pscustomobject]@{ total=5; breach=($rows | Where-Object { $_.sloStatus -ne 'met' }).Count } | ConvertTo-Json -Depth 4"
+		},
+		{
+			"label": "api-reliability-drill-stability-5runs-v2",
+			"type": "shell",
+			"command": "$payload=@{ username='admin'; password='admin' } | ConvertTo-Json; $login=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body $payload; $token=$login.data.token; if(-not $token){ throw 'login failed' }; $headers=@{ Authorization=('Bearer ' + $token); 'Content-Type'='application/json' }; $rows=@(); 1..5 | ForEach-Object { $body=@{ scenario='latency-and-failure-observe'; targetPath='/api/auth/registration-options'; injectPath='/api/non-existent-reliability-probe'; probeCount=4 } | ConvertTo-Json; $res=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/award/reliability/drill/run' -Headers $headers -Body $body; $rows += [pscustomobject]@{ run=$_; sloStatus=$res.data.sloStatus; availabilityMet=$res.data.detail.slo.availabilityMet; latencyMet=$res.data.detail.slo.latencyMet; infraMet=$res.data.detail.slo.infraMet; p95=$res.data.detail.baselineProbe.p95LatencyMs } }; $rows | ConvertTo-Json -Depth 8; [pscustomobject]@{ total=5; breachCount=($rows | Where-Object { $_.sloStatus -eq 'breach' } | Measure-Object).Count } | ConvertTo-Json -Depth 4"
+		},
+		{
+			"label": "api-reliability-drill-stability-5runs-v2b",
+			"type": "shell",
+			"command": "$payload=@{ username='admin'; password='admin' } | ConvertTo-Json; $login=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body $payload; $token=$login.data.token; $headers=@{ Authorization=('Bearer ' + $token); 'Content-Type'='application/json' }; $rows=@(); foreach($i in 1..5){ $body=@{ scenario='latency-and-failure-observe'; targetPath='/api/auth/registration-options'; injectPath='/api/non-existent-reliability-probe'; probeCount=4 } | ConvertTo-Json; $res=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/award/reliability/drill/run' -Headers $headers -Body $body; $rows += [pscustomobject]@{ run=$i; sloStatus=$res.data.sloStatus; availabilityMet=$res.data.detail.slo.availabilityMet; latencyMet=$res.data.detail.slo.latencyMet; infraMet=$res.data.detail.slo.infraMet; p95=$res.data.detail.baselineProbe.p95LatencyMs } }; $rows | ConvertTo-Json -Depth 8; [pscustomobject]@{ total=5; breachCount=($rows | Where-Object { $_.sloStatus -eq 'breach' } | Measure-Object).Count } | ConvertTo-Json -Depth 4"
+		},
+		{
+			"label": "run-governance-readiness-evidence-final-3",
+			"type": "shell",
+			"command": "Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass; .\\scripts\\run-governance-readiness-evidence.ps1 -RunRegressions"
+		},
+		{
+			"label": "docker-ps-check-backend-now",
+			"type": "shell",
+			"command": "docker compose ps aegisai-backend"
+		},
+		{
+			"label": "docker-recreate-backend-now",
+			"type": "shell",
+			"command": "docker compose up -d --force-recreate aegisai-backend"
+		},
+		{
+			"label": "docker-ps-check-backend-after-recreate",
+			"type": "shell",
+			"command": "docker compose ps aegisai-backend"
+		},
+		{
+			"label": "run-governance-readiness-evidence-final-confirm",
+			"type": "shell",
+			"command": "Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass; .\\scripts\\run-governance-readiness-evidence.ps1 -RunRegressions"
+		},
+		{
+			"label": "backend-logs-redis-check-now",
+			"type": "shell",
+			"command": "docker compose logs --tail=200 aegisai-backend | findstr /i \"redis NOAUTH AUTH\""
+		},
+		{
+			"label": "docker-build-backend-after-redis-config",
+			"type": "shell",
+			"command": "docker compose build aegisai-backend"
+		},
+		{
+			"label": "generate-immutable-manifest",
+			"type": "shell",
+			"command": "$ErrorActionPreference='Stop'; $runDir='docs/governance-readiness-evidence/run-20260403-005224'; $files=@(\"$runDir/governance-readiness-evidence-summary.json\",\"$runDir/reliability-drill.json\",\"$runDir/audit-hash-chain-build.json\",\"$runDir/audit-hash-chain-verify.json\",\"docs/identity-issue-regression-summary.json\",\"docs/account-duty-segregation-summary.json\"); $hashes = foreach ($f in $files) { $h = Get-FileHash -Algorithm SHA256 -Path $f; [pscustomobject]@{ path=$f; sha256=$h.Hash.ToLower() } }; $manifest=[pscustomobject]@{ generatedAtUtc=(Get-Date).ToUniversalTime().ToString('o'); runId='run-20260403-005224'; immutableManifestVersion='1.0'; items=$hashes }; $outPath=\"$runDir/immutable-handoff-manifest.json\"; $manifest | ConvertTo-Json -Depth 6 | Set-Content -Path $outPath -Encoding utf8; Write-Output \"WROTE:$outPath\""
+		},
+		{
+			"label": "generate-immutable-manifest-2",
+			"type": "shell",
+			"command": "$ErrorActionPreference='Stop'; $files=@('docs/governance-readiness-evidence/run-20260403-005224/governance-readiness-evidence-summary.json','docs/governance-readiness-evidence/run-20260403-005224/reliability-drill.json','docs/governance-readiness-evidence/run-20260403-005224/audit-hash-chain-build.json','docs/governance-readiness-evidence/run-20260403-005224/audit-hash-chain-verify.json','docs/identity-issue-regression-summary.json','docs/account-duty-segregation-summary.json'); $hashes = foreach ($f in $files) { $h = Get-FileHash -Algorithm SHA256 -Path $f; [pscustomobject]@{ path=$f; sha256=$h.Hash.ToLower() } }; $manifest=[pscustomobject]@{ generatedAtUtc=(Get-Date).ToUniversalTime().ToString('o'); runId='run-20260403-005224'; immutableManifestVersion='1.0'; items=$hashes }; $outPath='docs/governance-readiness-evidence/run-20260403-005224/immutable-handoff-manifest.json'; $manifest | ConvertTo-Json -Depth 6 | Set-Content -Path $outPath -Encoding utf8; Write-Output ('WROTE:' + $outPath)"
+		},
+		{
+			"label": "run-governance-readiness-acceptance",
+			"type": "shell",
+			"command": "Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass; .\\scripts\\run-governance-readiness-acceptance.ps1 -OutputPath .\\docs\\governance-readiness-acceptance.json"
+		},
+		{
+			"label": "docker-recreate-ai-inference",
+			"type": "shell",
+			"command": "docker compose up -d --build --force-recreate ai-inference"
+		},
+		{
+			"label": "docker-ps-all",
+			"type": "shell",
+			"command": "docker compose ps -a"
+		},
+		{
+			"label": "docker-logs-bootstrap",
+			"type": "shell",
+			"command": "docker logs --tail 200 aegisai-mysql-bootstrap"
+		},
+		{
+			"label": "docker-reset-bootstrap",
+			"type": "shell",
+			"command": "docker compose rm -sf aegisai-mysql-bootstrap"
+		},
+		{
+			"label": "docker-run-bootstrap-once",
+			"type": "shell",
+			"command": "docker compose up --no-deps aegisai-mysql-bootstrap"
+		},
+		{
+			"label": "docker-ps-backend-only",
+			"type": "shell",
+			"command": "docker compose ps aegisai-backend aegisai-mysql-bootstrap"
+		},
+		{
+			"label": "api-home-fixes-smoke",
+			"type": "shell",
+			"command": "$payload=@{ username='admin'; password='admin' } | ConvertTo-Json; $login=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body $payload; $token=$login.data.token; if (-not $token) { throw 'login failed' }; $h=@{ Authorization=('Bearer ' + $token) }; $bootstrap=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/ai/monitor/bootstrap-trace' -Headers $h -ContentType 'application/json' -Body (@{ sampleSize=36 } | ConvertTo-Json); $verify=Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/api/ai/monitor/logs/verify-chain' -Headers $h; $adver=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/ai/adversarial/run' -Headers $h -ContentType 'application/json' -Body (@{ scenario='real-threat-check'; rounds=10 } | ConvertTo-Json); $export=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/award/export' -Headers $h -ContentType 'application/json' -Body (@{ includePdf=$false; includeJson=$true } | ConvertTo-Json); [pscustomobject]@{ bootstrapLogs=$bootstrap.data.insertedAuditLogs; predicted=$bootstrap.data.predictedSamples; verifyRows=$verify.data.checkedRows; verifyPassed=$verify.data.passed; adverMode=$adver.data.mode; adverWinner=$adver.data.battle.winner; exportHasSig=[bool]$export.data.signature; exportWarning=$export.data.warning } | ConvertTo-Json -Depth 6"
+		},
+		{
+			"label": "api-bootstrap-dump",
+			"type": "shell",
+			"command": "$payload=@{ username='admin'; password='admin' } | ConvertTo-Json; $login=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body $payload; $token=$login.data.token; $h=@{ Authorization=('Bearer ' + $token) }; $bootstrap=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/ai/monitor/bootstrap-trace' -Headers $h -ContentType 'application/json' -Body (@{ sampleSize=12 } | ConvertTo-Json); $bootstrap | ConvertTo-Json -Depth 8"
+		},
+		{
+			"label": "backend-logs-tail-200",
+			"type": "shell",
+			"command": "docker logs --tail 200 aegisai-backend"
+		},
+		{
+			"label": "backend-logs-bootstrap-error",
+			"type": "shell",
+			"command": "docker logs aegisai-backend 2>&1 | Select-String -Pattern \"bootstrap-trace|AiCallController|NoClassDefFoundError|NullPointerException|BizException|batchPredict|Feign|ERROR\" | Select-Object -Last 80 | Out-String"
+		},
+		{
+			"label": "backend-logs-bootstrap-error-2",
+			"type": "shell",
+			"command": "docker logs aegisai-backend 2>&1 | Select-String -Pattern 'bootstrap-trace|AiCallController|NoClassDefFoundError|NullPointerException|BizException|batchPredict|Feign|ERROR' | Select-Object -Last 120 | Out-String"
+		},
+		{
+			"label": "api-bootstrap-dump-2",
+			"type": "shell",
+			"command": "$payload=@{ username='admin'; password='admin' } | ConvertTo-Json; $login=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body $payload; $token=$login.data.token; $h=@{ Authorization=('Bearer ' + $token) }; $bootstrap=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/ai/monitor/bootstrap-trace' -Headers $h -ContentType 'application/json' -Body (@{ sampleSize=12 } | ConvertTo-Json); $bootstrap | ConvertTo-Json -Depth 8"
+		},
+		{
+			"label": "backend-logs-recent",
+			"type": "shell",
+			"command": "docker logs --since 3m aegisai-backend"
+		},
+		{
+			"label": "backend-error-context",
+			"type": "shell",
+			"command": "$logs = docker logs --since 5m aegisai-backend 2>&1; $m = $logs | Select-String -Pattern 'Unhandled exception|No static resource|Exception:' -Context 0,25; $m | ForEach-Object { $_.ToString(); $_.Context.PostContext } | Out-String"
+		},
+		{
+			"label": "docker-build-backend-nocache",
+			"type": "shell",
+			"command": "docker compose build --no-cache aegisai-backend"
+		},
+		{
+			"label": "docker-ps-backend-now",
+			"type": "shell",
+			"command": "docker compose ps aegisai-backend"
+		},
+		{
+			"label": "api-home-fixes-smoke-2",
+			"type": "shell",
+			"command": "$payload=@{ username='admin'; password='admin' } | ConvertTo-Json; $login=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body $payload; $token=$login.data.token; if (-not $token) { throw 'login failed' }; $h=@{ Authorization=('Bearer ' + $token) }; $bootstrap=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/ai/monitor/bootstrap-trace' -Headers $h -ContentType 'application/json' -Body (@{ sampleSize=24 } | ConvertTo-Json); $verify=Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/api/ai/monitor/logs/verify-chain' -Headers $h; $adver=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/ai/adversarial/run' -Headers $h -ContentType 'application/json' -Body (@{ scenario='real-threat-check'; rounds=10 } | ConvertTo-Json); $export=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/award/export' -Headers $h -ContentType 'application/json' -Body (@{ includePdf=$false; includeJson=$true } | ConvertTo-Json); [pscustomobject]@{ bootstrapCode=$bootstrap.code; bootstrapLogs=$bootstrap.data.insertedAuditLogs; predicted=$bootstrap.data.predictedSamples; verifyRows=$verify.data.checkedRows; verifyPassed=$verify.data.passed; adverMode=$adver.data.mode; adverWinner=$adver.data.battle.winner; exportCode=$export.code; exportHasSig=[bool]$export.data.signature; exportWarning=$export.data.warning } | ConvertTo-Json -Depth 6"
+		},
+		{
+			"label": "backend-startup-check",
+			"type": "shell",
+			"command": "docker logs --tail 80 aegisai-backend"
+		},
+		{
+			"label": "api-home-fixes-smoke-3",
+			"type": "shell",
+			"command": "$payload=@{ username='admin'; password='admin' } | ConvertTo-Json; $login=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body $payload; $token=$login.data.token; if (-not $token) { throw 'login failed' }; $h=@{ Authorization=('Bearer ' + $token) }; $bootstrap=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/ai/monitor/bootstrap-trace' -Headers $h -ContentType 'application/json' -Body (@{ sampleSize=24 } | ConvertTo-Json); $verify=Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/api/ai/monitor/logs/verify-chain' -Headers $h; $adver=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/ai/adversarial/run' -Headers $h -ContentType 'application/json' -Body (@{ scenario='real-threat-check'; rounds=10 } | ConvertTo-Json); $export=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/award/export' -Headers $h -ContentType 'application/json' -Body (@{ includePdf=$false; includeJson=$true } | ConvertTo-Json); [pscustomobject]@{ bootstrapCode=$bootstrap.code; bootstrapLogs=$bootstrap.data.insertedAuditLogs; predicted=$bootstrap.data.predictedSamples; verifyRows=$verify.data.checkedRows; verifyPassed=$verify.data.passed; adverMode=$adver.data.mode; adverWinner=$adver.data.battle.winner; exportCode=$export.code; exportHasSig=[bool]$export.data.signature; exportWarning=$export.data.warning } | ConvertTo-Json -Depth 6"
+		},
+		{
+			"label": "api-home-fixes-smoke-4",
+			"type": "shell",
+			"command": "$payload=@{ username='admin'; password='admin' } | ConvertTo-Json; $login=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body $payload; $token=$login.data.token; if (-not $token) { throw 'login failed' }; $h=@{ Authorization=('Bearer ' + $token) }; $bootstrap=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/ai/monitor/bootstrap-trace' -Headers $h -ContentType 'application/json' -Body (@{ sampleSize=24 } | ConvertTo-Json); $verify=Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/api/ai/monitor/logs/verify-chain' -Headers $h; [pscustomobject]@{ bootstrapCode=$bootstrap.code; rebuiltCount=$bootstrap.data.rebuilt.rebuiltCount; verifyRows=$verify.data.checkedRows; verifyPassed=$verify.data.passed; verifyViolations=$verify.data.violationCount } | ConvertTo-Json -Depth 6"
+		},
+		{
+			"label": "docker-rebuild-restart-backend",
+			"type": "shell",
+			"command": "docker compose build aegisai-backend; docker compose up -d aegisai-backend"
+		},
+		{
+			"label": "backend-size-check",
+			"type": "shell",
+			"command": "(Get-ChildItem -Path backend -Recurse -File | Measure-Object -Property Length -Sum).Sum"
+		},
+		{
+			"label": "docker-rebuild-restart-backend-nocache",
+			"type": "shell",
+			"command": "docker compose build --no-cache aegisai-backend; docker compose up -d aegisai-backend"
+		},
+		{
+			"label": "docker-rebuild-restart-backend-nocache",
+			"type": "shell",
+			"command": "docker compose build --no-cache aegisai-backend; docker compose up -d aegisai-backend"
+		},
+		{
+			"label": "api-home-fixes-final-smoke",
+			"type": "shell",
+			"command": "$payload=@{ username='admin'; password='admin' } | ConvertTo-Json; $login=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body $payload; $token=$login.data.token; if (-not $token) { throw 'login failed' }; $h=@{ Authorization=('Bearer ' + $token) }; $bootstrap=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/ai/monitor/bootstrap-trace' -Headers $h -ContentType 'application/json' -Body (@{ sampleSize=24 } | ConvertTo-Json); $verify=Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/api/ai/monitor/logs/verify-chain' -Headers $h; $adver=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/ai/adversarial/run' -Headers $h -ContentType 'application/json' -Body (@{ scenario='real-threat-check'; rounds=10 } | ConvertTo-Json); $export=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/award/export' -Headers $h -ContentType 'application/json' -Body (@{ includePdf=$false; includeJson=$true } | ConvertTo-Json); [pscustomobject]@{ bootstrapCode=$bootstrap.code; inserted=$bootstrap.data.insertedAuditLogs; rebuilt=$bootstrap.data.rebuilt.rebuiltCount; verifyRows=$verify.data.checkedRows; verifyPassed=$verify.data.passed; verifyViolations=$verify.data.violationCount; adverCode=$adver.code; adverMode=$adver.data.mode; adverWinner=$adver.data.battle.winner; exportCode=$export.code; exportHasSig=[bool]$export.data.signature } | ConvertTo-Json -Depth 6"
+		},
+		{
+			"label": "docker-ps-backend-check",
+			"type": "shell",
+			"command": "docker compose ps aegisai-backend"
+		},
+		{
+			"label": "backend-log-last-60",
+			"type": "shell",
+			"command": "docker logs --tail 60 aegisai-backend"
+		},
+		{
+			"label": "api-home-fixes-final-smoke-retry",
+			"type": "shell",
+			"command": "$payload=@{ username='admin'; password='admin' } | ConvertTo-Json; $login=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body $payload; $token=$login.data.token; if (-not $token) { throw 'login failed' }; $h=@{ Authorization=('Bearer ' + $token) }; $bootstrap=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/ai/monitor/bootstrap-trace' -Headers $h -ContentType 'application/json' -Body (@{ sampleSize=24 } | ConvertTo-Json); $verify=Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/api/ai/monitor/logs/verify-chain' -Headers $h; $adver=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/ai/adversarial/run' -Headers $h -ContentType 'application/json' -Body (@{ scenario='real-threat-check'; rounds=10 } | ConvertTo-Json); $export=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/award/export' -Headers $h -ContentType 'application/json' -Body (@{ includePdf=$false; includeJson=$true } | ConvertTo-Json); [pscustomobject]@{ bootstrapCode=$bootstrap.code; inserted=$bootstrap.data.insertedAuditLogs; rebuilt=$bootstrap.data.rebuilt.rebuiltCount; verifyRows=$verify.data.checkedRows; verifyPassed=$verify.data.passed; verifyViolations=$verify.data.violationCount; adverCode=$adver.code; adverMode=$adver.data.mode; adverWinner=$adver.data.battle.winner; exportCode=$export.code; exportHasSig=[bool]$export.data.signature } | ConvertTo-Json -Depth 6"
 		}
 	]
 }

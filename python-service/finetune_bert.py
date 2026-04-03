@@ -50,6 +50,8 @@ from transformers import (
     set_seed,
 )
 
+from mlops_registry import record_model_run
+
 # ── Configuration ─────────────────────────────────────────────────────────────
 BASE_MODEL = os.environ.get("BERT_MODEL", "bert-base-chinese")
 LABELS: List[str] = ["id_card", "bank_card", "phone", "email", "address", "name", "unknown"]
@@ -441,7 +443,7 @@ def finetune(samples: List[Tuple[str, str]], output_dir: str) -> Dict:
                                    output_dict=True,
                                    zero_division=0)
     with open(metrics_path, "w", encoding="utf-8") as f:
-        json.dump({
+        run_metrics = {
             "base_model": BASE_MODEL,
             "train_samples": len(x_train),
             "val_samples": len(x_val),
@@ -453,8 +455,32 @@ def finetune(samples: List[Tuple[str, str]], output_dir: str) -> Dict:
                 lbl: report.get(lbl, {}) for lbl in LABELS
             },
             "fine_tuned": True,
-        }, f, ensure_ascii=False, indent=2)
+        }
+        json.dump(run_metrics, f, ensure_ascii=False, indent=2)
+
+    run_ref = record_model_run(
+        model_key="bert_finetuned",
+        run_source="finetune_script",
+        metrics=run_metrics,
+        data_summary={
+            "samples": len(samples),
+            "train_samples": len(x_train),
+            "val_samples": len(x_val),
+        },
+        hyper_params={
+            "base_model": BASE_MODEL,
+            "epochs": EPOCHS,
+            "batch_size": BATCH_SIZE,
+            "learning_rate": LEARNING_RATE,
+            "warmup_ratio": WARMUP_RATIO,
+            "weight_decay": WEIGHT_DECAY,
+            "max_length": MAX_LENGTH,
+        },
+        artifact_paths=[output_dir, str(metrics_path)],
+        notes="BERT sequence classification fine-tuning run.",
+    )
     print(f"[finetune] Metrics saved to {metrics_path}")
+    print(f"[finetune] Lineage run id: {run_ref['runId']}")
     return report
 
 

@@ -64,6 +64,7 @@ public class AiModelAccessGuardService {
     private final RiskEventService riskEventService;
     private final CompliancePolicyService compliancePolicyService;
     private final CompanyScopeService companyScopeService;
+    private final CurrentUserService currentUserService;
 
     // ── 公共校验入口 ───────────────────────────────────────────────────────────
 
@@ -77,6 +78,8 @@ public class AiModelAccessGuardService {
             block("DISABLED_MODEL_CALL", "HIGH", model.getModelCode(), assetId, "模型已停用，不允许调用");
             throw new IllegalStateException("模型已停用，不允许调用");
         }
+
+        enforceIsolationLevel(model, assetId);
 
         DataAsset asset = null;
         if (assetId != null) {
@@ -260,6 +263,65 @@ public class AiModelAccessGuardService {
         if (riskLevel == null) return false;
         String value = riskLevel.trim().toLowerCase(Locale.ROOT);
         return value.contains("medium") || value.contains("中");
+    }
+
+    private void enforceIsolationLevel(AiModel model, Long assetId) {
+        String requiredLevel = normalizeIsolationLevel(model.getIsolationLevel());
+        int requiredRank = isolationRank(requiredLevel);
+
+        String currentRoleCode = normalizeRoleCode(currentUserService.currentRoleCode());
+        int roleClearance = roleClearanceRank(currentRoleCode);
+        if (roleClearance >= requiredRank) {
+            return;
+        }
+
+        String detail = "角色[" + currentRoleCode + "]隔离级别不足，模型[" + model.getModelCode()
+                + "]要求=" + requiredLevel + "，当前上限=L" + roleClearance;
+        block("MODEL_ISOLATION_DENIED", "HIGH", model.getModelCode(), assetId, detail);
+        throw new IllegalStateException("模型隔离等级限制：当前角色[" + currentRoleCode + "]无法调用 " + requiredLevel + " 模型");
+    }
+
+    private String normalizeRoleCode(String roleCode) {
+        if (roleCode == null || roleCode.isBlank()) {
+            return "EMPLOYEE";
+        }
+        return roleCode.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private int roleClearanceRank(String roleCode) {
+        return switch (roleCode) {
+            case "ADMIN", "SECOPS" -> 4;
+            case "EXECUTIVE", "DATA_ADMIN" -> 3;
+            case "AI_BUILDER", "BUSINESS_OWNER" -> 2;
+            case "EMPLOYEE" -> 1;
+            default -> 1;
+        };
+    }
+
+    private String normalizeIsolationLevel(String isolationLevel) {
+        if (isolationLevel == null || isolationLevel.isBlank()) {
+            return "L2";
+        }
+        String value = isolationLevel.trim().toUpperCase(Locale.ROOT);
+        return switch (value) {
+            case "L0", "L1", "L2", "L3", "L4" -> value;
+            case "0" -> "L0";
+            case "1" -> "L1";
+            case "2" -> "L2";
+            case "3" -> "L3";
+            case "4" -> "L4";
+            default -> "L2";
+        };
+    }
+
+    private int isolationRank(String isolationLevel) {
+        return switch (normalizeIsolationLevel(isolationLevel)) {
+            case "L4" -> 4;
+            case "L3" -> 3;
+            case "L2" -> 2;
+            case "L1" -> 1;
+            default -> 0;
+        };
     }
 
     private boolean isHighSensitivity(String sensitivityLevel) {

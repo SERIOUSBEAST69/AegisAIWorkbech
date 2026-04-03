@@ -7,7 +7,7 @@
           <span class="hero-title-primary workbench-title-core" data-workbench-title-anchor="home">{{ heroHeadline.primary }}</span>
           <span v-if="heroHeadline.suffix" class="hero-title-suffix">{{ heroHeadline.suffix }}</span>
         </h1>
-        <p>{{ overview.subheadline }}</p>
+        <p>{{ heroSubheadline }}</p>
         <div class="scene-tags">
           <span v-for="tag in overview.sceneTags" :key="tag" class="scene-tag">{{ tag }}</span>
         </div>
@@ -17,26 +17,10 @@
           <div class="operator-meta">{{ overview.operator.roleName }} · {{ overview.operator.department }}</div>
         </div>
       </div>
-
-      <div class="hero-stage">
-        <div class="forecast-tower">
-          <span class="tower-label">明日风险预估</span>
-          <strong>{{ overview.trend.forecastNextDay }}</strong>
-          <span class="tower-unit">起重点事件</span>
-          <div class="tower-divider"></div>
-          <div class="tower-footnote">
-            {{ forecastDataSource === 'real_db' ? '🟢 真实历史 DB · LSTM 预测' : '⚪ 降级预测' }}
-            · 来自近 7 日风险事件数据库聚合
-          </div>
-        </div>
-
-        <div class="tower-grid">
-          <article v-for="metric in overview.metrics.slice(0, 2)" :key="metric.key" class="tower-card">
-            <span>{{ metric.label }}</span>
-            <strong>{{ metric.value }}{{ metric.suffix }}</strong>
-            <em :class="metric.delta >= 0 ? 'rise' : 'fall'">{{ metric.delta >= 0 ? '+' : '' }}{{ metric.delta }}%</em>
-          </article>
-        </div>
+      <div class="hero-quick-row">
+        <span>公司ID {{ traceContext.companyId ?? '-' }}</span>
+        <span>账号 {{ traceContext.companyUserCount ?? 0 }} 人</span>
+        <span>生成 {{ traceContext.generatedAt || '-' }}</span>
       </div>
     </section>
 
@@ -53,12 +37,97 @@
       />
     </div>
 
+    <section class="trace-grid scene-block">
+      <el-card class="trace-card card-glass">
+        <div class="panel-head">
+          <div>
+            <div class="card-header">首页追溯上下文</div>
+            <p class="panel-subtitle">数据范围与溯源状态</p>
+          </div>
+        </div>
+        <div class="trace-context-row">
+          <span>公司ID：{{ traceContext.companyId ?? '-' }}</span>
+          <span>账号范围：{{ traceContext.companyUserCount ?? 0 }} 人</span>
+          <span>当前账号：{{ traceContext.currentUsername || '-' }} (#{{ traceContext.currentUserId ?? '-' }})</span>
+          <span>生成时间：{{ traceContext.generatedAt || '-' }}</span>
+        </div>
+        <p class="trace-note">{{ traceContext.traceabilityStatement || '数据范围：按当前公司与账号统计；支持按原始记录溯源。' }}</p>
+      </el-card>
+
+      <el-card class="trace-card card-glass">
+        <div class="panel-head">
+          <div>
+            <div class="card-header">模型谱系与漂移</div>
+            <p class="panel-subtitle">模型状态、样本覆盖与发布状态</p>
+          </div>
+          <div class="panel-actions">
+            <span class="verify-badge" :class="modelDriftBadgeClass">
+              {{ modelDriftBadgeText }}
+            </span>
+            <el-button size="small" type="primary" :loading="traceBootstrapLoading" @click="bootstrapTraceableData">补充样本</el-button>
+            <el-button size="small" :loading="modelGovernanceLoading" @click="fetchModelGovernance">刷新</el-button>
+          </div>
+        </div>
+        <div class="trace-context-row">
+          <span>累计训练运行：{{ modelLineage.totalRuns ?? 0 }}</span>
+          <span>跟踪模型数：{{ modelLineage.trackedModelCount ?? 0 }}</span>
+          <span>最新运行ID：{{ modelLineageRunId }}</span>
+          <span>漂移分数：{{ modelDriftScoreText }}</span>
+          <span>发布状态：{{ modelReleaseText }}</span>
+        </div>
+        <p class="trace-note">{{ modelGovernanceNote }}</p>
+      </el-card>
+
+      <el-card class="trace-card card-glass" v-if="isAdmin">
+        <div class="panel-head">
+          <div>
+            <div class="card-header">治理就绪度闭环</div>
+            <p class="panel-subtitle">闭环状态、风险预算与处置进展</p>
+          </div>
+          <div class="panel-actions">
+            <el-button size="small" :loading="awardReadinessLoading" @click="fetchAwardReadiness">刷新</el-button>
+            <el-button size="small" type="warning" :loading="autoRemediationLoading" @click="runAutoRemediationDryRun">自动处置演练</el-button>
+            <el-button size="small" type="success" :loading="exportEvidenceLoading" @click="exportAwardEvidencePackage">导出证据包</el-button>
+          </div>
+        </div>
+        <div class="trace-context-row">
+          <span>已实现项：{{ awardReadinessImplemented }}/8</span>
+          <span>待补项：{{ 8 - awardReadinessImplemented }}</span>
+          <span>错误预算：{{ awardErrorBudgetText }}</span>
+          <span>自动处置状态：{{ autoRemediationStatusText }}</span>
+        </div>
+        <p class="trace-note">{{ awardReadinessNote }}</p>
+      </el-card>
+    </section>
+
+    <el-card class="trace-modules-card card-glass scene-block">
+      <div class="panel-head">
+        <div>
+          <div class="card-header">模块追溯下钻</div>
+          <p class="panel-subtitle">按模块查看原始记录</p>
+        </div>
+      </div>
+      <div class="trace-module-list">
+        <button
+          v-for="entry in traceModuleEntries"
+          :key="entry.key"
+          type="button"
+          class="trace-module-item"
+          @click="openTraceDrilldown(entry.key)"
+        >
+          <div class="trace-module-title">{{ entry.label }}</div>
+          <div class="trace-module-meta">{{ entry.traceRule }}</div>
+          <div class="trace-module-count">{{ entry.count }}</div>
+        </button>
+      </div>
+    </el-card>
+
     <section class="pulse-grid scene-block">
       <el-card class="pulse-card card-glass">
         <div class="panel-head">
           <div>
-            <div class="card-header">治理脉冲引擎</div>
-            <p class="panel-subtitle">把数据边界、模型可信、流程闭环和审计准备度压缩成一个可执行脉冲。</p>
+            <div class="card-header">治理总览</div>
+            <p class="panel-subtitle">关键状态、风险信号与处理建议</p>
           </div>
           <div class="pulse-chip">{{ trustPulse.innovationLabel }}</div>
         </div>
@@ -86,12 +155,12 @@
       <el-card class="pulse-signal-card card-glass">
         <div class="panel-head">
           <div>
-            <div class="card-header">行动窗口</div>
-            <p class="panel-subtitle">引擎自动标出当前最值得优先处理的三类治理压力。</p>
+            <div class="card-header">治理信号</div>
+            <p class="panel-subtitle">当前优先事项与结果摘要</p>
           </div>
         </div>
         <div class="pulse-signal-list">
-          <article v-for="signal in trustPulse.signals" :key="signal.title" class="pulse-signal-item">
+          <article v-for="signal in governanceOverviewSignals" :key="signal.title" class="pulse-signal-item">
             <div class="pulse-signal-top">
               <strong>{{ signal.title }}</strong>
               <span :class="['pulse-tone', signal.tone]">{{ signal.value }}</span>
@@ -102,17 +171,11 @@
       </el-card>
     </section>
 
-    <governance-insight-panel
-      :insights="insights"
-      :loading="loading"
-      class="scene-block"
-    />
-
     <el-card class="chart-card card-glass trend-card scene-block">
       <div class="panel-head">
         <div>
           <div class="card-header">治理脉冲趋势</div>
-          <p class="panel-subtitle">风险事件、审计留痕、AI 调用量与成本全部来自数据库聚合结果。{{ trendEvidenceText }}</p>
+          <p class="panel-subtitle">趋势窗口：{{ trendEvidenceText }} · {{ forecastInlineNote }}</p>
         </div>
         <div class="panel-actions">
           <button class="mini-refresh-btn" :disabled="forecastRefreshing" @click="refreshForecastNow">
@@ -129,7 +192,7 @@
       <div class="panel-head">
         <div>
           <div class="card-header">风险结构剖面</div>
-          <p class="panel-subtitle">按严重级别拆解平台内的实际风险事件，不再展示静态占位图。</p>
+          <p class="panel-subtitle">当前风险分布</p>
         </div>
       </div>
       <div class="risk-layout">
@@ -150,7 +213,7 @@
       <div class="panel-head">
         <div>
           <div class="card-header">治理待办编排</div>
-          <p class="panel-subtitle">从风险、告警、主体权利和模型治理中提炼出的下一步动作。</p>
+          <p class="panel-subtitle">按优先级执行</p>
         </div>
       </div>
       <div class="todo-list">
@@ -170,14 +233,18 @@
       </div>
     </el-card>
 
-    <!-- ── AI 调用审计日志（真实上报） ─────────────────────────────────── -->
     <el-card class="ai-workbench-card card-glass scene-block" style="grid-column: 1 / -1">
       <div class="panel-head">
         <div>
           <div class="card-header">AI 调用审计日志</div>
-          <p class="panel-subtitle">仅展示客户端与网关真实入库记录，不提供聊天、模型切换、模拟拦截与伪统计。</p>
+          <p class="panel-subtitle">审计记录与链路状态</p>
         </div>
         <div class="panel-actions">
+          <span class="verify-badge" :class="aiAuditVerify.passed ? 'ok' : 'warn'">
+            {{ aiAuditVerify.passed ? '链路验真通过' : '链路待校验' }}
+          </span>
+          <el-button type="primary" :loading="traceBootstrapLoading" @click="bootstrapTraceableData">补充追溯样本</el-button>
+          <el-button :loading="aiAuditVerify.loading" @click="verifyAiAuditChain">校验链路</el-button>
           <el-button :loading="aiAuditLoading" @click="loadAiAuditLogs">刷新</el-button>
         </div>
       </div>
@@ -189,6 +256,9 @@
           <span>{{ item.provider || '-' }}</span>
           <span>{{ item.status || '-' }}</span>
           <span>{{ item.durationMs || 0 }}ms</span>
+          <span>{{ item.username || '-' }} (#{{ item.userId ?? '-' }})</span>
+          <span>公司 {{ item.companyId ?? '-' }}</span>
+          <span>资产 {{ item.dataAssetId ?? '-' }}</span>
           <span>{{ item.createTime || '-' }}</span>
         </div>
       </div>
@@ -199,18 +269,18 @@
         class="floating-btn adversarial-orb"
         type="button"
         :disabled="adversarialRunning"
-        @click="toggleAdversarialPanel"
+        @click="launchAdversarialDrill"
       >
-        <span class="orb-label">OpenClaw</span>
-        <strong>{{ adversarialRunning ? '对弈中' : '攻防演练' }}</strong>
+        <span class="orb-label">演练</span>
+        <strong>{{ adversarialRunning ? '执行中' : '攻防演练' }}</strong>
       </button>
 
       <Transition name="fade-slide">
         <section v-if="adversarialPanelOpen" class="adversarial-panel card-glass">
           <header class="adversarial-head">
             <div>
-              <div class="card-header">OpenClaw 攻防实战面板</div>
-              <p class="panel-subtitle">真实调用 python-service 的 BattleArena，引擎每轮结果按时间轴实时回放。</p>
+              <div class="card-header">攻防演练面板</div>
+              <p class="panel-subtitle">演练进度与回放记录</p>
             </div>
             <button class="adversarial-close" type="button" @click="adversarialPanelOpen = false">关闭</button>
           </header>
@@ -224,7 +294,7 @@
             <input v-model.number="adversarialConfig.rounds" type="number" min="1" max="100" :disabled="adversarialRunning" />
             <input v-model="adversarialConfig.seed" type="number" placeholder="seed(可选)" :disabled="adversarialRunning" />
             <button class="adversarial-run" type="button" :disabled="adversarialRunning" @click="runAdversarialBattle">
-              {{ adversarialRunning ? '运行中...' : '启动对弈' }}
+              {{ adversarialRunning ? '运行中...' : '开始演练' }}
             </button>
           </div>
 
@@ -233,7 +303,7 @@
           <div v-if="adversarialBattle" class="adversarial-summary-grid">
             <article>
               <span>胜方</span>
-              <strong>{{ adversarialBattle.winner }}</strong>
+              <strong>{{ adversarialWinnerText }}</strong>
             </article>
             <article>
               <span>攻击成功率</span>
@@ -264,8 +334,27 @@
       </Transition>
     </div>
 
-    <!-- 浮动隐私盾组件（全局） -->
     <AIPrivacyShield ref="privacyShieldRef" />
+
+    <el-dialog
+      v-model="traceDialogVisible"
+      width="72%"
+      :close-on-click-modal="false"
+      title="模块追溯明细"
+    >
+      <div class="trace-dialog-head">
+        <span>模块：{{ traceDialog.module || '-' }}</span>
+        <span>规则：{{ traceDialog.traceRule || '-' }}</span>
+        <span>记录数：{{ traceDialog.records.length }}</span>
+      </div>
+      <div v-if="traceDialogLoading" class="empty-state">加载中...</div>
+      <div v-else-if="!traceDialog.records.length" class="empty-state">暂无可追溯记录</div>
+      <div v-else class="trace-record-list">
+        <article v-for="record in traceDialog.records" :key="record.id || JSON.stringify(record)" class="trace-record-item">
+          <span v-for="(value, key) in record" :key="key"><strong>{{ key }}:</strong> {{ value ?? '-' }}</span>
+        </article>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -275,7 +364,6 @@ import gsap from 'gsap';
 import { ElMessage } from 'element-plus';
 import { dashboardApi } from '../api/dashboard';
 import request from '../api/request';
-import GovernanceInsightPanel from '../components/GovernanceInsightPanel.vue';
 import StatCard from '../components/StatCard.vue';
 import AIPrivacyShield from '../components/AIPrivacyShield.vue';
 import { useUserStore } from '../store/user';
@@ -322,8 +410,59 @@ const insights = ref({ postureScore: 0, summary: {}, highlights: [], recommendat
 const trustPulse = ref({ score: 0, pulseLevel: '', mission: '', innovationLabel: '', dimensions: [], signals: [] });
 const loading = ref(true);
 const forecastDataSource = ref('real_db');
+const traceContext = ref({
+  companyId: null,
+  companyUserCount: 0,
+  currentUserId: null,
+  currentUsername: '',
+  generatedAt: '',
+  traceabilityStatement: '',
+});
+const forecastExplain = ref({
+  method: '',
+  historyPoints: 0,
+  note: '',
+  fallback: false,
+  dataSource: 'real_db',
+});
+const traceModules = ref({});
+const modelGovernanceLoading = ref(false);
+const modelLineage = ref({
+  totalRuns: 0,
+  trackedModelCount: 0,
+  latestByModel: {},
+  updatedAt: '',
+});
+const modelDrift = ref({
+  available: false,
+  driftScore: null,
+  driftLevel: 'unknown',
+  alert: false,
+  reason: '',
+  recentCount: 0,
+});
+const modelRelease = ref({
+  stable: null,
+  canary: null,
+  updatedAt: '',
+});
+const awardReadinessLoading = ref(false);
+const autoRemediationLoading = ref(false);
+const exportEvidenceLoading = ref(false);
+const awardReadiness = ref({
+  gapChecklist: {},
+  resilience: {},
+  autoRemediation: {},
+  generatedAt: '',
+});
+const traceDialogVisible = ref(false);
+const traceDialogLoading = ref(false);
+const traceDialog = ref({
+  module: '',
+  traceRule: '',
+  records: [],
+});
 
-// ── AI Privacy Shield ────────────────────────────────────────────────────────
 const privacyShieldRef = ref(null);
 const aiDraftMessage = ref('');
 const privacyBlockReason = ref('');
@@ -338,6 +477,8 @@ const aiSending = ref(false);
 const forecastRefreshing = ref(false);
 const aiAuditLoading = ref(false);
 const aiAuditLogs = ref([]);
+const aiAuditVerify = ref({ loading: false, passed: false, checkedRows: 0, violationCount: 0 });
+const traceBootstrapLoading = ref(false);
 const isAdmin = computed(() => {
   const role = String(userStore.userInfo?.roleCode || userStore.userInfo?.role || '')
     .trim()
@@ -376,6 +517,71 @@ async function loadAiAuditLogs() {
     aiAuditLogs.value = [];
   } finally {
     aiAuditLoading.value = false;
+  }
+}
+
+async function verifyAiAuditChain() {
+  aiAuditVerify.value.loading = true;
+  try {
+    const data = await request.get('/ai/monitor/logs/verify-chain');
+    const checkedRows = Number(data?.checkedRows || 0);
+    const passed = Boolean(data?.passed) && checkedRows > 0;
+    aiAuditVerify.value = {
+      loading: false,
+      passed,
+      checkedRows,
+      violationCount: Number(data?.violationCount || 0),
+    };
+    if (aiAuditVerify.value.passed && aiAuditVerify.value.checkedRows > 0) {
+      ElMessage.success(`AI 调用审计链校验通过（${aiAuditVerify.value.checkedRows} 条）`);
+    } else if (aiAuditVerify.value.checkedRows === 0) {
+      ElMessage.info('暂无可校验记录，请先点击“补充追溯样本”');
+    } else {
+      ElMessage.error(`AI 调用审计链存在异常（${aiAuditVerify.value.violationCount} 处）`);
+    }
+  } catch (error) {
+    aiAuditVerify.value.loading = false;
+    ElMessage.error(error?.message || 'AI 审计链校验失败');
+  }
+}
+
+async function bootstrapTraceableData() {
+  traceBootstrapLoading.value = true;
+  try {
+    const data = await request.post('/ai/monitor/bootstrap-trace', { sampleSize: 40 });
+    const inserted = Number(data?.insertedAuditLogs || 0);
+    const predicted = Number(data?.predictedSamples || 0);
+    ElMessage.success(`已补充追溯样本：日志 ${inserted} 条，预测 ${predicted} 条`);
+    await Promise.all([fetchModelGovernance(), loadAiAuditLogs()]);
+  } catch (error) {
+    ElMessage.error(error?.message || '补充追溯样本失败');
+  } finally {
+    traceBootstrapLoading.value = false;
+  }
+}
+
+async function openTraceDrilldown(moduleKey) {
+  traceDialogVisible.value = true;
+  traceDialogLoading.value = true;
+  traceDialog.value = { module: moduleKey, traceRule: '', records: [] };
+  try {
+    const data = await request.get('/dashboard/trace/drilldown', {
+      params: { module: moduleKey, limit: 20 }
+    });
+    traceDialog.value = {
+      module: data?.module || moduleKey,
+      traceRule: data?.traceRule || '',
+      records: Array.isArray(data?.records) ? data.records : [],
+    };
+  } catch (error) {
+    traceDialog.value = {
+      module: moduleKey,
+      traceRule: '',
+      records: [],
+    };
+    ElMessage.error(error?.message || '追溯明细加载失败');
+  } finally {
+    traceDialogLoading.value = false;
   }
 }
 
@@ -568,6 +774,13 @@ async function toggleAdversarialPanel() {
   }
 }
 
+async function launchAdversarialDrill() {
+  if (!adversarialPanelOpen.value) {
+    await toggleAdversarialPanel();
+  }
+  await runAdversarialBattle();
+}
+
 async function runAdversarialBattle() {
   adversarialError.value = '';
   adversarialRunning.value = true;
@@ -584,12 +797,13 @@ async function runAdversarialBattle() {
     if (data?.mode === 'real-threat-assessment') {
       adversarialBattle.value = {
         rounds: [],
-        summary: {
-          winner: 'assessment',
-          total_rounds: 0,
-          attack_success_rate: Number(data?.riskScore || 0) / 100,
-        },
+        winner: '评估模式',
+        attack_success_rate: Number(data?.riskScore || 0) / 100,
+        attacker_final_score: Number(data?.riskScore || 0),
+        defender_final_score: Math.max(0, 100 - Number(data?.riskScore || 0)),
+        recommendations: Array.isArray(data?.optimizationSuggestions) ? data.optimizationSuggestions : [],
       };
+      adversarialVisibleRounds.value = [];
       ElMessage.success('已完成实时态势检测');
       return;
     }
@@ -623,6 +837,13 @@ async function refreshForecastNow() {
         }
       };
       forecastDataSource.value = forecastData._dataSource || 'real_db';
+      forecastExplain.value = {
+        method: forecastData.method || '',
+        historyPoints: Number(forecastData.historyPoints || (forecastData.inputHistory?.length || 0)),
+        note: forecastData.note || '',
+        fallback: Boolean(forecastData.fallback),
+        dataSource: forecastData._dataSource || 'real_db',
+      };
       ElMessage.success('预测已刷新');
     }
   } catch (error) {
@@ -667,6 +888,12 @@ const trendEvidenceText = computed(() => {
   const sourceLabel = source === 'real_db' ? '真实DB' : '降级源';
   return `数据窗${days}天 · 风险样本${riskSamples} · 审计样本${auditSamples} · 调用样本${modelSamples} · ${sourceLabel}`;
 });
+const forecastInlineNote = computed(() => {
+  const method = forecastExplain.value?.method || 'LSTM';
+  const points = Number(forecastExplain.value?.historyPoints || 0);
+  const status = forecastExplain.value?.fallback ? '降级' : '正常';
+  return `预测：${method} · 历史点 ${points} · 状态 ${status} · T+1 ${overview.value?.trend?.forecastNextDay ?? 0}`;
+});
 const heroHeadline = computed(() => {
   const prefix = 'Aegis Workbench';
   const headline = String(overview.value.headline || prefix).trim();
@@ -681,7 +908,156 @@ const heroHeadline = computed(() => {
     suffix: headline === prefix ? '' : headline
   };
 });
+const heroSubheadline = computed(() => {
+  const scopedCompanyId = traceContext.value?.companyId ?? '-';
+  const scopedUsers = traceContext.value?.companyUserCount ?? 0;
+  const sourceText = String(overview.value?.subheadline || '').trim();
+  if (sourceText) {
+    let normalized = sourceText;
+    if (/传统平台/.test(normalized)) {
+      normalized = '当前治理状态已同步';
+    }
+    if (/作战|总控|全域/.test(normalized)) {
+      normalized = '已汇总资产、模型与风险状态';
+    }
+    return normalized;
+  }
+  return `数据范围：公司 ID ${scopedCompanyId} / 账号 ${scopedUsers} 人；支持按原始记录溯源。`;
+});
 const personaExperience = computed(() => getPersonaExperience(userStore.userInfo));
+const traceModuleEntries = computed(() => {
+  const modules = traceModules.value || {};
+  return Object.entries(modules)
+    .filter(([key, val]) => key !== 'userScope' && val && typeof val === 'object')
+    .map(([key, val]) => ({
+      key,
+      label: val.label || key,
+      traceRule: val.traceRule || '-',
+      count: Number(val.count || 0),
+    }));
+});
+const latestSensitiveRun = computed(() => {
+  const latestByModel = modelLineage.value?.latestByModel || {};
+  if (latestByModel.sensitive_clf) {
+    return latestByModel.sensitive_clf;
+  }
+  const recentRuns = Array.isArray(modelLineage.value?.recentRuns) ? modelLineage.value.recentRuns : [];
+  return recentRuns.find(item => item?.modelKey === 'sensitive_clf') || null;
+});
+const modelLineageRunId = computed(() => {
+  const runId = String(latestSensitiveRun.value?.runId || '').trim();
+  if (!runId) return '-';
+  return runId.length > 22 ? `${runId.slice(0, 22)}...` : runId;
+});
+const modelDriftScoreText = computed(() => {
+  const score = modelDrift.value?.driftScore;
+  if (typeof score !== 'number' || Number.isNaN(score)) return '-';
+  return score.toFixed(4);
+});
+const modelDriftBadgeClass = computed(() => {
+  if (!modelDrift.value?.available) return 'warn';
+  return modelDrift.value?.alert ? 'warn' : 'ok';
+});
+const modelDriftBadgeText = computed(() => {
+  if (!modelDrift.value?.available) return '漂移待评估';
+  return modelDrift.value?.alert ? '漂移告警' : '漂移正常';
+});
+const modelReleaseText = computed(() => {
+  const stable = modelRelease.value?.stable;
+  const canary = modelRelease.value?.canary;
+  if (canary?.candidateId) {
+    return `Canary ${canary.candidateId}`;
+  }
+  if (stable?.candidateId) {
+    return `Stable ${stable.candidateId}`;
+  }
+  return '未发布';
+});
+const modelGovernanceNote = computed(() => {
+  if (!modelDrift.value?.available) {
+    const reason = String(modelDrift.value?.reason || '').toUpperCase();
+    if (reason.includes('INSUFFICIENT')) {
+      return '暂无足够历史数据，暂无法完成模型漂移评估。';
+    }
+    return '模型漂移评估暂不可用，请稍后重试。';
+  }
+  const source = latestSensitiveRun.value?.source || 'unknown_source';
+  const runTime = latestSensitiveRun.value?.timestamp || modelLineage.value?.updatedAt || '-';
+  return `模型来源：${source}；更新时间：${runTime}；发布状态：${modelReleaseText.value}；最近在线样本：${modelDrift.value?.recentCount || 0}。`;
+});
+const awardReadinessImplemented = computed(() => {
+  const checklist = awardReadiness.value?.gapChecklist || {};
+  return Object.values(checklist).filter(item => item?.status === 'implemented').length;
+});
+const awardErrorBudgetText = computed(() => {
+  const budget = awardReadiness.value?.resilience?.errorBudget;
+  if (typeof budget !== 'number' || Number.isNaN(budget)) return '-';
+  return `${budget.toFixed(2)}%`;
+});
+const autoRemediationStatusText = computed(() => {
+  const executed = awardReadiness.value?.autoRemediation?.executed;
+  const dryRun = awardReadiness.value?.autoRemediation?.dryRun;
+  if (executed === true) return '已执行';
+  if (dryRun === true) return '演练模式';
+  return '未触发';
+});
+const awardReadinessNote = computed(() => {
+  const checklist = awardReadiness.value?.gapChecklist || {};
+  const missing = Object.entries(checklist)
+    .filter(([, item]) => item?.status !== 'implemented')
+    .map(([, item]) => item?.goal)
+    .filter(Boolean);
+  if (!missing.length) return '系统状态健康，建议优先处理高风险项。';
+  return `建议优先处理：${missing.slice(0, 2).join('；')}。`;
+});
+const governanceOverviewSignals = computed(() => {
+  const merged = [];
+  const seenTitles = new Set();
+
+  (trustPulse.value?.signals || []).forEach((item) => {
+    const title = String(item?.title || '').trim();
+    if (!title || seenTitles.has(title)) return;
+    seenTitles.add(title);
+    merged.push({
+      title,
+      value: item?.value || '-',
+      tone: item?.tone || 'neutral',
+      action: item?.action || '持续跟进',
+    });
+  });
+
+  (insights.value?.highlights || []).forEach((item) => {
+    const title = String(item?.title || '').trim();
+    if (!title || seenTitles.has(title)) return;
+    seenTitles.add(title);
+    merged.push({
+      title,
+      value: item?.value || '-',
+      tone: 'neutral',
+      action: item?.description || '状态已同步',
+    });
+  });
+
+  (insights.value?.recommendations || []).forEach((item) => {
+    const title = String(item?.title || '').trim();
+    if (!title || seenTitles.has(title)) return;
+    seenTitles.add(title);
+    merged.push({
+      title,
+      value: item?.metric || item?.priority || '-',
+      tone: item?.priority === 'P0' ? 'danger' : (item?.priority === 'P1' ? 'warning' : 'safe'),
+      action: item?.description || '建议跟进',
+    });
+  });
+
+  return merged.slice(0, 6);
+});
+const adversarialWinnerText = computed(() => {
+  const winner = String(adversarialBattle.value?.winner || '-');
+  if (winner.includes('攻击方')) return '攻方模拟器';
+  if (winner.includes('防御方')) return '防御策略';
+  return winner.replace(/\([^)]*\)/g, '').trim() || '-';
+});
 
 function riskTone(level) {
   const value = String(level || '').toLowerCase();
@@ -729,17 +1105,14 @@ async function renderTrendChart() {
   const costSeries = clampSeriesOutliers(trend.costSeries || []);
   const forecastSeries = clampSeriesOutliers(trend.forecastSeries || []);
 
-  // 若有 LSTM 预测序列，将其拼接在历史 x 轴之后
   const historicLabels = trend.labels || [];
   const forecastLabels = hasForecast
     ? forecastSeries.map((_, i) => `预测+${i + 1}`)
     : [];
   const allLabels = [...historicLabels, ...forecastLabels];
 
-  // 历史部分对应预测列以 null 填充，保证 x 轴对齐
   const forecastPad = hasForecast ? forecastSeries.map(() => null) : [];
 
-  // 历史风险序列留 null 给预测占位，预测序列前面留 null 给历史占位
   const riskWithForecast = hasForecast
     ? [...riskSeries, ...forecastPad]
     : riskSeries;
@@ -924,20 +1297,26 @@ async function fetchData() {
     const insightData = bundle?.insights || {};
     const pulseData = bundle?.trustPulse || {};
     const forecastData = bundle?.forecast || {};
+    traceContext.value = bundle?.traceContext || traceContext.value;
+    traceModules.value = bundle?.traceModules || {};
     const personalized = personalizeWorkbench(workbench, userStore.userInfo);
 
-    // 将 LSTM 7 日预测序列合并到 trend 中，使预测气泡数字来自实际模型
     if (forecastData?.forecast?.length) {
       const series = forecastData.forecast.map(v => Math.round(v * 10) / 10);
       personalized.trend = {
         ...personalized.trend,
-        // 追加 7 日预测时序（供图表展示），并以第一天预测值作为"明日事件数"
         forecastSeries: series,
         forecastNextDay: Math.round(series[0] ?? personalized.trend.forecastNextDay),
       };
-      // 标记数据来源（real_db = 实际 LSTM 输出；degraded = 降级均值）
       const method = String(forecastData.method || '').toLowerCase();
       forecastDataSource.value = forecastData._dataSource || (method.includes('lstm') ? 'real_db' : 'degraded');
+      forecastExplain.value = {
+        method: forecastData.method || '',
+        historyPoints: Number(forecastData.historyPoints || (forecastData.inputHistory?.length || 0)),
+        note: forecastData.note || '',
+        fallback: Boolean(forecastData.fallback),
+        dataSource: forecastData._dataSource || (method.includes('lstm') ? 'real_db' : 'degraded'),
+      };
     }
 
     overview.value = personalized;
@@ -946,16 +1325,89 @@ async function fetchData() {
     playEntryScene();
     loading.value = false;
 
-    // 图表渲染延后到首屏完成后，避免阻塞登录进入首页。
     schedulePrimaryChartRender();
-
-    // 首页主数据已就绪，避免附加冗余请求影响首屏性能。
   } catch (error) {
     ElMessage.error(error?.message || '首页工作台加载失败');
   } finally {
     if (loading.value) {
       loading.value = false;
     }
+  }
+}
+
+async function fetchModelGovernance() {
+  modelGovernanceLoading.value = true;
+  try {
+    const [lineageResp, driftResp, releaseResp] = await Promise.all([
+      dashboardApi.getModelLineage(),
+      dashboardApi.getModelDriftStatus(),
+      dashboardApi.getModelReleaseStatus(),
+    ]);
+    modelLineage.value = lineageResp?.lineage && typeof lineageResp.lineage === 'object'
+      ? lineageResp.lineage
+      : (lineageResp || modelLineage.value);
+    modelDrift.value = driftResp?.drift && typeof driftResp.drift === 'object'
+      ? driftResp.drift
+      : (driftResp || modelDrift.value);
+    modelRelease.value = releaseResp?.release && typeof releaseResp.release === 'object'
+      ? releaseResp.release
+      : (releaseResp || modelRelease.value);
+  } catch (error) {
+    modelDrift.value = {
+      ...modelDrift.value,
+      available: false,
+      reason: error?.message || 'FETCH_FAILED',
+    };
+  } finally {
+    modelGovernanceLoading.value = false;
+  }
+}
+
+async function fetchAwardReadiness() {
+  awardReadinessLoading.value = true;
+  try {
+    const report = await dashboardApi.getAwardReadinessReport();
+    awardReadiness.value = report || awardReadiness.value;
+  } catch (error) {
+    ElMessage.warning(error?.message || '治理就绪度报告加载失败');
+  } finally {
+    awardReadinessLoading.value = false;
+  }
+}
+
+async function runAutoRemediationDryRun() {
+  autoRemediationLoading.value = true;
+  try {
+    await dashboardApi.runAutoRemediationPlaybook({ dryRun: true });
+    await fetchAwardReadiness();
+    ElMessage.success('自动处置演练已执行');
+  } catch (error) {
+    ElMessage.error(error?.message || '自动处置演练失败');
+  } finally {
+    autoRemediationLoading.value = false;
+  }
+}
+
+async function exportAwardEvidencePackage() {
+  exportEvidenceLoading.value = true;
+  try {
+    const payload = {
+      includePdf: false,
+      includeJson: true,
+    };
+    const data = await dashboardApi.exportEvidencePackage(payload);
+    const signature = String(data?.signature || '').trim();
+    const sigSuffix = signature ? signature.slice(0, 10) : 'n/a';
+    const warning = String(data?.warning || '').trim();
+    if (warning) {
+      ElMessage.warning(`证据包已导出（JSON），签名: ${sigSuffix}`);
+    } else {
+      ElMessage.success(`证据包已导出，签名: ${sigSuffix}`);
+    }
+  } catch (error) {
+    ElMessage.error(error?.message || '证据包导出失败');
+  } finally {
+    exportEvidenceLoading.value = false;
   }
 }
 
@@ -976,6 +1428,8 @@ watch(() => overview.value.trend, async () => {
 
 onMounted(() => {
   fetchData();
+  fetchModelGovernance();
+  fetchAwardReadiness();
   loadAiAuditLogs();
   resizeHandler = () => {
     trendChart?.resize();
@@ -1130,6 +1584,14 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 1100px) {
+  .trace-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .trace-module-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .award-grid {
     grid-template-columns: 1fr;
   }
@@ -1151,10 +1613,144 @@ onBeforeUnmount(() => {
   gap: 20px;
 }
 
+.trace-grid {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.trace-card {
+  min-height: 168px;
+}
+
+.trace-context-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.trace-context-row span {
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(140, 172, 239, 0.2);
+  background: rgba(11, 19, 35, 0.42);
+  color: #dbe7ff;
+  font-size: 12px;
+}
+
+.trace-note {
+  margin-top: 10px;
+  color: #9fb1d6;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.trace-modules-card {
+  grid-column: 1 / -1;
+}
+
+.trace-module-list {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.trace-module-item {
+  text-align: left;
+  border: 1px solid rgba(140, 172, 239, 0.22);
+  background: rgba(11, 19, 35, 0.45);
+  border-radius: 12px;
+  padding: 10px;
+  color: #dbe7ff;
+  cursor: pointer;
+}
+
+.trace-module-item:hover {
+  border-color: rgba(140, 172, 239, 0.5);
+}
+
+.trace-module-title {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.trace-module-meta {
+  margin-top: 4px;
+  color: #a7b9de;
+  font-size: 12px;
+}
+
+.trace-module-count {
+  margin-top: 8px;
+  color: #f5f8ff;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.trace-dialog-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.trace-dialog-head span {
+  padding: 6px 10px;
+  border: 1px solid rgba(140, 172, 239, 0.2);
+  border-radius: 10px;
+  background: rgba(11, 19, 35, 0.45);
+  color: #dbe7ff;
+  font-size: 12px;
+}
+
+.trace-record-list {
+  display: grid;
+  gap: 8px;
+  max-height: 50vh;
+  overflow: auto;
+}
+
+.trace-record-item {
+  border: 1px solid rgba(140, 172, 239, 0.2);
+  border-radius: 10px;
+  background: rgba(11, 19, 35, 0.45);
+  padding: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  color: #d5e2fd;
+  font-size: 12px;
+}
+
+.trace-record-item strong {
+  color: #f5f8ff;
+}
+
+.verify-badge {
+  font-size: 12px;
+  border: 1px solid rgba(140, 172, 239, 0.2);
+  border-radius: 999px;
+  padding: 6px 10px;
+}
+
+.verify-badge.ok {
+  color: #9ef2c4;
+  border-color: rgba(46, 204, 113, 0.45);
+  background: rgba(46, 204, 113, 0.1);
+}
+
+.verify-badge.warn {
+  color: #ffd7a4;
+  border-color: rgba(255, 180, 84, 0.45);
+  background: rgba(255, 180, 84, 0.1);
+}
+
 .hero-scene {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: minmax(0, 1.45fr) minmax(300px, 0.85fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 28px;
   padding: 34px;
   position: relative;
@@ -1176,9 +1772,24 @@ onBeforeUnmount(() => {
 }
 
 .hero-copy,
-.hero-stage {
+.hero-quick-row {
   position: relative;
   z-index: 1;
+}
+
+.hero-quick-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.hero-quick-row span {
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(140, 172, 239, 0.2);
+  background: rgba(11, 19, 35, 0.42);
+  color: #dbe7ff;
+  font-size: 12px;
 }
 
 .eyebrow {
@@ -1267,81 +1878,6 @@ onBeforeUnmount(() => {
 .operator-meta {
   margin-top: 4px;
   color: #95a0b5;
-}
-
-.hero-stage {
-  display: grid;
-  grid-template-rows: auto 1fr;
-  gap: 16px;
-}
-
-.forecast-tower,
-.tower-card {
-  border-radius: 24px;
-  border: 1px solid rgba(255,255,255,0.09);
-  background: rgba(255,255,255,0.04);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
-}
-
-.forecast-tower {
-  padding: 24px;
-}
-
-.tower-label,
-.tower-footnote,
-.tower-card span,
-.tower-card em {
-  color: #93a0b8;
-}
-
-.forecast-tower strong {
-  display: block;
-  margin-top: 10px;
-  font-size: 56px;
-  line-height: 1;
-  color: #f7f9fd;
-}
-
-.tower-unit {
-  display: inline-block;
-  margin-top: 8px;
-  color: #cdd8ec;
-}
-
-.tower-divider {
-  height: 1px;
-  margin: 16px 0 14px;
-  background: linear-gradient(90deg, rgba(255,255,255,0.24), rgba(255,255,255,0));
-}
-
-.tower-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-}
-
-.tower-card {
-  padding: 20px;
-}
-
-.tower-card strong {
-  display: block;
-  margin: 14px 0 8px;
-  font-size: 26px;
-  color: #ffffff;
-}
-
-.tower-card em {
-  font-style: normal;
-  font-weight: 700;
-}
-
-.tower-card em.rise {
-  color: #6ae6c2;
-}
-
-.tower-card em.fall {
-  color: #ff8e88;
 }
 
 .stat-grid {
@@ -1712,7 +2248,6 @@ onBeforeUnmount(() => {
     padding: 18px;
   }
 
-  .tower-grid,
   .todo-item {
     grid-template-columns: 1fr;
   }
@@ -1722,7 +2257,6 @@ onBeforeUnmount(() => {
   }
 }
 
-/* ── AI 工作台隐私盾面板 ─────────────────────────────────────────────────── */
 .ai-workbench-card {
   grid-column: 1 / -1;
 }

@@ -3,10 +3,8 @@ package com.trustai.service;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.trustai.exception.BizException;
-import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.util.ArrayList;
 import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -187,7 +185,6 @@ public class OpsTelemetryService {
                         ORDER BY sampled_at ASC, api ASC
             """,
             (rs, rowNum) -> {
-                Map<String, Object> row = new LinkedHashMap<>();
                 long total = rs.getLong("total_requests");
                 long success = rs.getLong("success_requests");
                 Map<String, Object> item = new LinkedHashMap<>();
@@ -302,7 +299,6 @@ public class OpsTelemetryService {
         return result;
     }
 
-    @SuppressWarnings("unchecked")
     public Map<String, Object> parseJsonObject(String json) {
         if (!StringUtils.hasText(json)) {
             return Map.of();

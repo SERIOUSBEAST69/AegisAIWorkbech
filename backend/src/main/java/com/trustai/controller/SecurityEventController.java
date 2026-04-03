@@ -82,7 +82,7 @@ public class SecurityEventController {
      * @param keyword  关键字（匹配 filePath / hostname / employeeId）
      */
     @GetMapping("/events")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS') || @currentUserService.hasAnyPermission('security:event:view','security:event:handle')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
     public R<Map<String, Object>> events(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int pageSize,
@@ -90,9 +90,7 @@ public class SecurityEventController {
             @RequestParam(required = false) String severity,
             @RequestParam(required = false) String keyword) {
 
-        if (!currentUserService.hasAnyRole("ADMIN", "SECOPS")) {
-            currentUserService.requireAnyPermission("security:event:view", "security:event:handle");
-        }
+        currentUserService.requireAnyRole("ADMIN", "SECOPS");
 
         String normalizedStatus = status == null ? null : status.trim().toLowerCase();
         String normalizedSeverity = severity == null ? null : severity.trim().toLowerCase();

@@ -10,6 +10,7 @@ import org.springframework.context.annotation.Configuration;
 import java.net.URI;
 
 @Configuration
+@SuppressWarnings("deprecation")
 public class EsConfig {
 
     @Value("${spring.elasticsearch.uris:http://localhost:9200}")

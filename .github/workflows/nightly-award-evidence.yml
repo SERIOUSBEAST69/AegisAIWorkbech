@@ -1,0 +1,80 @@
+name: Nightly Award Evidence
+
+on:
+  schedule:
+    - cron: "20 17 * * *"
+  workflow_dispatch:
+
+jobs:
+  nightly-award-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Prepare frontend toolchain
+        run: npm ci
+
+      - name: Build backend jar
+        working-directory: backend
+        run: mvn -q -DskipTests package
+
+      - name: Start core services
+        run: docker compose up -d mysql redis es rabbitmq ai-inference aegisai-backend
+
+      - name: Wait for backend readiness
+        shell: pwsh
+        run: |
+          $ready = $false
+          for ($i = 0; $i -lt 90; $i++) {
+            try {
+              $res = Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/api/auth/registration-options' -TimeoutSec 2
+              if ($null -ne $res) {
+                $ready = $true
+                break
+              }
+            } catch {
+            }
+            Start-Sleep -Seconds 2
+          }
+          if (-not $ready) {
+            docker compose logs aegisai-backend
+            throw 'Backend failed readiness check'
+          }
+
+      - name: Run full national award evidence pipeline
+        shell: pwsh
+        run: |
+          Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+          ./scripts/run-governance-readiness-evidence.ps1 -RunRegressions
+
+      - name: Upload nightly evidence artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-award-evidence
+          path: |
+            docs/governance-readiness-evidence/**
+            docs/identity-issue-regression-summary.json
+            docs/identity-issue-regression-results.csv
+            docs/account-duty-segregation-summary.json
+            docs/account-duty-segregation-results.csv
+
+      - name: Dump service logs on failure
+        if: failure()
+        run: docker compose logs --no-color

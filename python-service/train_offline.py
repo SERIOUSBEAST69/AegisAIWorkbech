@@ -24,10 +24,13 @@ from sklearn.model_selection import StratifiedKFold, cross_val_score, train_test
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
+from mlops_registry import record_model_run
+
 # ── 与 app.py 保持一致的常量 ─────────────────────────────────────────────────
 LABELS = ["id_card", "bank_card", "phone", "email", "address", "name", "unknown"]
 MODEL_DIR = os.environ.get("MODEL_DIR", "./models")
 CKPT = os.path.join(MODEL_DIR, "sensitive_clf.joblib")
+REPORT_PATH = os.path.join(MODEL_DIR, "sensitive_clf_eval_report.json")
 LR_C = 2.0
 LR_MAX_ITER = 500
 
@@ -170,6 +173,39 @@ def main():
     }
     joblib.dump({"pipeline": pipeline, "metrics": metrics}, CKPT)
     print(f"\n💾 模型已保存 → {CKPT}")
+
+    eval_report = {
+        "dataset": {
+            "path": data_path,
+            "samples": len(samples),
+            "label_distribution": dict(cnt),
+        },
+        "metrics": metrics,
+        "cv_scores": [round(float(s), 4) for s in cv_scores],
+    }
+    with open(REPORT_PATH, "w", encoding="utf-8") as f:
+        json.dump(eval_report, f, ensure_ascii=False, indent=2)
+    print(f"📄 评估报告已保存 → {REPORT_PATH}")
+
+    run_ref = record_model_run(
+        model_key="sensitive_clf",
+        run_source="offline_train_script",
+        metrics=metrics,
+        data_summary={
+            "dataset_path": data_path,
+            "samples": len(samples),
+            "label_distribution": dict(cnt),
+        },
+        hyper_params={
+            "lr_c": LR_C,
+            "lr_max_iter": LR_MAX_ITER,
+            "cv_folds": 5,
+            "test_split": 0.2,
+        },
+        artifact_paths=[CKPT, REPORT_PATH],
+        notes="Offline supervised training run from training_samples.json",
+    )
+    print(f"🧾 训练谱系记录已写入: {run_ref['runId']}")
 
     # ── 8. 交付判断 ──────────────────────────────────────────────────────
     print(f"\n{'='*55}")

@@ -36,6 +36,78 @@ public class AiGatewayController {
         return R.ok(aiGatewayService.modelMetrics());
     }
 
+    @GetMapping("/model-lineage")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','EXECUTIVE')")
+    public R<Map<String, Object>> modelLineage() {
+        return R.ok(aiGatewayService.modelLineage());
+    }
+
+    @GetMapping("/model-drift-status")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','EXECUTIVE')")
+    public R<Map<String, Object>> modelDriftStatus() {
+        return R.ok(aiGatewayService.modelDriftStatus());
+    }
+
+    @GetMapping("/model-explainability")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','EXECUTIVE')")
+    public R<Map<String, Object>> modelExplainability() {
+        return R.ok(aiGatewayService.explainabilityReport());
+    }
+
+    @PostMapping("/data-factory/build")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
+    public R<Map<String, Object>> dataFactoryBuild(@RequestBody(required = false) Map<String, Object> payload) {
+        return R.ok(aiGatewayService.dataFactoryBuild(payload));
+    }
+
+    @PostMapping("/train/factory")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
+    public R<Map<String, Object>> trainFactory(@RequestBody(required = false) Map<String, Object> payload) {
+        return R.ok(aiGatewayService.trainFactory(payload));
+    }
+
+    @PostMapping("/train/adversarial-feedback")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
+    public R<Map<String, Object>> trainAdversarialFeedback(@RequestBody(required = false) Map<String, Object> payload) {
+        return R.ok(aiGatewayService.trainAdversarialFeedback(payload));
+    }
+
+    @GetMapping("/model-release/status")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','EXECUTIVE')")
+    public R<Map<String, Object>> modelReleaseStatus() {
+        return R.ok(aiGatewayService.modelReleaseStatus());
+    }
+
+    @GetMapping("/model-release/traffic-stats")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','EXECUTIVE')")
+    public R<Map<String, Object>> modelReleaseTrafficStats() {
+        return R.ok(aiGatewayService.modelReleaseTrafficStats());
+    }
+
+    @PostMapping("/model-release/register-candidate")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
+    public R<Map<String, Object>> registerModelReleaseCandidate(@RequestBody(required = false) Map<String, Object> payload) {
+        return R.ok(aiGatewayService.registerModelReleaseCandidate(payload));
+    }
+
+    @PostMapping("/model-release/promote-canary")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
+    public R<Map<String, Object>> promoteModelReleaseCanary(@RequestBody Map<String, Object> payload) {
+        return R.ok(aiGatewayService.promoteModelReleaseCanary(payload));
+    }
+
+    @PostMapping("/model-release/promote-stable")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
+    public R<Map<String, Object>> promoteModelReleaseStable(@RequestBody Map<String, Object> payload) {
+        return R.ok(aiGatewayService.promoteModelReleaseStable(payload));
+    }
+
+    @PostMapping("/model-release/rollback")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
+    public R<Map<String, Object>> rollbackModelRelease(@RequestBody Map<String, Object> payload) {
+        return R.ok(aiGatewayService.rollbackModelRelease(payload));
+    }
+
     @GetMapping({"/catalog", "/catalog/list"})
     public R<List<Map<String, Object>>> modelCatalog() {
         return R.ok(aiGatewayService.modelCatalog());

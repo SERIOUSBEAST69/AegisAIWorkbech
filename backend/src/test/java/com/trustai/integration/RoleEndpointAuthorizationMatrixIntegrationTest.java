@@ -86,6 +86,7 @@ class RoleEndpointAuthorizationMatrixIntegrationTest {
             rule("/api/ai/monitor/summary", roles(Role.ADMIN, Role.SECOPS)),
             rule("/api/ai/monitor/trend", roles(Role.ADMIN, Role.SECOPS)),
             rule("/api/ai/monitor/logs", roles(Role.ADMIN, Role.SECOPS)),
+            rule("/api/ai/monitor/logs/verify-chain", roles(Role.ADMIN, Role.SECOPS)),
             rule("/api/ai-risk/list", roles(Role.ADMIN, Role.SECOPS)),
             rule("/api/ai-risk/score?service=chatgpt", roles(Role.ADMIN, Role.SECOPS)),
             rule("/api/ai/adversarial/meta", roles(Role.ADMIN, Role.SECOPS)),

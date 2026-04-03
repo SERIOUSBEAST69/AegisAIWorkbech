@@ -23,12 +23,10 @@ public final class InputSanitizer {
         return value;
     }
 
-    @SuppressWarnings("unchecked")
     public static void sanitizeObject(Object body) {
         sanitizeObject(body, java.util.Collections.newSetFromMap(new IdentityHashMap<>()));
     }
 
-    @SuppressWarnings("unchecked")
     private static void sanitizeObject(Object body, Set<Object> visited) {
         if (body == null) {
             return;
@@ -37,7 +35,7 @@ public final class InputSanitizer {
         if (isTerminalType(bodyClass)) {
             return;
         }
-        if (body instanceof String str) {
+        if (body instanceof String) {
             // String is immutable, so caller must sanitize before assigning.
             return;
         }
@@ -46,14 +44,7 @@ public final class InputSanitizer {
         }
         visited.add(body);
         if (body instanceof Map<?, ?> map) {
-            for (Map.Entry<Object, Object> entry : ((Map<Object, Object>) map).entrySet()) {
-                Object value = entry.getValue();
-                if (value instanceof String strVal) {
-                    entry.setValue(sanitize(strVal));
-                } else {
-                    sanitizeObject(value, visited);
-                }
-            }
+            sanitizeMap(map, visited);
             return;
         }
         if (body instanceof Collection<?> collection) {
@@ -82,6 +73,18 @@ public final class InputSanitizer {
                 }
             }
             cls = cls.getSuperclass();
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void sanitizeMap(Map<?, ?> map, Set<Object> visited) {
+        for (Map.Entry<Object, Object> entry : ((Map<Object, Object>) map).entrySet()) {
+            Object value = entry.getValue();
+            if (value instanceof String strVal) {
+                entry.setValue(sanitize(strVal));
+            } else {
+                sanitizeObject(value, visited);
+            }
         }
     }
 

@@ -15,6 +15,10 @@ public class DataAssetDto {
     private Long ownerId;
     private String lineage;
     private String description;
+    private Integer diaScore;
+    private String diaRiskLevel;
+    private String diaFramework;
+    private Date diaUpdatedAt;
     private Date createTime;
     private Date updateTime;
 }

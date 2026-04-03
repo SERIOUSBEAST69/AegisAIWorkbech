@@ -17,11 +17,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import java.util.Arrays;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.Date;
 import org.springframework.validation.annotation.Validated;
 import jakarta.validation.constraints.NotNull;
@@ -106,7 +104,7 @@ public class ApprovalController {
     }
 
     @PostMapping("/apply")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN','BUSINESS_OWNER','EMPLOYEE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN','BUSINESS_OWNER')")
     public R<?> apply(@RequestBody ApprovalRequest req) {
         try {
             User currentUser = currentUserService.requireCurrentUser();
@@ -205,7 +203,7 @@ public class ApprovalController {
     }
 
     @PostMapping("/delete")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN','BUSINESS_OWNER','EMPLOYEE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN','BUSINESS_OWNER')")
     public R<?> delete(@RequestBody @Validated IdReq req) {
         User currentUser = currentUserService.requireCurrentUser();
         String roleCode = currentUserService.currentRoleCode();

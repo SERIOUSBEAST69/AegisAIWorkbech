@@ -8,6 +8,7 @@ const DEFAULT_CONFIG = {
   clientIngressToken: '',
   companyId: 1,
   configVersion: 1,
+  configChecksum: '',
   syncIntervalSec: 60,
   siteSelectors: [
     {
@@ -44,11 +45,16 @@ async function saveLocalConfig(config) {
   await chrome.storage.local.set({ privacyConfig: config });
 }
 
-async function fetchRemoteConfig(baseUrl, sinceVersion) {
+async function fetchRemoteConfig(baseUrl, sinceVersion, sinceChecksum) {
   try {
-    const query = Number.isFinite(Number(sinceVersion))
-      ? `?sinceVersion=${encodeURIComponent(String(sinceVersion))}`
-      : '';
+    const params = [];
+    if (Number.isFinite(Number(sinceVersion))) {
+      params.push(`sinceVersion=${encodeURIComponent(String(sinceVersion))}`);
+    }
+    if (sinceChecksum) {
+      params.push(`sinceChecksum=${encodeURIComponent(String(sinceChecksum))}`);
+    }
+    const query = params.length > 0 ? `?${params.join('&')}` : '';
     const resp = await fetch(`${baseUrl}/api/privacy/config/public${query}`, {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
@@ -64,12 +70,14 @@ async function fetchRemoteConfig(baseUrl, sinceVersion) {
 async function ensureConfig() {
   const local = await getLocalConfig();
   const localVersion = Number(local.configVersion || 0);
-  const remote = await fetchRemoteConfig(local.backendBaseUrl, localVersion);
+  const localChecksum = String(local.configChecksum || '');
+  const remote = await fetchRemoteConfig(local.backendBaseUrl, localVersion, localChecksum);
   let merged = local;
   if (remote && remote.changed === false) {
     merged = {
       ...local,
       configVersion: Number(remote.configVersion || localVersion || 1),
+      configChecksum: String(remote.configChecksum || localChecksum || ''),
       syncIntervalSec: Number(remote.syncIntervalSec || local.syncIntervalSec || 60),
     };
   } else if (remote) {
@@ -77,6 +85,9 @@ async function ensureConfig() {
   }
   if (!merged.configVersion) {
     merged.configVersion = localVersion || 1;
+  }
+  if (!merged.configChecksum) {
+    merged.configChecksum = localChecksum || '';
   }
   await saveLocalConfig(merged);
   return merged;

@@ -36,7 +36,6 @@ public class RiskDetectionService {
     private final RiskEventService riskEventService;
     private final SystemConfigService systemConfigService;
 
-    private static final String LEVEL_NORMAL = "NORMAL";
     private static final String LEVEL_LOW = "LOW";
     private static final String LEVEL_MEDIUM = "MEDIUM";
     private static final String LEVEL_HIGH = "HIGH";
@@ -86,7 +85,9 @@ public class RiskDetectionService {
                 .map(AuditLog::getAssetId)
                 .collect(Collectors.toSet());
         Map<Long, DataAsset> assetMap = assetIds.isEmpty() ? Map.of() :
-                dataAssetMapper.selectBatchIds(assetIds).stream().collect(Collectors.toMap(DataAsset::getId, a -> a));
+            dataAssetMapper.selectList(new QueryWrapper<DataAsset>().in("id", assetIds))
+                .stream()
+                .collect(Collectors.toMap(DataAsset::getId, a -> a));
 
         List<AuditLog> filtered = logs.stream()
                 .filter(l -> l.getOperationTime() != null && l.getOperationTime().toInstant().isAfter(windowStart))

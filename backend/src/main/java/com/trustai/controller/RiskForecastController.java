@@ -2,11 +2,12 @@ package com.trustai.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.trustai.entity.RiskEvent;
+import com.trustai.service.CompanyScopeService;
 import com.trustai.service.RiskEventService;
 import com.trustai.service.RiskForecastScheduler;
-import com.trustai.service.RiskPredictionService;
 import com.trustai.utils.R;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -23,22 +24,29 @@ import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/risk")
+@PreAuthorize("isAuthenticated()")
 public class RiskForecastController {
 
     @Autowired
     private RiskEventService riskEventService;
 
     @Autowired
-    private RiskPredictionService riskPredictionService;
-
-    @Autowired
     private RiskForecastScheduler riskForecastScheduler;
 
+    @Autowired
+    private CompanyScopeService companyScopeService;
+
     @GetMapping("/trend")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','EXECUTIVE')")
     public R<Map<String, Object>> trend(@RequestParam(defaultValue = "7") int days) {
+        Long companyId = companyScopeService.requireCompanyId();
         LocalDate from = LocalDate.now().minusDays(days);
         Date fromDate = Date.from(from.atStartOfDay(ZoneId.systemDefault()).toInstant());
-        List<RiskEvent> events = riskEventService.list(new QueryWrapper<RiskEvent>().ge("create_time", fromDate));
+        List<RiskEvent> events = riskEventService.list(
+            new QueryWrapper<RiskEvent>()
+                .eq("company_id", companyId)
+                .ge("create_time", fromDate)
+        );
 
         Map<Integer, Long> perHour = events.stream()
                 .filter(e -> e.getCreateTime() != null)
@@ -59,6 +67,7 @@ public class RiskForecastController {
      * 若缓存未就绪则实时计算一次。
      */
     @GetMapping("/forecast")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','EXECUTIVE')")
     public R<Map<String, Object>> forecast() {
         RiskForecastScheduler.ForecastResult result = riskForecastScheduler.getLatest();
         Map<String, Object> res = new HashMap<>();
@@ -77,6 +86,7 @@ public class RiskForecastController {
      * 手动触发一次 LSTM 预测刷新（管理员用，立即重新查 DB 并调用 Python 微服务）。
      */
     @PostMapping("/forecast/refresh")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
     public R<Map<String, Object>> refreshForecast() {
         RiskForecastScheduler.ForecastResult result = riskForecastScheduler.refreshNow();
         Map<String, Object> res = new HashMap<>();

@@ -15,6 +15,7 @@ import java.util.Map;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Random;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -76,6 +77,9 @@ public class DataInitializer implements CommandLineRunner {
     public void run(String... args) {
         enforceTrustedAiModelBaseline();
         Map<String, Role> roleMap = ensureDefaultRoles(DEFAULT_COMPANY_ID);
+        cleanupDuplicateDefaultRoles(DEFAULT_COMPANY_ID);
+        roleMap = ensureDefaultRoles(DEFAULT_COMPANY_ID);
+        seedPermissionsAndRoleBindings(DEFAULT_COMPANY_ID, roleMap);
         for (UserSeed seed : BASELINE_USERS) {
             ensureUser(DEFAULT_COMPANY_ID, seed, roleMap.get(seed.roleCode()));
         }
@@ -83,8 +87,113 @@ public class DataInitializer implements CommandLineRunner {
         seedTraceableObservabilityBaseline(DEFAULT_COMPANY_ID);
         seedShadowAiClientBaseline(DEFAULT_COMPANY_ID);
         repairHistoricalTraceability(DEFAULT_COMPANY_ID);
+        seedSensitiveScanTraceabilityBaseline(DEFAULT_COMPANY_ID);
         if (seedDemoData) {
             seedGovernanceAdminDemoData(DEFAULT_COMPANY_ID, roleMap);
+        }
+    }
+
+    private void seedSensitiveScanTraceabilityBaseline(Long companyId) {
+        if (!tableExists("sensitive_scan_task")) {
+            return;
+        }
+        if (!columnExists("sensitive_scan_task", "company_id") || !columnExists("sensitive_scan_task", "user_id") || !columnExists("sensitive_scan_task", "trace_json")) {
+            return;
+        }
+        Integer companyTaskCount = jdbcTemplate.queryForObject(
+            "SELECT COUNT(1) FROM sensitive_scan_task WHERE company_id = ?",
+            Integer.class,
+            companyId
+        );
+        if (companyTaskCount != null && companyTaskCount > 0) {
+            return;
+        }
+        boolean hasReportDataColumn = columnExists("sensitive_scan_task", "report_data");
+
+        Long adminId = querySingleLong(
+            "SELECT id FROM sys_user WHERE company_id = ? AND username = ? ORDER BY id ASC LIMIT 1",
+            companyId,
+            "admin"
+        );
+        Long dataAdminId = querySingleLong(
+            "SELECT id FROM sys_user WHERE company_id = ? AND username = ? ORDER BY id ASC LIMIT 1",
+            companyId,
+            "dataadmin"
+        );
+
+        List<Long> seeds = new ArrayList<>();
+        if (adminId != null) {
+            seeds.add(adminId);
+        }
+        if (dataAdminId != null && !Objects.equals(dataAdminId, adminId)) {
+            seeds.add(dataAdminId);
+        }
+        if (seeds.isEmpty()) {
+            Long fallback = querySingleLong(
+                "SELECT id FROM sys_user WHERE company_id = ? ORDER BY id ASC LIMIT 1",
+                companyId
+            );
+            if (fallback != null) {
+                seeds.add(fallback);
+            }
+        }
+
+        Date now = new Date();
+        int idx = 0;
+        for (Long userId : seeds) {
+            User actor = userService.getById(userId);
+            if (actor == null) {
+                continue;
+            }
+            Date taskTime = new Date(now.getTime() - idx * 3600_000L);
+            String trace = buildSensitiveScanTrace(actor, companyId);
+            if (hasReportDataColumn) {
+                jdbcTemplate.update(
+                    "INSERT INTO sensitive_scan_task(company_id, user_id, source_type, source_path, trace_json, status, sensitive_ratio, report_path, report_data, create_time, update_time) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    companyId,
+                    actor.getId(),
+                    "file",
+                    "/data/demo/traceable-scan-" + actor.getUsername() + ".txt",
+                    trace,
+                    idx == 0 ? "done" : "pending",
+                    idx == 0 ? 36.5 : null,
+                    idx == 0 ? "/reports/task-trace-baseline-" + actor.getId() + ".json" : null,
+                    idx == 0 ? "{\"summary\":{\"total\":1,\"sensitiveFields\":[\"id_card\",\"phone\"],\"ratio\":36.5},\"results\":[{\"text\":\"[seed] 可追溯扫描样本\",\"label\":\"id_card\",\"score\":0.97}]}" : null,
+                    taskTime,
+                    taskTime
+                );
+            } else {
+                jdbcTemplate.update(
+                    "INSERT INTO sensitive_scan_task(company_id, user_id, source_type, source_path, trace_json, status, sensitive_ratio, report_path, create_time, update_time) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    companyId,
+                    actor.getId(),
+                    "file",
+                    "/data/demo/traceable-scan-" + actor.getUsername() + ".txt",
+                    trace,
+                    idx == 0 ? "done" : "pending",
+                    idx == 0 ? 36.5 : null,
+                    idx == 0 ? "/reports/task-trace-baseline-" + actor.getId() + ".json" : null,
+                    taskTime,
+                    taskTime
+                );
+            }
+            idx++;
+        }
+    }
+
+    private String buildSensitiveScanTrace(User user, Long companyId) {
+        Map<String, Object> trace = new LinkedHashMap<>();
+        trace.put("username", user == null ? "-" : user.getUsername());
+        trace.put("userId", user == null ? "-" : user.getId());
+        trace.put("role", user == null ? "-" : resolveRoleCode(user.getRoleId()));
+        trace.put("department", user == null ? "-" : user.getDepartment());
+        trace.put("position", user == null ? "-" : user.getJobTitle());
+        trace.put("companyId", companyId == null ? "-" : companyId);
+        trace.put("device", user == null ? "-" : user.getDeviceId());
+        try {
+            return new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(trace);
+        } catch (Exception ignored) {
+            return "{}";
         }
     }
 
@@ -103,9 +212,15 @@ public class DataInitializer implements CommandLineRunner {
         List<User> actors = users;
 
         Date now = new Date();
-        Long aiModelId = querySingleLong(
-            "SELECT id FROM ai_model WHERE LOWER(provider) IN ('qwen','wenxin','deepseek','doubao','hunyuan','kimi','spark','zhipu','modelwhale') ORDER BY id ASC LIMIT 1"
-        );
+        boolean aiModelHasCompanyColumn = columnExists("ai_model", "company_id");
+        Long aiModelId = aiModelHasCompanyColumn
+            ? querySingleLong(
+                "SELECT id FROM ai_model WHERE company_id = ? AND LOWER(provider) IN ('qwen','wenxin','deepseek','doubao','hunyuan','kimi','spark','zhipu','modelwhale') ORDER BY id ASC LIMIT 1",
+                companyId
+            )
+            : querySingleLong(
+                "SELECT id FROM ai_model WHERE LOWER(provider) IN ('qwen','wenxin','deepseek','doubao','hunyuan','kimi','spark','zhipu','modelwhale') ORDER BY id ASC LIMIT 1"
+            );
         for (int dayOffset = 13; dayOffset >= 0; dayOffset--) {
             Date day = new Date(now.getTime() - dayOffset * 24L * 3600_000L);
             Date dayStart = atStartOfDay(day);
@@ -437,47 +552,90 @@ public class DataInitializer implements CommandLineRunner {
         if (!tableExists("ai_model")) {
             return;
         }
+        Long companyId = DEFAULT_COMPANY_ID;
+        boolean hasIsolationLevelColumn = columnExists("ai_model", "isolation_level");
+        boolean hasCompanyIdColumn = columnExists("ai_model", "company_id");
 
         List<String> trustedProviders = List.of("qwen", "wenxin", "deepseek", "doubao", "hunyuan", "kimi", "spark", "zhipu", "modelwhale");
         List<Object[]> modelSeeds = List.of(
-            new Object[] {"通义千问", "qwen-max", "qwen", "chat", "low", "enabled", "官方可信白名单模型"},
-            new Object[] {"文心一言", "ernie-4", "wenxin", "chat", "low", "enabled", "官方可信白名单模型"},
-            new Object[] {"DeepSeek", "deepseek-chat", "deepseek", "chat", "medium", "enabled", "官方可信白名单模型"},
-            new Object[] {"豆包", "doubao-pro", "doubao", "chat", "medium", "enabled", "官方可信白名单模型"},
-            new Object[] {"混元", "hunyuan-standard", "hunyuan", "chat", "medium", "enabled", "官方可信白名单模型"},
-            new Object[] {"Kimi", "kimi-k2", "kimi", "chat", "medium", "enabled", "官方可信白名单模型"},
-            new Object[] {"讯飞星火", "spark-max", "spark", "chat", "medium", "enabled", "官方可信白名单模型"},
-            new Object[] {"智谱GLM", "glm-4-flash", "zhipu", "chat", "medium", "enabled", "官方可信白名单模型"},
-            new Object[] {"和鲸", "modelwhale-chat", "modelwhale", "chat", "medium", "enabled", "官方可信白名单模型"}
+            new Object[] {"通义千问", "qwen-max", "qwen", "chat", "low", "L1", "enabled", "官方可信白名单模型"},
+            new Object[] {"文心一言", "ernie-4", "wenxin", "chat", "low", "L1", "enabled", "官方可信白名单模型"},
+            new Object[] {"DeepSeek", "deepseek-chat", "deepseek", "chat", "medium", "L2", "enabled", "官方可信白名单模型"},
+            new Object[] {"豆包", "doubao-pro", "doubao", "chat", "medium", "L2", "enabled", "官方可信白名单模型"},
+            new Object[] {"混元", "hunyuan-standard", "hunyuan", "chat", "medium", "L2", "enabled", "官方可信白名单模型"},
+            new Object[] {"Kimi", "kimi-k2", "kimi", "chat", "medium", "L2", "enabled", "官方可信白名单模型"},
+            new Object[] {"讯飞星火", "spark-max", "spark", "chat", "medium", "L2", "enabled", "官方可信白名单模型"},
+            new Object[] {"智谱GLM", "glm-4-flash", "zhipu", "chat", "medium", "L2", "enabled", "官方可信白名单模型"},
+            new Object[] {"和鲸", "modelwhale-chat", "modelwhale", "chat", "medium", "L2", "enabled", "官方可信白名单模型"}
         );
 
         for (Object[] seed : modelSeeds) {
             String modelCode = String.valueOf(seed[1]);
-            Long exists = querySingleLong("SELECT id FROM ai_model WHERE LOWER(COALESCE(model_code,'')) = ? ORDER BY id ASC LIMIT 1", modelCode.toLowerCase(Locale.ROOT));
+            Long exists = hasCompanyIdColumn
+                ? querySingleLong("SELECT id FROM ai_model WHERE company_id = ? AND LOWER(COALESCE(model_code,'')) = ? ORDER BY id ASC LIMIT 1", companyId, modelCode.toLowerCase(Locale.ROOT))
+                : querySingleLong("SELECT id FROM ai_model WHERE LOWER(COALESCE(model_code,'')) = ? ORDER BY id ASC LIMIT 1", modelCode.toLowerCase(Locale.ROOT));
             if (exists != null) {
-                jdbcTemplate.update(
-                    "UPDATE ai_model SET status = 'enabled', provider = ?, model_name = COALESCE(NULLIF(model_name,''), ?), model_type = COALESCE(NULLIF(model_type,''), ?), risk_level = COALESCE(NULLIF(risk_level,''), ?), description = COALESCE(NULLIF(description,''), ?), update_time = CURRENT_TIMESTAMP WHERE id = ?",
-                    seed[2], seed[0], seed[3], seed[4], seed[6], exists
-                );
+                if (hasIsolationLevelColumn) {
+                    jdbcTemplate.update(
+                        "UPDATE ai_model SET status = 'enabled', provider = ?, model_name = COALESCE(NULLIF(model_name,''), ?), model_type = COALESCE(NULLIF(model_type,''), ?), risk_level = COALESCE(NULLIF(risk_level,''), ?), isolation_level = COALESCE(NULLIF(isolation_level,''), ?), description = COALESCE(NULLIF(description,''), ?), update_time = CURRENT_TIMESTAMP WHERE id = ?",
+                        seed[2], seed[0], seed[3], seed[4], seed[5], seed[7], exists
+                    );
+                } else {
+                    jdbcTemplate.update(
+                        "UPDATE ai_model SET status = 'enabled', provider = ?, model_name = COALESCE(NULLIF(model_name,''), ?), model_type = COALESCE(NULLIF(model_type,''), ?), risk_level = COALESCE(NULLIF(risk_level,''), ?), description = COALESCE(NULLIF(description,''), ?), update_time = CURRENT_TIMESTAMP WHERE id = ?",
+                        seed[2], seed[0], seed[3], seed[4], seed[7], exists
+                    );
+                }
                 continue;
             }
-            jdbcTemplate.update(
-                "INSERT INTO ai_model(model_name, model_code, provider, model_type, risk_level, status, description, call_limit, current_calls, create_time, update_time) VALUES(?, ?, ?, ?, ?, ?, ?, 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
-                seed[0], seed[1], seed[2], seed[3], seed[4], seed[5], seed[6]
-            );
+            if (hasIsolationLevelColumn) {
+                if (hasCompanyIdColumn) {
+                    jdbcTemplate.update(
+                        "INSERT INTO ai_model(company_id, model_name, model_code, provider, model_type, risk_level, isolation_level, status, description, call_limit, current_calls, create_time, update_time) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+                        companyId, seed[0], seed[1], seed[2], seed[3], seed[4], seed[5], seed[6], seed[7]
+                    );
+                } else {
+                    jdbcTemplate.update(
+                        "INSERT INTO ai_model(model_name, model_code, provider, model_type, risk_level, isolation_level, status, description, call_limit, current_calls, create_time, update_time) VALUES(?, ?, ?, ?, ?, ?, ?, ?, 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+                        seed[0], seed[1], seed[2], seed[3], seed[4], seed[5], seed[6], seed[7]
+                    );
+                }
+            } else {
+                if (hasCompanyIdColumn) {
+                    jdbcTemplate.update(
+                        "INSERT INTO ai_model(company_id, model_name, model_code, provider, model_type, risk_level, status, description, call_limit, current_calls, create_time, update_time) VALUES(?, ?, ?, ?, ?, ?, ?, ?, 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+                        companyId, seed[0], seed[1], seed[2], seed[3], seed[4], seed[6], seed[7]
+                    );
+                } else {
+                    jdbcTemplate.update(
+                        "INSERT INTO ai_model(model_name, model_code, provider, model_type, risk_level, status, description, call_limit, current_calls, create_time, update_time) VALUES(?, ?, ?, ?, ?, ?, ?, 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+                        seed[0], seed[1], seed[2], seed[3], seed[4], seed[6], seed[7]
+                    );
+                }
+            }
         }
 
         String inClause = trustedProviders.stream().map(v -> "'" + v + "'").collect(java.util.stream.Collectors.joining(","));
-        jdbcTemplate.update(
-            "UPDATE ai_model SET status = 'disabled' WHERE LOWER(COALESCE(provider,'')) NOT IN (" + inClause + ")"
-        );
-        jdbcTemplate.update(
-            "UPDATE ai_model SET status = 'enabled' WHERE LOWER(COALESCE(provider,'')) IN (" + inClause + ")"
-        );
+        if (hasCompanyIdColumn) {
+            jdbcTemplate.update(
+                "UPDATE ai_model SET status = 'disabled' WHERE company_id = ? AND LOWER(COALESCE(provider,'')) NOT IN (" + inClause + ")",
+                companyId
+            );
+            jdbcTemplate.update(
+                "UPDATE ai_model SET status = 'enabled' WHERE company_id = ? AND LOWER(COALESCE(provider,'')) IN (" + inClause + ")",
+                companyId
+            );
+        } else {
+            jdbcTemplate.update(
+                "UPDATE ai_model SET status = 'disabled' WHERE LOWER(COALESCE(provider,'')) NOT IN (" + inClause + ")"
+            );
+            jdbcTemplate.update(
+                "UPDATE ai_model SET status = 'enabled' WHERE LOWER(COALESCE(provider,'')) IN (" + inClause + ")"
+            );
+        }
     }
 
     private void seedGovernanceAdminDemoData(Long companyId, Map<String, Role> roleMap) {
-        seedPermissionsAndRoleBindings(companyId, roleMap);
         seedApprovalAndAuditData(companyId);
         seedRiskAndGovernanceData(companyId);
         seedSubjectRequestAndPolicyData(companyId);
@@ -563,10 +721,16 @@ public class DataInitializer implements CommandLineRunner {
             "sod:rule:edit",
             "govern:change:create",
             "govern:change:view",
+            "govern:change:review",
             "approval:view",
             "approval:operate",
+            "risk:event:view",
+            "security:event:view",
             "policy:view",
             "policy:structure:manage",
+            "policy:status:toggle",
+            "audit:log:view",
+            "audit:report:view",
             "audit:report:generate",
             "ops:metrics:view"
         ));
@@ -585,6 +749,13 @@ public class DataInitializer implements CommandLineRunner {
             "ops:metrics:view"
         ));
         bindPermissions(roleMap.get("EXECUTIVE"), Arrays.asList(
+            "permission:matrix:view",
+            "govern:change:view",
+            "approval:view",
+            "risk:event:view",
+            "security:event:view",
+            "policy:view",
+            "audit:log:view",
             "audit:report:view",
             "ops:metrics:view"
         ));
@@ -594,11 +765,34 @@ public class DataInitializer implements CommandLineRunner {
             "data_asset:delete",
             "approval:view",
             "approval:operate",
+            "risk:event:view",
+            "security:event:view",
+            "policy:view",
+            "audit:log:view",
+            "ops:metrics:view"
+        ));
+        bindPermissions(roleMap.get("BUSINESS_OWNER"), Arrays.asList(
+            "menu:data_asset",
+            "approval:view",
+            "approval:operate",
+            "govern:change:view",
+            "risk:event:view",
+            "security:event:view",
             "policy:view"
         ));
-        bindPermissions(roleMap.get("BUSINESS_OWNER"), Arrays.asList("approval:view", "approval:operate", "menu:data_asset"));
-        bindPermissions(roleMap.get("AI_BUILDER"), Arrays.asList("menu:data_asset", "approval:view"));
-        bindPermissions(roleMap.get("EMPLOYEE"), Arrays.asList("approval:view"));
+        bindPermissions(roleMap.get("AI_BUILDER"), Arrays.asList(
+            "menu:data_asset",
+            "approval:view",
+            "govern:change:view",
+            "risk:event:view",
+            "security:event:view",
+            "policy:view"
+        ));
+        bindPermissions(roleMap.get("EMPLOYEE"), Arrays.asList(
+            "approval:view",
+            "risk:event:view",
+            "security:event:view"
+        ));
     }
 
     private void bindPermissions(Role role, Iterable<String> permissionCodes) {
@@ -915,6 +1109,20 @@ public class DataInitializer implements CommandLineRunner {
         }
     }
 
+    private boolean columnExists(String tableName, String columnName) {
+        try {
+            Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(1) FROM information_schema.columns WHERE lower(table_name) = lower(?) AND lower(column_name) = lower(?)",
+                Integer.class,
+                tableName,
+                columnName
+            );
+            return count != null && count > 0;
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
     private Map<String, Role> ensureDefaultRoles(Long companyId) {
         Map<String, String> labels = new LinkedHashMap<>();
         labels.put("ADMIN", "治理管理员");
@@ -928,6 +1136,107 @@ public class DataInitializer implements CommandLineRunner {
         Map<String, Role> result = new LinkedHashMap<>();
         labels.forEach((code, name) -> result.put(code, ensureRole(companyId, code, name)));
         return result;
+    }
+
+    private void cleanupDuplicateDefaultRoles(Long companyId) {
+        List<String> defaultCodes = Arrays.asList(
+            "ADMIN",
+            "EXECUTIVE",
+            "SECOPS",
+            "DATA_ADMIN",
+            "AI_BUILDER",
+            "BUSINESS_OWNER",
+            "EMPLOYEE"
+        );
+        boolean rolePermissionReady = tableExists("role_permission");
+        boolean userRoleReady = tableExists("user_role");
+        boolean userRoleIdColumnReady = tableExists("user") && columnExists("user", "role_id");
+        boolean userCompanyColumnReady = userRoleIdColumnReady && columnExists("user", "company_id");
+        for (String code : defaultCodes) {
+            List<Role> sameCodeRoles = roleService.lambdaQuery()
+                .eq(Role::getCompanyId, companyId)
+                .eq(Role::getCode, code)
+                .orderByAsc(Role::getId)
+                .list();
+            if (sameCodeRoles.size() <= 1) {
+                continue;
+            }
+            sameCodeRoles.sort((a, b) -> {
+                boolean aSystem = Boolean.TRUE.equals(a.getIsSystem());
+                boolean bSystem = Boolean.TRUE.equals(b.getIsSystem());
+                if (aSystem != bSystem) {
+                    return bSystem ? 1 : -1;
+                }
+                long aId = a.getId() == null ? Long.MAX_VALUE : a.getId();
+                long bId = b.getId() == null ? Long.MAX_VALUE : b.getId();
+                return Long.compare(aId, bId);
+            });
+
+            Role canonical = sameCodeRoles.get(0);
+            if (canonical.getId() == null) {
+                continue;
+            }
+            canonical.setIsSystem(true);
+            canonical.setAllowSelfRegister(allowSelfRegister(code));
+            canonical.setUpdateTime(new Date());
+            roleService.updateById(canonical);
+
+            for (int i = 1; i < sameCodeRoles.size(); i++) {
+                Role duplicate = sameCodeRoles.get(i);
+                if (duplicate.getId() == null || Objects.equals(duplicate.getId(), canonical.getId())) {
+                    continue;
+                }
+                if (userRoleIdColumnReady) {
+                    try {
+                        if (userCompanyColumnReady) {
+                            jdbcTemplate.update(
+                                "UPDATE user SET role_id = ? WHERE company_id = ? AND role_id = ?",
+                                canonical.getId(),
+                                companyId,
+                                duplicate.getId()
+                            );
+                        } else {
+                            jdbcTemplate.update(
+                                "UPDATE user SET role_id = ? WHERE role_id = ?",
+                                canonical.getId(),
+                                duplicate.getId()
+                            );
+                        }
+                    } catch (Exception ignored) {
+                        jdbcTemplate.update(
+                            "UPDATE user SET role_id = ? WHERE role_id = ?",
+                            canonical.getId(),
+                            duplicate.getId()
+                        );
+                    }
+                }
+                if (rolePermissionReady) {
+                    jdbcTemplate.update(
+                        "INSERT INTO role_permission(role_id, permission_id) " +
+                            "SELECT ?, rp.permission_id FROM role_permission rp " +
+                            "WHERE rp.role_id = ? AND NOT EXISTS (" +
+                            "SELECT 1 FROM role_permission x WHERE x.role_id = ? AND x.permission_id = rp.permission_id)",
+                        canonical.getId(),
+                        duplicate.getId(),
+                        canonical.getId()
+                    );
+                    jdbcTemplate.update("DELETE FROM role_permission WHERE role_id = ?", duplicate.getId());
+                }
+                if (userRoleReady) {
+                    jdbcTemplate.update(
+                        "INSERT INTO user_role(user_id, role_id, create_time, update_time) " +
+                            "SELECT ur.user_id, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP FROM user_role ur " +
+                            "WHERE ur.role_id = ? AND NOT EXISTS (" +
+                            "SELECT 1 FROM user_role x WHERE x.user_id = ur.user_id AND x.role_id = ?)",
+                        canonical.getId(),
+                        duplicate.getId(),
+                        canonical.getId()
+                    );
+                    jdbcTemplate.update("DELETE FROM user_role WHERE role_id = ?", duplicate.getId());
+                }
+                roleService.removeById(duplicate.getId());
+            }
+        }
     }
 
     private Role ensureRole(Long companyId, String code, String name) {

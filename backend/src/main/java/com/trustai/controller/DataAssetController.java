@@ -1,13 +1,22 @@
 package com.trustai.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.trustai.dto.DataAssetDetailDto;
+import com.trustai.entity.AiCallLog;
 import com.trustai.entity.DataAsset;
+import com.trustai.entity.PrivacyImpactAssessment;
+import com.trustai.entity.PrivacyEvent;
+import com.trustai.entity.RiskEvent;
 import com.trustai.entity.User;
 import com.trustai.exception.BizException;
+import com.trustai.service.AiCallAuditService;
 import com.trustai.service.CurrentUserService;
 import com.trustai.service.CompanyScopeService;
 import com.trustai.service.DataAssetService;
+import com.trustai.service.PrivacyEventService;
+import com.trustai.service.PrivacyImpactAssessmentService;
+import com.trustai.service.RiskEventService;
 import com.trustai.utils.AssetContentExtractor;
 import com.trustai.utils.R;
 import java.io.IOException;
@@ -17,6 +26,7 @@ import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -28,15 +38,22 @@ import jakarta.validation.constraints.NotBlank;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/data-asset")
 @Validated
 public class DataAssetController {
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
     @Autowired private DataAssetService dataAssetService;
     @Autowired private CurrentUserService currentUserService;
     @Autowired private CompanyScopeService companyScopeService;
     @Autowired private AssetContentExtractor assetContentExtractor;
+    @Autowired private PrivacyImpactAssessmentService privacyImpactAssessmentService;
+    @Autowired private AiCallAuditService aiCallAuditService;
+    @Autowired private RiskEventService riskEventService;
+    @Autowired private PrivacyEventService privacyEventService;
 
     @GetMapping("/list")
     @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN','SECOPS')")
@@ -47,6 +64,7 @@ public class DataAssetController {
         if (name != null && !name.isEmpty()) qw.like("name", name);
         List<DataAsset> assets = dataAssetService.list(qw);
         assets.forEach(this::hydrateReadableDescription);
+        attachLatestAssessment(assets);
         return R.ok(assets);
     }
 
@@ -112,7 +130,75 @@ public class DataAssetController {
         }
         DataAssetDetailDto detail = dataAssetService.detailWithCalls(id);
         hydrateReadableDescription(detail);
+        attachLatestAssessment(detail);
         return R.ok(detail);
+    }
+
+    @PostMapping("/{id}/privacy-assess")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN','SECOPS')")
+    public R<Map<String, Object>> privacyAssess(@PathVariable Long id,
+                                                @RequestBody(required = false) PrivacyAssessReq req) {
+        currentUserService.requireAnyRole("ADMIN", "DATA_ADMIN", "SECOPS");
+        DataAsset asset = requireScopedAsset(id);
+        Long companyId = companyScopeService.requireCompanyId();
+        User current = currentUserService.requireCurrentUser();
+        String framework = req == null || !StringUtils.hasText(req.getFramework()) ? "PIPL" : req.getFramework().trim().toUpperCase();
+
+        Date from = new Date(System.currentTimeMillis() - 30L * 24L * 3600_000L);
+        long usageCalls = aiCallAuditService.count(new QueryWrapper<AiCallLog>()
+            .eq("company_id", companyId)
+            .eq("data_asset_id", asset.getId())
+            .ge("create_time", from));
+        long riskEvents = riskEventService.count(new QueryWrapper<RiskEvent>()
+            .eq("company_id", companyId)
+            .in("status", List.of("open", "pending", "processing")));
+        long privacyEvents = privacyEventService.count(new QueryWrapper<PrivacyEvent>()
+            .eq("company_id", companyId)
+            .ge("event_time", from));
+
+        AssessmentScore score = calculateAssessment(asset, usageCalls, riskEvents, privacyEvents);
+
+        PrivacyImpactAssessment record = new PrivacyImpactAssessment();
+        record.setCompanyId(companyId);
+        record.setAssetId(asset.getId());
+        record.setFramework(framework);
+        record.setImpactScore(score.score());
+        record.setRiskLevel(score.level());
+        record.setRiskFactorsJson(toJson(score.factors()));
+        record.setAssessedBy(current.getId());
+        record.setCreateTime(new Date());
+        record.setUpdateTime(new Date());
+        privacyImpactAssessmentService.save(record);
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("id", record.getId());
+        payload.put("assetId", record.getAssetId());
+        payload.put("framework", record.getFramework());
+        payload.put("impactScore", record.getImpactScore());
+        payload.put("riskLevel", record.getRiskLevel());
+        payload.put("riskFactors", score.factors());
+        payload.put("updatedAt", record.getCreateTime());
+        return R.ok(payload);
+    }
+
+    @GetMapping("/{id}/privacy-assess/latest")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN','SECOPS')")
+    public R<Map<String, Object>> latestPrivacyAssess(@PathVariable Long id) {
+        currentUserService.requireAnyRole("ADMIN", "DATA_ADMIN", "SECOPS");
+        DataAsset asset = requireScopedAsset(id);
+        PrivacyImpactAssessment latest = latestAssessment(asset.getId());
+        if (latest == null) {
+            return R.ok(Map.of("assetId", id, "exists", false));
+        }
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("exists", true);
+        payload.put("assetId", asset.getId());
+        payload.put("framework", latest.getFramework());
+        payload.put("impactScore", latest.getImpactScore());
+        payload.put("riskLevel", latest.getRiskLevel());
+        payload.put("riskFactors", latest.getRiskFactorsJson());
+        payload.put("updatedAt", latest.getCreateTime());
+        return R.ok(payload);
     }
 
     @PostMapping("/update")
@@ -261,6 +347,116 @@ public class DataAssetController {
         }
     }
 
+    private DataAsset requireScopedAsset(Long id) {
+        DataAsset scoped = dataAssetService.getOne(companyScopeService.withCompany(new QueryWrapper<DataAsset>()).eq("id", id));
+        if (scoped == null) {
+            throw new BizException(40400, "数据资产不存在或不在当前公司");
+        }
+        return scoped;
+    }
+
+    private void attachLatestAssessment(List<DataAsset> assets) {
+        if (assets == null || assets.isEmpty()) {
+            return;
+        }
+        List<Long> assetIds = assets.stream().map(DataAsset::getId).filter(v -> v != null).collect(Collectors.toList());
+        if (assetIds.isEmpty()) {
+            return;
+        }
+        Map<Long, PrivacyImpactAssessment> latestMap = latestAssessments(assetIds);
+        for (DataAsset asset : assets) {
+            PrivacyImpactAssessment assessment = latestMap.get(asset.getId());
+            if (assessment == null) {
+                continue;
+            }
+            asset.setDiaScore(assessment.getImpactScore());
+            asset.setDiaRiskLevel(assessment.getRiskLevel());
+            asset.setDiaFramework(assessment.getFramework());
+            asset.setDiaUpdatedAt(assessment.getCreateTime());
+        }
+    }
+
+    private void attachLatestAssessment(DataAssetDetailDto asset) {
+        if (asset == null || asset.getId() == null) {
+            return;
+        }
+        PrivacyImpactAssessment latest = latestAssessment(asset.getId());
+        if (latest == null) {
+            return;
+        }
+        asset.setDiaScore(latest.getImpactScore());
+        asset.setDiaRiskLevel(latest.getRiskLevel());
+        asset.setDiaFramework(latest.getFramework());
+        asset.setDiaUpdatedAt(latest.getCreateTime());
+    }
+
+    private PrivacyImpactAssessment latestAssessment(Long assetId) {
+        if (assetId == null) {
+            return null;
+        }
+        List<PrivacyImpactAssessment> rows = privacyImpactAssessmentService.list(new QueryWrapper<PrivacyImpactAssessment>()
+            .eq("company_id", companyScopeService.requireCompanyId())
+            .eq("asset_id", assetId)
+            .orderByDesc("create_time")
+            .last("limit 1"));
+        return rows.isEmpty() ? null : rows.get(0);
+    }
+
+    private Map<Long, PrivacyImpactAssessment> latestAssessments(List<Long> assetIds) {
+        List<PrivacyImpactAssessment> rows = privacyImpactAssessmentService.list(new QueryWrapper<PrivacyImpactAssessment>()
+            .eq("company_id", companyScopeService.requireCompanyId())
+            .in("asset_id", assetIds)
+            .orderByDesc("create_time")
+            .last("limit 1000"));
+        Map<Long, PrivacyImpactAssessment> latest = new LinkedHashMap<>();
+        for (PrivacyImpactAssessment row : rows) {
+            if (row.getAssetId() == null || latest.containsKey(row.getAssetId())) {
+                continue;
+            }
+            latest.put(row.getAssetId(), row);
+        }
+        return latest;
+    }
+
+    private AssessmentScore calculateAssessment(DataAsset asset, long usageCalls, long openRiskEvents, long privacyEvents) {
+        int sensitivity = switch (String.valueOf(asset.getSensitivityLevel() == null ? "" : asset.getSensitivityLevel()).toLowerCase()) {
+            case "critical", "受限" -> 45;
+            case "high", "敏感" -> 34;
+            case "medium", "内部" -> 22;
+            default -> 10;
+        };
+        int usage = Math.min(20, (int) Math.round(Math.min(usageCalls, 60) / 60.0 * 20));
+        int governance = Math.min(18, (int) Math.round(Math.min(openRiskEvents, 20) / 20.0 * 18));
+        int privacy = Math.min(12, (int) Math.round(Math.min(privacyEvents, 50) / 50.0 * 12));
+        int location = String.valueOf(asset.getLocation() == null ? "" : asset.getLocation()).toLowerCase().contains("http") ? 5 : 2;
+
+        int total = Math.min(100, sensitivity + usage + governance + privacy + location);
+        String level = total >= 70 ? "high" : (total >= 40 ? "medium" : "low");
+
+        Map<String, Object> factors = new LinkedHashMap<>();
+        factors.put("sensitivity", sensitivity);
+        factors.put("usageExposure", usage);
+        factors.put("governancePressure", governance);
+        factors.put("privacyAlerts", privacy);
+        factors.put("locationRisk", location);
+        factors.put("inputs", Map.of(
+            "usageCalls30d", usageCalls,
+            "openRiskEvents", openRiskEvents,
+            "privacyEvents30d", privacyEvents,
+            "assetType", String.valueOf(asset.getType()),
+            "sensitivityLevel", String.valueOf(asset.getSensitivityLevel())
+        ));
+        return new AssessmentScore(total, level, factors);
+    }
+
+    private String toJson(Object value) {
+        try {
+            return MAPPER.writeValueAsString(value);
+        } catch (Exception ex) {
+            return "{}";
+        }
+    }
+
     private String storeGovernanceFile(MultipartFile file, String username) {
         try {
             String original = file.getOriginalFilename();
@@ -291,4 +487,11 @@ public class DataAssetController {
         public String getDescription(){return description;} public void setDescription(String v){description=v;}
     }
     public static class DataAssetUpdateReq extends DataAssetReq { @jakarta.validation.constraints.NotNull private Long id; public Long getId(){return id;} public void setId(Long v){id=v;} }
+    public static class PrivacyAssessReq {
+        private String framework;
+        public String getFramework() { return framework; }
+        public void setFramework(String framework) { this.framework = framework; }
+    }
+
+    private record AssessmentScore(int score, String level, Map<String, Object> factors) {}
 }

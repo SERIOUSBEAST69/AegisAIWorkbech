@@ -27,6 +27,7 @@ public class AwardSchemaInitializer implements CommandLineRunner {
         ensureWebVitalMetricTable();
         ensureSlowQueryLogTable();
         ensureAuditHashChainTable();
+        ensureAiCallHashChainTable();
         ensureExternalAnchorRecordTable();
     }
 
@@ -177,6 +178,22 @@ public class AwardSchemaInitializer implements CommandLineRunner {
         ensureIndex("external_anchor_record", "idx_ext_anchor_payload", "payload_hash");
         ensureIndex("external_anchor_record", "idx_ext_anchor_evidence", "evidence_type, evidence_ref");
         log.info("Schema check complete: external_anchor_record");
+    }
+
+    private void ensureAiCallHashChainTable() {
+        jdbcTemplate.execute("""
+            CREATE TABLE IF NOT EXISTS ai_call_hash_chain (
+              id BIGINT AUTO_INCREMENT PRIMARY KEY,
+              company_id BIGINT NOT NULL,
+              ai_call_log_id BIGINT NOT NULL,
+              prev_hash VARCHAR(128),
+              current_hash VARCHAR(128) NOT NULL,
+              create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """);
+        ensureIndex("ai_call_hash_chain", "idx_achc_company_time", "company_id, create_time");
+        ensureIndex("ai_call_hash_chain", "idx_achc_ai_call_log", "ai_call_log_id");
+        log.info("Schema check complete: ai_call_hash_chain");
     }
 
     private void ensureIndex(String table, String indexName, String columns) {

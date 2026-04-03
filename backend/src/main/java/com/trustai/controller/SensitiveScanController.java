@@ -63,13 +63,14 @@ public class SensitiveScanController {
     }
 
     @GetMapping("/list")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','DATA_ADMIN')")
     public R<List<SensitiveScanTask>> list(@RequestParam(required = false) String status) {
         User currentUser = currentUserService.requireCurrentUser();
         Long companyId = companyScopeService.requireCompanyId();
+        boolean dataAdminScope = "DATA_ADMIN".equalsIgnoreCase(currentUserService.currentRoleCode());
         QueryWrapper<SensitiveScanTask> qw = new QueryWrapper<SensitiveScanTask>()
             .eq("company_id", companyId)
-            .eq(currentUserService.hasRole("DATA_ADMIN"), "user_id", currentUser.getId());
+            .eq(dataAdminScope, "user_id", currentUser.getId());
         if (status != null && !status.isEmpty()) qw.eq("status", status);
         try {
             return R.ok(taskService.list(qw));
@@ -145,10 +146,11 @@ public class SensitiveScanController {
     private SensitiveScanTask requireScopedTask(Long id) {
         User currentUser = currentUserService.requireCurrentUser();
         Long companyId = companyScopeService.requireCompanyId();
+        boolean dataAdminScope = "DATA_ADMIN".equalsIgnoreCase(currentUserService.currentRoleCode());
         QueryWrapper<SensitiveScanTask> qw = new QueryWrapper<SensitiveScanTask>()
             .eq("id", id)
             .eq("company_id", companyId)
-            .eq(currentUserService.hasRole("DATA_ADMIN"), "user_id", currentUser.getId());
+            .eq(dataAdminScope, "user_id", currentUser.getId());
         return taskService.getOne(qw);
     }
 

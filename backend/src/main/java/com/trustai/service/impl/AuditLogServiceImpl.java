@@ -91,7 +91,29 @@ public class AuditLogServiceImpl extends ServiceImpl<AuditLogMapper, AuditLog> i
 				return;
 			}
 
-			Long companyId = resolveCompanyId(logEntity.getUserId());
+			AuditLog persisted = jdbcTemplate.query(
+				"SELECT id, user_id, operation, operation_time, input_overview, output_overview, result FROM audit_log WHERE id = ? LIMIT 1",
+				ps -> ps.setLong(1, logEntity.getId()),
+				rs -> {
+					if (!rs.next()) {
+						return null;
+					}
+					AuditLog row = new AuditLog();
+					row.setId(rs.getLong("id"));
+					row.setUserId(rs.getObject("user_id", Long.class));
+					row.setOperation(rs.getString("operation"));
+					row.setOperationTime(rs.getTimestamp("operation_time"));
+					row.setInputOverview(rs.getString("input_overview"));
+					row.setOutputOverview(rs.getString("output_overview"));
+					row.setResult(rs.getString("result"));
+					return row;
+				}
+			);
+			if (persisted == null || persisted.getUserId() == null) {
+				return;
+			}
+
+			Long companyId = resolveCompanyId(persisted.getUserId());
 			if (companyId == null || companyId <= 0L) {
 				return;
 			}
@@ -101,12 +123,12 @@ public class AuditLogServiceImpl extends ServiceImpl<AuditLogMapper, AuditLog> i
 				ps -> ps.setLong(1, companyId),
 				rs -> rs.next() ? rs.getString(1) : null
 			);
-			String currentHash = sha256(buildChainPayload(logEntity, companyId, prevHash));
+			String currentHash = sha256(buildChainPayload(persisted, companyId, prevHash));
 
 			jdbcTemplate.update(
 				"INSERT INTO audit_hash_chain(company_id, audit_log_id, prev_hash, current_hash, create_time) VALUES(?, ?, ?, ?, CURRENT_TIMESTAMP)",
 				companyId,
-				logEntity.getId(),
+				persisted.getId(),
 				prevHash,
 				currentHash
 			);

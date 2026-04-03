@@ -9,4 +9,6 @@ public interface PrivacyShieldConfigService {
     Map<String, Object> updateConfig(Map<String, Object> newConfig);
 
     long getConfigVersion();
+
+    String getConfigChecksum();
 }

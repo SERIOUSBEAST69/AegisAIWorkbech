@@ -37,6 +37,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -52,6 +53,7 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -149,6 +151,182 @@ public class UserController {
         List<User> list = userService.list(qw);
         list.forEach(u -> u.setPassword(null));
         return R.ok(list);
+    }
+
+    @GetMapping("/role-recommend/{userId}")
+    @PreAuthorize("@currentUserService.hasPermission('user:manage')")
+    public R<Map<String, Object>> recommendRole(@PathVariable String userId,
+                                                @RequestParam(required = false) String username) {
+        currentUserService.requirePermission("user:manage");
+        Long companyId = requireBoundCompanyId();
+        User target = resolveRecommendationTarget(userId, username, companyId);
+
+        Date from = new Date(System.currentTimeMillis() - 90L * 24L * 3600_000L);
+        List<User> companyUsers = userService.list(new QueryWrapper<User>()
+            .eq("company_id", companyId)
+            .orderByDesc("update_time")
+            .last("limit 300"));
+        List<Long> userIds = companyUsers.stream().map(User::getId).filter(Objects::nonNull).toList();
+
+        Map<Long, Set<String>> opSetByUser = new HashMap<>();
+        if (!userIds.isEmpty()) {
+            List<AuditLog> logs = auditLogService.list(new QueryWrapper<AuditLog>()
+                .in("user_id", userIds)
+                .ge("operation_time", from)
+                .orderByDesc("operation_time")
+                .last("limit 5000"));
+            for (AuditLog log : logs) {
+                if (log.getUserId() == null || !StringUtils.hasText(log.getOperation())) {
+                    continue;
+                }
+                opSetByUser.computeIfAbsent(log.getUserId(), k -> new HashSet<>())
+                    .add(log.getOperation().trim().toLowerCase(Locale.ROOT));
+            }
+        }
+
+        Set<String> targetOps = opSetByUser.getOrDefault(target.getId(), Set.of());
+        Map<Long, Double> roleScore = new HashMap<>();
+        Map<Long, Integer> supporters = new HashMap<>();
+        for (User peer : companyUsers) {
+            if (peer.getId() == null || Objects.equals(peer.getId(), target.getId())) {
+                continue;
+            }
+            List<Long> peerRoleIds = resolveUserRoleIds(peer);
+            if (peerRoleIds.isEmpty()) {
+                continue;
+            }
+            Set<String> peerOps = opSetByUser.getOrDefault(peer.getId(), Set.of());
+            double score = jaccardSimilarity(targetOps, peerOps);
+            if (targetOps.isEmpty()) {
+                score = String.valueOf(target.getDepartment()).equalsIgnoreCase(String.valueOf(peer.getDepartment())) ? 0.35d : 0.08d;
+            }
+            if (String.valueOf(target.getDepartment()).equalsIgnoreCase(String.valueOf(peer.getDepartment()))) {
+                score += 0.10d;
+            }
+            if (String.valueOf(target.getJobTitle()).equalsIgnoreCase(String.valueOf(peer.getJobTitle()))) {
+                score += 0.08d;
+            }
+            for (Long roleId : peerRoleIds) {
+                roleScore.put(roleId, roleScore.getOrDefault(roleId, 0d) + score);
+                supporters.put(roleId, supporters.getOrDefault(roleId, 0) + 1);
+            }
+        }
+
+        Map<Long, Role> roleMap = roleService.list(new QueryWrapper<Role>().eq("company_id", companyId)).stream()
+            .filter(role -> role.getId() != null)
+            .collect(java.util.stream.Collectors.toMap(Role::getId, role -> role, (a, b) -> a));
+
+        List<Map<String, Object>> recommended = roleScore.entrySet().stream()
+            .filter(entry -> roleMap.containsKey(entry.getKey()))
+            .sorted((a, b) -> Double.compare(b.getValue(), a.getValue()))
+            .limit(3)
+            .map(entry -> {
+                Role role = roleMap.get(entry.getKey());
+                int support = supporters.getOrDefault(entry.getKey(), 0);
+                double confidence = Math.min(0.99d, support <= 0 ? 0.0d : (entry.getValue() / support));
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("roleId", role.getId());
+                row.put("roleCode", role.getCode());
+                row.put("roleName", role.getName());
+                row.put("confidence", Math.round(confidence * 1000.0d) / 1000.0d);
+                row.put("supportUsers", support);
+                row.put("score", Math.round(entry.getValue() * 1000.0d) / 1000.0d);
+                return row;
+            })
+            .toList();
+
+        if (recommended.isEmpty()) {
+            Map<Long, Integer> deptRoleCount = new HashMap<>();
+            for (User peer : companyUsers) {
+                if (Objects.equals(peer.getId(), target.getId())) continue;
+                if (!String.valueOf(target.getDepartment()).equalsIgnoreCase(String.valueOf(peer.getDepartment()))) continue;
+                for (Long roleId : resolveUserRoleIds(peer)) {
+                    deptRoleCount.put(roleId, deptRoleCount.getOrDefault(roleId, 0) + 1);
+                }
+            }
+            recommended = deptRoleCount.entrySet().stream()
+                .filter(entry -> roleMap.containsKey(entry.getKey()))
+                .sorted((a, b) -> Integer.compare(b.getValue(), a.getValue()))
+                .limit(3)
+                .map(entry -> {
+                    Role role = roleMap.get(entry.getKey());
+                    Map<String, Object> row = new LinkedHashMap<>();
+                    row.put("roleId", role.getId());
+                    row.put("roleCode", role.getCode());
+                    row.put("roleName", role.getName());
+                    row.put("confidence", 0.3d);
+                    row.put("supportUsers", entry.getValue());
+                    row.put("score", entry.getValue());
+                    return row;
+                })
+                .toList();
+        }
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("userId", target.getId());
+        payload.put("username", target.getUsername());
+        payload.put("department", target.getDepartment());
+        payload.put("jobTitle", target.getJobTitle());
+        payload.put("currentRoleIds", resolveUserRoleIds(target));
+        payload.put("recommendedRoles", recommended);
+        payload.put("basedOnDays", 90);
+        payload.put("sampleUsers", companyUsers.size());
+        payload.put("sampleOperations", targetOps.size());
+        return R.ok(payload);
+    }
+
+    private User resolveRecommendationTarget(String userIdOrUsername, String fallbackUsername, Long companyId) {
+        Long userId = parsePositiveLong(userIdOrUsername);
+        if (userId != null) {
+            User existing = userService.getById(userId);
+            if (existing != null) {
+                if (existing.getCompanyId() == null && companyId != null && companyId > 0L) {
+                    existing.setCompanyId(companyId);
+                    existing.setUpdateTime(new Date());
+                    userService.updateById(existing);
+                }
+                if (Objects.equals(existing.getCompanyId(), companyId)) {
+                    return existing;
+                }
+                User byOriginalUsername = queryCompanyUserByUsername(companyId, existing.getUsername());
+                if (byOriginalUsername != null) {
+                    return byOriginalUsername;
+                }
+            }
+        }
+
+        String candidateUsername = StringUtils.hasText(fallbackUsername)
+            ? fallbackUsername.trim()
+            : (userId == null ? String.valueOf(userIdOrUsername == null ? "" : userIdOrUsername).trim() : null);
+        User byUsername = queryCompanyUserByUsername(companyId, candidateUsername);
+        if (byUsername != null) {
+            return byUsername;
+        }
+        throw new BizException(40400, "目标用户不存在或不在当前公司，请刷新用户列表后重试");
+    }
+
+    private User queryCompanyUserByUsername(Long companyId, String username) {
+        if (!StringUtils.hasText(username)) {
+            return null;
+        }
+        List<User> rows = userService.list(new QueryWrapper<User>()
+            .eq("company_id", companyId)
+            .eq("username", username.trim())
+            .orderByDesc("update_time")
+            .last("limit 1"));
+        return rows.isEmpty() ? null : rows.get(0);
+    }
+
+    private Long parsePositiveLong(String value) {
+        if (!StringUtils.hasText(value)) {
+            return null;
+        }
+        try {
+            long parsed = Long.parseLong(value.trim());
+            return parsed > 0L ? parsed : null;
+        } catch (NumberFormatException ex) {
+            return null;
+        }
     }
 
     @PostMapping("/approve")
@@ -640,5 +818,43 @@ public class UserController {
             return;
         }
         throw new BizException(40300, "当前账号无权执行该操作");
+    }
+
+    private List<Long> resolveUserRoleIds(User user) {
+        if (user == null || user.getId() == null) {
+            return List.of();
+        }
+        List<Long> roleIds = new ArrayList<>();
+        if (user.getRoleId() != null) {
+            roleIds.add(user.getRoleId());
+        }
+        try {
+            List<Long> extra = userRoleService.lambdaQuery().eq(UserRole::getUserId, user.getId()).list().stream()
+                .map(UserRole::getRoleId)
+                .filter(Objects::nonNull)
+                .toList();
+            for (Long roleId : extra) {
+                if (!roleIds.contains(roleId)) {
+                    roleIds.add(roleId);
+                }
+            }
+        } catch (Exception ignored) {
+            // user_role may not be available in legacy environments.
+        }
+        return roleIds;
+    }
+
+    private double jaccardSimilarity(Set<String> left, Set<String> right) {
+        if (left == null || right == null || left.isEmpty() || right.isEmpty()) {
+            return 0d;
+        }
+        Set<String> union = new HashSet<>(left);
+        union.addAll(right);
+        if (union.isEmpty()) {
+            return 0d;
+        }
+        Set<String> inter = new HashSet<>(left);
+        inter.retainAll(right);
+        return (double) inter.size() / union.size();
     }
 }

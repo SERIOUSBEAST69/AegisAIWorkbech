@@ -28,6 +28,42 @@ public interface AiInferenceClient {
     @GetMapping("/metrics")
     Map<String, Object> metrics();
 
+    @GetMapping("/model-lineage")
+    Map<String, Object> modelLineage();
+
+    @GetMapping("/drift/status")
+    Map<String, Object> driftStatus();
+
+    @GetMapping("/explainability/report")
+    Map<String, Object> explainabilityReport();
+
+    @PostMapping("/data-factory/build")
+    Map<String, Object> buildDataFactory(@RequestBody Map<String, Object> payload);
+
+    @PostMapping("/train/factory")
+    Map<String, Object> trainFactory(@RequestBody Map<String, Object> payload);
+
+    @PostMapping("/train/adversarial-feedback")
+    Map<String, Object> trainAdversarialFeedback(@RequestBody Map<String, Object> payload);
+
+    @GetMapping("/model-release/status")
+    Map<String, Object> modelReleaseStatus();
+
+    @GetMapping("/model-release/traffic-stats")
+    Map<String, Object> modelReleaseTrafficStats();
+
+    @PostMapping("/model-release/register-candidate")
+    Map<String, Object> registerModelReleaseCandidate(@RequestBody Map<String, Object> payload);
+
+    @PostMapping("/model-release/promote-canary")
+    Map<String, Object> promoteModelReleaseCanary(@RequestBody Map<String, Object> payload);
+
+    @PostMapping("/model-release/promote-stable")
+    Map<String, Object> promoteModelReleaseStable(@RequestBody Map<String, Object> payload);
+
+    @PostMapping("/model-release/rollback")
+    Map<String, Object> rollbackModelRelease(@RequestBody Map<String, Object> payload);
+
     @GetMapping("/innovation/report")
     Map<String, Object> innovationReport();
 

@@ -37,10 +37,18 @@
           <el-tag :type="statusTagType(scope.row.accountStatus)">{{ scope.row.accountStatus || 'active' }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="300" fixed="right">
+      <el-table-column label="操作" width="420" fixed="right">
         <template #default="scope">
           <el-button v-if="canApproveUser && scope.row.accountStatus === 'pending'" size="small" type="success" @click="approveUser(scope.row.id)">通过</el-button>
           <el-button v-if="canApproveUser && scope.row.accountStatus === 'pending'" size="small" type="warning" @click="rejectUser(scope.row.id)">拒绝</el-button>
+          <el-button
+            v-if="canWriteUser"
+            size="small"
+            type="primary"
+            plain
+            :loading="roleRecommendLoadingUserId === (scope.row.id ? String(scope.row.id) : String(scope.row.username || ''))"
+            @click="viewRoleRecommend(scope.row)"
+          >角色推荐</el-button>
           <el-button v-if="canWriteUser" size="small" @click="openEdit(scope.row)">编辑</el-button>
           <el-button v-if="canWriteUser" size="small" type="danger" @click="deleteUser(scope.row.id)">删除</el-button>
         </template>
@@ -101,6 +109,24 @@
         <el-button type="primary" :loading="saving" @click="updateUser">保存</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="showRoleRecommend" title="角色推荐结果" width="680px">
+      <div v-if="recommendPayload" style="display:grid;gap:10px;">
+        <div><strong>用户：</strong>{{ recommendPayload.username || '-' }}</div>
+        <div><strong>部门/岗位：</strong>{{ recommendPayload.department || '-' }} / {{ recommendPayload.jobTitle || '-' }}</div>
+        <div><strong>样本：</strong>近 {{ recommendPayload.basedOnDays || 90 }} 天，用户 {{ recommendPayload.sampleUsers || 0 }} 人，行为 {{ recommendPayload.sampleOperations || 0 }} 项</div>
+        <el-table :data="recommendPayload.recommendedRoles || []" size="small" empty-text="暂无推荐角色">
+          <el-table-column prop="roleCode" label="角色编码" min-width="120" />
+          <el-table-column prop="roleName" label="角色名称" min-width="140" />
+          <el-table-column prop="confidence" label="置信度" width="100" />
+          <el-table-column prop="supportUsers" label="支持样本" width="100" />
+          <el-table-column prop="score" label="分值" width="100" />
+        </el-table>
+      </div>
+      <template #footer>
+        <el-button @click="showRoleRecommend = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </el-card>
 </template>
 
@@ -118,6 +144,9 @@ const loading = ref(false);
 const saving = ref(false);
 const showAdd = ref(false);
 const showEdit = ref(false);
+const showRoleRecommend = ref(false);
+const roleRecommendLoadingUserId = ref(null);
+const recommendPayload = ref(null);
 
 const query = ref({ username: '', accountStatus: '' });
 const pagination = ref({ current: 1, pageSize: 10, total: 0 });
@@ -342,6 +371,29 @@ async function deleteUser(id) {
     if (err !== 'cancel') {
       ElMessage.error(err?.message || '删除失败');
     }
+  }
+}
+
+async function viewRoleRecommend(row) {
+  const targetId = row?.id ? String(row.id) : '';
+  const targetUsername = row?.username ? String(row.username).trim() : '';
+  const targetKey = targetId || targetUsername;
+  if (!targetKey || roleRecommendLoadingUserId.value === targetKey) {
+    return;
+  }
+  roleRecommendLoadingUserId.value = targetKey;
+  try {
+    const data = await request.get(`/user/role-recommend/${encodeURIComponent(targetKey)}`, {
+      params: {
+        username: targetUsername || undefined,
+      },
+    });
+    recommendPayload.value = data || null;
+    showRoleRecommend.value = true;
+  } catch (err) {
+    ElMessage.error(err?.message || '获取角色推荐失败，请刷新用户列表后重试');
+  } finally {
+    roleRecommendLoadingUserId.value = null;
   }
 }
 

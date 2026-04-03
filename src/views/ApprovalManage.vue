@@ -40,7 +40,9 @@
         <template #default="scope">{{ traceValue(scope.row.reason, 'device') || deviceById(scope.row.applicantId) }}</template>
       </el-table-column>
       <el-table-column prop="assetId" label="资产ID" />
-      <el-table-column prop="reason" label="理由" />
+      <el-table-column label="理由" min-width="180" show-overflow-tooltip>
+        <template #default="scope">{{ cleanReason(scope.row.reason) }}</template>
+      </el-table-column>
       <el-table-column prop="status" label="状态" />
       <el-table-column prop="approverId" label="审批人ID" />
       <el-table-column label="审批账号" min-width="130">
@@ -52,11 +54,21 @@
       <el-table-column label="审批部门" min-width="130">
         <template #default="scope">{{ departmentById(scope.row.approverId) }}</template>
       </el-table-column>
+      <el-table-column label="审批岗位" min-width="130">
+        <template #default="scope">{{ positionById(scope.row.approverId) }}</template>
+      </el-table-column>
+      <el-table-column label="审批公司" min-width="120">
+        <template #default="scope">{{ companyById(scope.row.approverId) }}</template>
+      </el-table-column>
+      <el-table-column label="审批设备" min-width="160" show-overflow-tooltip>
+        <template #default="scope">{{ deviceById(scope.row.approverId) }}</template>
+      </el-table-column>
       <el-table-column label="操作">
         <template #default="scope">
-          <el-button v-if="canApprove" size="small" @click="approve(scope.row, '通过')">通过</el-button>
-          <el-button v-if="canReject" size="small" type="danger" @click="approve(scope.row, '拒绝')">拒绝</el-button>
-          <el-button size="small" type="warning" @click="remove(scope.row.id)" style="margin-left:6px">删除</el-button>
+          <el-button v-if="canApproveRow(scope.row)" size="small" @click="approve(scope.row, '通过')">通过</el-button>
+          <el-button v-if="canRejectRow(scope.row)" size="small" type="danger" @click="approve(scope.row, '拒绝')">拒绝</el-button>
+          <el-button v-if="canDeleteRow(scope.row)" size="small" type="warning" @click="remove(scope.row.id)" style="margin-left:6px">删除</el-button>
+          <span v-if="!canApproveRow(scope.row) && !canRejectRow(scope.row) && !canDeleteRow(scope.row)" class="cell">仅查看</span>
         </template>
       </el-table-column>
     </el-table>
@@ -90,11 +102,17 @@ import { computed, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import request from '../api/request';
 import { useUserStore } from '../store/user';
-import { canApproveApprovalFlow, canRejectApprovalFlow } from '../utils/roleBoundary';
+import {
+  canApproveApprovalFlow,
+  canRejectApprovalFlow,
+  normalizeRoleCode,
+} from '../utils/roleBoundary';
 
 const userStore = useUserStore();
 const canApprove = computed(() => canApproveApprovalFlow(userStore.userInfo));
 const canReject = computed(() => canRejectApprovalFlow(userStore.userInfo));
+const currentUser = computed(() => userStore.userInfo || {});
+const currentRole = computed(() => normalizeRoleCode(currentUser.value));
 const approvals = ref([]);
 const userDirectory = ref(new Map());
 const loading = ref(false);
@@ -247,10 +265,89 @@ function deviceById(id) {
   return user?.deviceId || '-';
 }
 
-function traceValue(reason, key) {
+function parseTrace(reason) {
   const text = String(reason || '');
-  const match = text.match(new RegExp(`${key}=([^\] ]+)`));
-  return match?.[1] || '';
+  const match = text.match(/\[TRACE\s+([^\]]+)\]/i);
+  if (!match?.[1]) {
+    return {};
+  }
+  return match[1]
+    .trim()
+    .split(/\s+/)
+    .reduce((acc, token) => {
+      const idx = token.indexOf('=');
+      if (idx <= 0) {
+        return acc;
+      }
+      const key = token.slice(0, idx);
+      const value = token.slice(idx + 1);
+      if (key) {
+        acc[key] = value;
+      }
+      return acc;
+    }, {});
+}
+
+function cleanReason(reason) {
+  return String(reason || '').replace(/\s*\[TRACE\s+[^\]]+\]\s*$/i, '').trim();
+}
+
+function resolveRequestType(row) {
+  const reason = String(cleanReason(row?.reason || '')).trim().toUpperCase();
+  if (reason.startsWith('[BUSINESS]')) {
+    return 'BUSINESS';
+  }
+  if (reason.startsWith('[PERSONAL]')) {
+    return 'PERSONAL';
+  }
+  if (reason.startsWith('[DATA]')) {
+    return 'DATA';
+  }
+  return row?.assetId == null ? 'BUSINESS' : 'DATA';
+}
+
+function canOperateType(row) {
+  const role = currentRole.value;
+  const type = resolveRequestType(row);
+  if (role === 'ADMIN') {
+    return true;
+  }
+  if (role === 'DATA_ADMIN') {
+    return type === 'DATA';
+  }
+  if (role === 'BUSINESS_OWNER') {
+    return type === 'BUSINESS';
+  }
+  return false;
+}
+
+function canApproveRow(row) {
+  if (!canApprove.value) {
+    return false;
+  }
+  return canOperateType(row);
+}
+
+function canRejectRow(row) {
+  if (!canReject.value) {
+    return false;
+  }
+  return canOperateType(row);
+}
+
+function canDeleteRow(row) {
+  const role = currentRole.value;
+  if (role === 'ADMIN') {
+    return true;
+  }
+  if (role === 'EMPLOYEE') {
+    return currentUser.value?.id != null && currentUser.value.id === row?.applicantId;
+  }
+  return canOperateType(row);
+}
+
+function traceValue(reason, key) {
+  return parseTrace(reason)[key] || '';
 }
 fetchApprovals();
 </script>

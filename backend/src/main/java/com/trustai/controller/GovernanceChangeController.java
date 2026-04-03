@@ -315,7 +315,6 @@ public class GovernanceChangeController {
         return value == null ? "" : String.valueOf(value);
     }
 
-    @SuppressWarnings("unchecked")
     private String enrichPayloadWithTrace(String rawPayload, User operator, String roleCode) {
         Map<String, Object> payload;
         try {

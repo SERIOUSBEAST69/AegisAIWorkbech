@@ -66,6 +66,15 @@
         <el-table-column label="处理部门" min-width="120">
           <template #default="scope">{{ departmentById(scope.row.handlerId) }}</template>
         </el-table-column>
+        <el-table-column label="处理岗位" min-width="120">
+          <template #default="scope">{{ positionById(scope.row.handlerId) }}</template>
+        </el-table-column>
+        <el-table-column label="处理公司" min-width="120">
+          <template #default="scope">{{ companyById(scope.row.handlerId) }}</template>
+        </el-table-column>
+        <el-table-column label="处理设备" min-width="160" show-overflow-tooltip>
+          <template #default="scope">{{ deviceById(scope.row.handlerId) }}</template>
+        </el-table-column>
         <el-table-column label="处理" width="220">
           <template #default="scope">
             <template v-if="canProcessRequest">
@@ -98,7 +107,34 @@ import {
   hasAnyRole,
 } from '../utils/roleBoundary';
 function getSafeComment(comment) {
-  return String(comment || '');
+  return removeTraceSuffix(String(comment || ''));
+}
+
+function parseTrace(comment) {
+  const text = String(comment || '');
+  const match = text.match(/\[TRACE\s+([^\]]+)\]/i);
+  if (!match?.[1]) {
+    return {};
+  }
+  return match[1]
+    .trim()
+    .split(/\s+/)
+    .reduce((acc, token) => {
+      const idx = token.indexOf('=');
+      if (idx <= 0) {
+        return acc;
+      }
+      const key = token.slice(0, idx);
+      const value = token.slice(idx + 1);
+      if (key) {
+        acc[key] = value;
+      }
+      return acc;
+    }, {});
+}
+
+function removeTraceSuffix(comment) {
+  return String(comment || '').replace(/\s*\[TRACE\s+[^\]]+\]\s*$/i, '').trim();
 }
 
 const form = ref({ userId: '', type: 'access', comment: '' });
@@ -193,9 +229,7 @@ function deviceById(id) {
 }
 
 function traceValue(comment, key) {
-  const text = String(comment || '');
-  const match = text.match(new RegExp(`${key}=([^\] ]+)`));
-  return match?.[1] || '';
+  return parseTrace(comment)[key] || '';
 }
 
 async function create() {

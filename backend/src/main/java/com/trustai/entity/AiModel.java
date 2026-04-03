@@ -14,6 +14,8 @@ public class AiModel {
     @TableId(type = IdType.AUTO)
     private Long id;
 
+    private Long companyId;
+
     private String modelName;
     private String modelCode;
     private String provider;
@@ -22,6 +24,7 @@ public class AiModel {
     private String apiKey;
     private String modelType; // chat/embedding/image
     private String riskLevel; // low/medium/high
+    private String isolationLevel; // L0-L4
     private String status;    // enabled/disabled
     private Integer callLimit; // 每日调用限额，0 表示不限
     @TableField("current_calls")

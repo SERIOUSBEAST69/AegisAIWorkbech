@@ -7,8 +7,6 @@ import com.trustai.entity.AiCallLog;
 import com.trustai.entity.AiModel;
 import com.trustai.utils.AesEncryptor;
 import lombok.RequiredArgsConstructor;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 
@@ -23,8 +21,6 @@ import java.util.Objects;
 @RequiredArgsConstructor
 public class AiService {
 
-    private static final Logger log = LoggerFactory.getLogger(AiService.class);
-
     private final AiModelService aiModelService;
     private final AiModelAccessGuardService aiModelAccessGuardService;
     private final RateLimiterService rateLimiterService;
@@ -34,8 +30,9 @@ public class AiService {
 
     public AiCallResponse chat(AiCallRequest request, Long userId, Long companyId, String username, String ip) {
         AiModel model = aiModelService.lambdaQuery()
-                .eq(AiModel::getModelCode, request.getModelCode())
-                .one();
+            .eq(AiModel::getModelCode, request.getModelCode())
+            .eq(companyId != null, AiModel::getCompanyId, companyId)
+            .one();
         aiModelAccessGuardService.validate(model, request.getAssetId(), request.getAccessReason(), mergeRequestText(request));
         String apiKey = aesEncryptor.decrypt(model.getApiKey());
         if (apiKey == null || apiKey.isEmpty()) {
@@ -179,6 +176,7 @@ public class AiService {
         public String getAccess_token() { return access_token; }
     }
 
+    @SuppressWarnings("unused")
     private static class SimpleMsg {
         private final String role;
         private final String content;
@@ -190,6 +188,7 @@ public class AiService {
         public String getContent() { return content; }
     }
 
+    @SuppressWarnings("unused")
     private static class OpenAiPayload {
         private final String model;
         private final List<SimpleMsg> messages;
@@ -201,6 +200,7 @@ public class AiService {
         public List<SimpleMsg> getMessages() { return messages; }
     }
 
+    @SuppressWarnings("unused")
     private static class OpenAiResponse {
         private List<Choice> choices;
         public List<Choice> getChoices() { return choices; }
@@ -212,6 +212,7 @@ public class AiService {
         }
     }
 
+    @SuppressWarnings("unused")
     private static class WenxinPayload {
         private final String model;
         private final List<SimpleMsg> messages;
@@ -223,6 +224,7 @@ public class AiService {
         public List<SimpleMsg> getMessages() { return messages; }
     }
 
+    @SuppressWarnings("unused")
     private static class WenxinResponse {
         private List<Result> result;
         public List<Result> getResult() { return result; }

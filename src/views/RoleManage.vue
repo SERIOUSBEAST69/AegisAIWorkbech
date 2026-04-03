@@ -33,8 +33,8 @@
       <el-table-column prop="description" label="描述" min-width="200" show-overflow-tooltip />
       <el-table-column label="操作" width="260" fixed="right">
         <template #default="scope">
-          <el-button size="small" @click="openEdit(scope.row)">编辑</el-button>
-          <el-button size="small" type="primary" plain @click="openPermissions(scope.row)">权限</el-button>
+          <el-button size="small" :disabled="scope.row.isSystem" @click="openEdit(scope.row)">编辑</el-button>
+          <el-button size="small" type="primary" plain :disabled="scope.row.isSystem" @click="openPermissions(scope.row)">权限</el-button>
           <el-button
             size="small"
             type="danger"
@@ -235,6 +235,10 @@ async function openCreate() {
 }
 
 async function openEdit(role) {
+  if (role?.isSystem) {
+    ElMessage.warning('系统预设角色不允许编辑');
+    return;
+  }
   editing.value = true;
   currentRole.value = role;
   editor.value = {
@@ -291,6 +295,10 @@ async function saveRole() {
 }
 
 async function openPermissions(role) {
+  if (role?.isSystem) {
+    ElMessage.warning('系统预设角色不允许编辑');
+    return;
+  }
   currentRole.value = role;
   await fetchPermissionTree();
   const currentCodes = await request.get(`/roles/${role.id}/permissions`);

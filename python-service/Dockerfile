@@ -17,8 +17,10 @@ RUN pip install --no-cache-dir --default-timeout=1000 \
     --extra-index-url https://download.pytorch.org/whl/cpu \
     -r requirements.txt
 
-# 复制应用代码（包含风险评级、训练、对抗模拟相关脚本）
-COPY app.py gen_behavior_data.py train_anomaly.py openclaw_adversarial.py openclaw_simulator.py ./
+# 复制应用代码（包含风险评级、训练、MLOps、对抗模拟相关脚本）
+COPY app.py gen_behavior_data.py train_anomaly.py train_offline.py finetune_bert.py ./
+COPY data_factory.py model_release_manager.py mlops_registry.py ./
+COPY openclaw_adversarial.py openclaw_simulator.py ./
 COPY ai_risk_data.json ./
 
 # 若已构建好的模型文件存在，复制进镜像（可选：也可在容器启动后训练）

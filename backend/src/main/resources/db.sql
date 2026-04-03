@@ -146,6 +146,7 @@ CREATE TABLE `ai_model` (
   `api_key` VARCHAR(200) COMMENT '密钥（加密存储）',
   `model_type` VARCHAR(50) COMMENT '模型类型',
   `risk_level` VARCHAR(20) COMMENT '风险等级（低/中/高）',
+  `isolation_level` VARCHAR(8) DEFAULT 'L2' COMMENT '隔离等级（L0-L4）',
   `status` VARCHAR(20) DEFAULT 'enabled' COMMENT '状态 enabled/disabled',
   `call_limit` INT DEFAULT 0 COMMENT '每日限额',
   `current_calls` INT DEFAULT 0 COMMENT '当前已调用次数',
@@ -239,6 +240,37 @@ CREATE TABLE `risk_event` (
   INDEX idx_level(`level`),
   INDEX idx_risk_company_status_time(`company_id`,`status`,`create_time`)
 ) COMMENT='风险事件表';
+
+CREATE TABLE `privacy_impact_assessment` (
+  `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+  `company_id` BIGINT NOT NULL,
+  `asset_id` BIGINT NOT NULL,
+  `framework` VARCHAR(32) DEFAULT 'PIPL',
+  `impact_score` INT NOT NULL,
+  `risk_level` VARCHAR(20) NOT NULL,
+  `risk_factors_json` LONGTEXT,
+  `assessed_by` BIGINT,
+  `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP,
+  `update_time` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_dia_company_asset_time(`company_id`,`asset_id`,`create_time`),
+  INDEX idx_dia_company_level_time(`company_id`,`risk_level`,`create_time`)
+) COMMENT='数据资产隐私影响评估';
+
+CREATE TABLE `tenant_health_report` (
+  `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+  `company_id` BIGINT NOT NULL,
+  `check_at` DATETIME NOT NULL,
+  `permission_gaps_json` LONGTEXT,
+  `audit_coverage` DECIMAL(5,2) DEFAULT 0,
+  `privacy_debt_score` INT DEFAULT 0,
+  `risk_metrics_json` LONGTEXT,
+  `status` VARCHAR(20) DEFAULT 'healthy',
+  `created_by` BIGINT,
+  `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP,
+  `update_time` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_tenant_health_company_time(`company_id`,`check_at`),
+  INDEX idx_tenant_health_company_status_time(`company_id`,`status`,`check_at`)
+) COMMENT='租户健康度自检报告';
 
 -- 敏感数据扫描任务
 CREATE TABLE `sensitive_scan_task` (

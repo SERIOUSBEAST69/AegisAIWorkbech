@@ -377,33 +377,6 @@ public class ClientReportController {
         return "low";
     }
 
-    private Long resolveCompanyId(Long headerCompanyId, String osUsername) {
-        if (osUsername != null && !osUsername.isBlank()) {
-            User boundUser = userService.lambdaQuery()
-                .eq(User::getUsername, osUsername)
-                .eq(headerCompanyId != null && headerCompanyId > 0, User::getCompanyId, headerCompanyId)
-                .list()
-                .stream()
-                .findFirst()
-                .orElse(null);
-            if (boundUser != null && boundUser.getCompanyId() != null) {
-                return boundUser.getCompanyId();
-            }
-        }
-        if (headerCompanyId != null && headerCompanyId > 0) {
-            return headerCompanyId;
-        }
-        try {
-            Long fromSession = currentUserService.requireCurrentUser().getCompanyId();
-            if (fromSession != null) {
-                return fromSession;
-            }
-        } catch (Exception ignored) {
-            // unauthenticated reporting is allowed
-        }
-        return clientIngressAuthService.getDefaultCompanyId();
-    }
-
     private User resolveBoundUser(String osUsername, Long headerCompanyId) {
         if (osUsername == null || osUsername.isBlank()) {
             return null;
@@ -416,23 +389,6 @@ public class ClientReportController {
             return null;
         }
         return candidates.get(0);
-    }
-
-    private User resolveRelatedUser(ClientReport report) {
-        if (report == null || report.getCompanyId() == null) {
-            return null;
-        }
-        String osUsername = report.getOsUsername();
-        if (osUsername != null && !osUsername.isBlank()) {
-            User byUsername = userService.lambdaQuery()
-                    .eq(User::getCompanyId, report.getCompanyId())
-                    .eq(User::getUsername, osUsername)
-                    .one();
-            if (byUsername != null) {
-                return byUsername;
-            }
-        }
-        return null;
     }
 
     private String resolveDispositionStatus(ClientReport report) {

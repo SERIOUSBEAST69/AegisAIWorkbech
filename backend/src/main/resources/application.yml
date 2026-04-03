@@ -63,6 +63,17 @@ spring:
         min-idle: 0
         max-wait: 3000ms
 
+  # Spring Boot 3.x canonical Redis namespace; keeps compatibility with existing SPRING_REDIS_* env vars.
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:${SPRING_REDIS_HOST:localhost}}
+      port: ${SPRING_DATA_REDIS_PORT:${SPRING_REDIS_PORT:6379}}
+      password: ${SPRING_DATA_REDIS_PASSWORD:${SPRING_REDIS_PASSWORD:}}
+      timeout: ${SPRING_DATA_REDIS_TIMEOUT:3000ms}
+    elasticsearch:
+      repositories:
+        enabled: ${SPRING_DATA_ELASTICSEARCH_REPOSITORIES_ENABLED:true}
+
   cloud:
     openfeign:
       client:
@@ -74,11 +85,6 @@ spring:
   # Elasticsearch 配置
   elasticsearch:
     uris: ${SPRING_ELASTICSEARCH_URIS:http://localhost:9200}
-
-  data:
-    elasticsearch:
-      repositories:
-        enabled: ${SPRING_DATA_ELASTICSEARCH_REPOSITORIES_ENABLED:true}
 
 # Flowable 配置
 flowable:

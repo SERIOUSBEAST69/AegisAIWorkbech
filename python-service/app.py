@@ -7,6 +7,7 @@ import json
 import logging
 import math
 import os
+import statistics
 import re
 import sqlite3
 import threading
@@ -26,6 +27,9 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from torch import nn
 
+from data_factory import LABELS as FACTORY_LABELS, TrainingDataFactory
+from mlops_registry import build_code_version, build_data_version, load_model_registry_summary, record_model_run
+from model_release_manager import promote_canary, promote_stable, register_candidate, release_status, rollback_to
 from openclaw_adversarial import AttackAgent, BattleArena, DefenseAgent, EFFECTIVENESS_MATRIX, SCENARIOS
 
 app = Flask(__name__)
@@ -56,8 +60,30 @@ if not os.environ.get("HF_ENDPOINT"):
 MODEL_NAME: str = os.environ.get("BERT_MODEL", "bert-base-chinese")
 MODEL_DIR: str = os.environ.get("MODEL_DIR", "./models")
 os.makedirs(MODEL_DIR, exist_ok=True)
+BASE_DIR: Path = Path(__file__).parent
+FACTORY_LATEST_FILE: Path = BASE_DIR / "generated" / "training_data_factory_latest.json"
+DRIFT_RECENT_FILE: Path = Path(MODEL_DIR) / "drift_recent_predictions.json"
+DRIFT_MAX_RECENT: int = int(os.environ.get("DRIFT_MAX_RECENT", "500"))
+DRIFT_ALERT_THRESHOLD: float = float(os.environ.get("DRIFT_ALERT_THRESHOLD", "0.35"))
+RELEASE_TRAFFIC_FILE: Path = Path(MODEL_DIR) / "release_traffic_metrics.json"
+PREDICT_FEEDBACK_FILE: Path = Path(MODEL_DIR) / "prediction_feedback.json"
+DEFAULT_RELEASE_GATE: Dict[str, float] = {"macroF1Min": 0.88, "testAccuracyMin": 0.90}
+
+DATA_FACTORY = TrainingDataFactory(base_dir=str(BASE_DIR), model_dir=MODEL_DIR)
 
 LABELS = ["id_card", "bank_card", "phone", "email", "address", "name", "unknown"]
+if LABELS != FACTORY_LABELS:
+    raise RuntimeError("Factory labels mismatch with app labels")
+
+FEATURE_NAMES: List[str] = [
+    "len_le_20", "len_le_50", "len_le_200", "digit_ratio", "ascii_letter_ratio", "chinese_ratio",
+    "has_id_card_pattern", "has_email_pattern", "has_phone_pattern", "has_bank_pattern",
+    "has_address_pattern", "has_name_suffix_pattern", "max_digit_run_len", "avg_digit_run_len",
+    "has_at_symbol", "has_dash", "has_slash", "has_space", "has_parenthesis",
+    "has_china_region_chars", "has_street_chars", "has_name_keywords", "has_phone_keywords",
+    "has_email_keywords", "has_bank_keywords", "has_id_keywords", "has_address_keywords",
+    "all_digits", "mostly_digits_len_ge_15", "exact_18_with_id_pattern",
+]
 
 # ── Auto-training timeouts ────────────────────────────────────────────────────
 # Maximum wait time (seconds) for subprocess steps during startup auto-training.
@@ -219,6 +245,82 @@ _SEED_SAMPLES: List[Tuple[str, str]] = [
 ]
 
 
+def _load_factory_latest_samples() -> List[Tuple[str, str]]:
+    if not FACTORY_LATEST_FILE.exists():
+        return []
+    try:
+        payload = json.loads(FACTORY_LATEST_FILE.read_text(encoding="utf-8"))
+        raw = payload.get("merged_samples") if isinstance(payload, dict) else []
+        if not isinstance(raw, list):
+            return []
+        rows: List[Tuple[str, str]] = []
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            text = str(item.get("text") or "").strip()
+            label = str(item.get("label") or "unknown").strip()
+            if text and label in LABELS:
+                rows.append((text, label))
+        return rows
+    except Exception:
+        return []
+
+
+def _base_training_samples() -> List[Tuple[str, str]]:
+    generated = _load_factory_latest_samples()
+    if len(generated) >= 80:
+        return generated
+    return list(_SEED_SAMPLES)
+
+
+def _load_dataset_samples(dataset_file: Optional[str] = None) -> Tuple[List[Tuple[str, str]], str]:
+    target = Path(dataset_file) if dataset_file else FACTORY_LATEST_FILE
+    if not target.is_absolute():
+        target = (BASE_DIR / target).resolve()
+    if not target.exists():
+        fallback = _base_training_samples()
+        if fallback:
+            return fallback, "fallback://base_training_samples"
+        raise FileNotFoundError(f"dataset file not found: {target}")
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("dataset file must contain a JSON object")
+
+    raw = payload.get("merged_samples")
+    if not isinstance(raw, list):
+        raw = payload.get("samples")
+    if not isinstance(raw, list):
+        raise ValueError("dataset file missing merged_samples/samples list")
+
+    rows: List[Tuple[str, str]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        text = str(item.get("text") or "").strip()
+        label = str(item.get("label") or "unknown").strip()
+        if text and label in LABELS:
+            rows.append((text, label))
+    if not rows:
+        fallback = _base_training_samples()
+        if fallback:
+            return fallback, "fallback://base_training_samples"
+        raise ValueError("dataset contains no valid {text, label} records")
+    return rows, str(target)
+
+
+def _try_register_release_candidate(metrics: Dict[str, Any]) -> Dict[str, Any]:
+    run_ref = metrics.get("run") if isinstance(metrics, dict) else None
+    if not isinstance(run_ref, dict) or not run_ref.get("runId"):
+        return {"registered": False, "reason": "MISSING_RUN_ID"}
+    candidate = register_candidate(
+        model_key="sensitive_clf",
+        run_id=str(run_ref.get("runId")),
+        metrics=_ml_clf.last_metrics,
+        gate=DEFAULT_RELEASE_GATE,
+    )
+    return {"registered": True, "candidate": candidate}
+
+
 class _MLClassifier:
     """
     Logistic Regression trained on handcrafted features.
@@ -241,6 +343,9 @@ class _MLClassifier:
     def __init__(self) -> None:
         self.pipeline: Optional[Pipeline] = None
         self.last_metrics: Dict = {}
+        self.last_run: Dict = {}
+        self.last_data_version: Dict = {}
+        self.last_gate: Dict = {}
         self._load_or_train()
 
     def _load_or_train(self) -> None:
@@ -256,9 +361,15 @@ class _MLClassifier:
                 return
             except Exception:
                 pass
-        self._train(_SEED_SAMPLES)
+        self._train(_base_training_samples(), run_source="bootstrap_seed")
 
-    def _train(self, samples: List[Tuple[str, str]], eval_split: bool = False) -> Dict:
+    def _train(
+        self,
+        samples: List[Tuple[str, str]],
+        eval_split: bool = False,
+        run_source: str = "runtime_train",
+        source_files: Optional[List[str]] = None,
+    ) -> Dict:
         X = np.array([_extract_features(t) for t, _ in samples])
         y = [lbl for _, lbl in samples]
         result: Dict = {"samples": len(samples)}
@@ -330,7 +441,92 @@ class _MLClassifier:
             self.last_metrics = {"train_accuracy": round(acc, 4)}
 
         joblib.dump({"pipeline": self.pipeline, "metrics": self.last_metrics}, self.CKPT)
+
+        data_version = build_data_version(
+            source_files or [str(FACTORY_LATEST_FILE if FACTORY_LATEST_FILE.exists() else BASE_DIR / "training_samples.json")],
+            extra={"samples": len(samples), "eval_split": eval_split},
+        )
+        code_version = build_code_version(
+            {
+                "lr_c": str(LR_C),
+                "lr_max_iter": str(LR_MAX_ITER),
+                "feature_schema": "v1.0.0",
+                "app_file": __file__,
+            }
+        )
+        gate = {
+            "macro_f1_min": 0.88,
+            "test_accuracy_min": 0.90,
+            "macro_f1": float(self.last_metrics.get("macro_f1", 0.0)),
+            "test_accuracy": float(self.last_metrics.get("test_accuracy", 0.0)),
+        }
+        gate["passed"] = gate["macro_f1"] >= gate["macro_f1_min"] and gate["test_accuracy"] >= gate["test_accuracy_min"]
+
+        run_ref = record_model_run(
+            model_key="sensitive_clf",
+            run_source=run_source,
+            metrics=self.last_metrics,
+            data_summary={
+                "samples": len(samples),
+                "label_counts": dict(collections.Counter(y)),
+                "eval_split": eval_split,
+            },
+            hyper_params={
+                "lr_c": LR_C,
+                "lr_max_iter": LR_MAX_ITER,
+            },
+            artifact_paths=[self.CKPT],
+            notes="ML classifier training run persisted by python-service.",
+            data_version=data_version,
+            code_version=code_version,
+            evaluation_gate=gate,
+            tags=["classifier", "reproducible", "feature-logreg"],
+        )
+        self.last_run = run_ref
+        self.last_data_version = data_version
+        self.last_gate = gate
+        result["run"] = run_ref
+        result["dataVersion"] = data_version
+        result["evaluationGate"] = gate
         return result
+
+    def _explain(self, text: str, label: str, score: float) -> Dict[str, Any]:
+        if self.pipeline is None:
+            return {"available": False, "reason": "PIPELINE_NOT_READY"}
+        try:
+            scaler = self.pipeline.named_steps.get("scaler")
+            clf = self.pipeline.named_steps.get("clf")
+            if scaler is None or clf is None:
+                return {"available": False, "reason": "MISSING_SCALER_OR_CLASSIFIER"}
+            x_raw = np.array([_extract_features(text)], dtype=float)
+            x_scaled = scaler.transform(x_raw)[0]
+            classes = list(clf.classes_)
+            if label not in classes:
+                return {"available": False, "reason": "LABEL_NOT_IN_CLASSES"}
+            idx = classes.index(label)
+            coef = np.array(clf.coef_[idx], dtype=float)
+            contributions = coef * x_scaled
+            ranked = sorted(
+                [
+                    {
+                        "feature": FEATURE_NAMES[i] if i < len(FEATURE_NAMES) else f"f_{i}",
+                        "contribution": round(float(contributions[i]), 6),
+                        "featureValue": round(float(x_raw[0][i]), 6),
+                    }
+                    for i in range(len(contributions))
+                ],
+                key=lambda item: abs(float(item["contribution"])),
+                reverse=True,
+            )
+            return {
+                "available": True,
+                "label": label,
+                "score": round(float(score), 6),
+                "method": "logreg_linear_contribution",
+                "topFeatures": ranked[:5],
+            }
+        except Exception as ex:
+            return {"available": False, "reason": f"EXPLAIN_FAILED:{ex}"}
 
     def predict(self, text: str) -> Dict:
         if self.pipeline is None:
@@ -343,16 +539,24 @@ class _MLClassifier:
             {"label": c, "score": round(float(p), 4)}
             for c, p in sorted(zip(classes, proba), key=lambda kv: -kv[1])
         ]
-        return {
+        score = round(float(max(proba)), 4)
+        result = {
             "label": label,
-            "score": round(float(max(proba)), 4),
+            "score": score,
             "method": "ml_classifier",
             "labelScores": label_scores,
+            "explainability": self._explain(text, label, score),
         }
+        return result
+
+    def train_with_dataset(self, samples: List[Tuple[str, str]], source_files: Optional[List[str]] = None) -> Dict:
+        if not samples:
+            raise ValueError("dataset samples cannot be empty")
+        return self._train(samples, eval_split=True, run_source="factory_dataset_train", source_files=source_files)
 
     def train_more(self, samples: List[Tuple[str, str]]) -> Dict:
-        combined = list(_SEED_SAMPLES) + samples
-        return self._train(combined, eval_split=True)
+        combined = _base_training_samples() + samples
+        return self._train(combined, eval_split=True, run_source="api_incremental_train")
 
 
 _ml_clf = _MLClassifier()
@@ -474,8 +678,13 @@ def classify_text(text: str) -> Dict:
     2. Ensemble: ML + BERT zero-shot  (if zero-shot model loaded)
     3. ML classifier only            (if BERT unavailable)
     """
+    route = _select_release_bucket(text)
+
     if not _BERT_AVAILABLE:
-        return _ml_clf.predict(text)
+        ml_only = _ml_clf.predict(text)
+        ml_only["releaseRouting"] = route
+        _track_release_traffic(ml_only, route)
+        return ml_only
 
     ml_result = _ml_clf.predict(text)
     if _BERT_IS_FINETUNED and callable(_bert_finetuned):
@@ -483,15 +692,23 @@ def classify_text(text: str) -> Dict:
     elif callable(_bert_zero_shot):
         bert_result = _bert_zero_shot(text)
     else:
+        ml_result["releaseRouting"] = route
+        _track_release_traffic(ml_result, route)
         return ml_result
     if ml_result["label"] == bert_result["label"]:
         score = min(1.0, round((ml_result["score"] + bert_result["score"]) / 2 + 0.05, 4))
         method = "ensemble_finetuned" if _BERT_IS_FINETUNED else "ensemble"
-        return {**ml_result, "score": score, "method": method, "bert_score": bert_result["score"]}
+        out = {**ml_result, "score": score, "method": method, "bert_score": bert_result["score"], "releaseRouting": route}
+        _track_release_traffic(out, route)
+        return out
     regex_result = _regex_classify(text)
     if regex_result["label"] != "unknown":
-        return {**ml_result, "method": "ensemble_ml_primary", "bert_score": bert_result["score"]}
-    return {**bert_result, "method": "ensemble_bert_primary", "ml_score": ml_result["score"]}
+        out = {**ml_result, "method": "ensemble_ml_primary", "bert_score": bert_result["score"], "releaseRouting": route}
+        _track_release_traffic(out, route)
+        return out
+    out = {**bert_result, "method": "ensemble_bert_primary", "ml_score": ml_result["score"], "releaseRouting": route}
+    _track_release_traffic(out, route)
+    return out
 
 
 # ── LSTM risk forecaster ───────────────────────────────────────────────────────
@@ -769,12 +986,336 @@ def _run_benchmark() -> Dict:
     }
 
 
+def _load_recent_predictions() -> List[Dict[str, Any]]:
+    if not DRIFT_RECENT_FILE.exists():
+        return []
+    try:
+        with open(DRIFT_RECENT_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, list):
+            return []
+        return [item for item in data if isinstance(item, dict)]
+    except Exception:
+        return []
+
+
+def _save_recent_predictions(items: List[Dict[str, Any]]) -> None:
+    try:
+        with open(DRIFT_RECENT_FILE, "w", encoding="utf-8") as f:
+            json.dump(items[-DRIFT_MAX_RECENT:], f, ensure_ascii=False, indent=2)
+    except Exception as ex:
+        logger.warning("[Drift] Failed to persist recent predictions: %s", ex)
+
+
+def _track_prediction_for_drift(result: Dict[str, Any]) -> None:
+    label = str(result.get("label") or "unknown")
+    score = float(result.get("score") or 0.0)
+    snapshot = _load_recent_predictions()
+    snapshot.append(
+        {
+            "label": label if label in LABELS else "unknown",
+            "score": max(0.0, min(1.0, score)),
+            "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+        }
+    )
+    _save_recent_predictions(snapshot)
+
+
+def _distribution_from_counts(counts: Dict[str, int]) -> Dict[str, float]:
+    total = float(sum(max(0, int(v)) for v in counts.values()))
+    if total <= 0:
+        return {label: 0.0 for label in LABELS}
+    return {label: round(max(0, int(counts.get(label, 0))) / total, 6) for label in LABELS}
+
+
+def _find_latest_run_file_for_model(model_key: str) -> Optional[str]:
+    summary = load_model_registry_summary()
+    for item in summary.get("recentRuns", []):
+        if isinstance(item, dict) and item.get("modelKey") == model_key and item.get("runFile"):
+            return str(item.get("runFile"))
+    return None
+
+
+def _load_baseline_distribution() -> Dict[str, Any]:
+    run_file = _find_latest_run_file_for_model("sensitive_clf")
+    if not run_file:
+        return {
+            "available": False,
+            "reason": "NO_BASELINE_RUN",
+            "distribution": {label: 0.0 for label in LABELS},
+            "runFile": None,
+        }
+    try:
+        with open(run_file, "r", encoding="utf-8") as f:
+            run = json.load(f)
+        data_summary = run.get("dataSummary") if isinstance(run, dict) else {}
+        label_counts = data_summary.get("label_counts") if isinstance(data_summary, dict) else {}
+        if not isinstance(label_counts, dict) or not label_counts:
+            return {
+                "available": False,
+                "reason": "NO_LABEL_COUNTS_IN_BASELINE",
+                "distribution": {label: 0.0 for label in LABELS},
+                "runFile": run_file,
+            }
+        normalized_counts = {label: int(label_counts.get(label, 0)) for label in LABELS}
+        return {
+            "available": True,
+            "reason": "",
+            "distribution": _distribution_from_counts(normalized_counts),
+            "runFile": run_file,
+            "labelCounts": normalized_counts,
+        }
+    except Exception:
+        return {
+            "available": False,
+            "reason": "BASELINE_LOAD_FAILED",
+            "distribution": {label: 0.0 for label in LABELS},
+            "runFile": run_file,
+        }
+
+
+def _calc_recent_distribution(recent: List[Dict[str, Any]]) -> Dict[str, float]:
+    counts: Dict[str, int] = {label: 0 for label in LABELS}
+    for item in recent:
+        label = str(item.get("label") or "unknown")
+        counts[label if label in LABELS else "unknown"] += 1
+    return _distribution_from_counts(counts)
+
+
+def _l1_distance(p: Dict[str, float], q: Dict[str, float]) -> float:
+    return 0.5 * sum(abs(float(p.get(label, 0.0)) - float(q.get(label, 0.0))) for label in LABELS)
+
+
+def _load_json_list(file_path: Path) -> List[Dict[str, Any]]:
+    if not file_path.exists():
+        return []
+    try:
+        payload = json.loads(file_path.read_text(encoding="utf-8"))
+        if not isinstance(payload, list):
+            return []
+        return [item for item in payload if isinstance(item, dict)]
+    except Exception:
+        return []
+
+
+def _save_json_list(file_path: Path, rows: List[Dict[str, Any]], max_size: int = 2000) -> None:
+    try:
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_path.write_text(json.dumps(rows[-max_size:], ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as ex:
+        logger.warning("[MLOps] Failed to persist %s: %s", file_path, ex)
+
+
+def _select_release_bucket(text: str) -> Dict[str, Any]:
+    release = release_status()
+    canary = release.get("canary") if isinstance(release, dict) else None
+    stable = release.get("stable") if isinstance(release, dict) else None
+    traffic = float((canary or {}).get("trafficPercent") or 0.0)
+    normalized = max(0.0, min(100.0, traffic))
+    digest = hashlib.md5((text or "").encode("utf-8")).hexdigest()
+    bucket_number = int(digest[:8], 16) % 100
+    in_canary = canary is not None and bucket_number < int(normalized)
+    bucket = "canary" if in_canary else "stable"
+    return {
+        "bucket": bucket,
+        "bucketNo": bucket_number,
+        "canaryPercent": normalized,
+        "canaryRunId": (canary or {}).get("runId"),
+        "stableRunId": (stable or {}).get("runId"),
+    }
+
+
+def _track_release_traffic(result: Dict[str, Any], route: Dict[str, Any]) -> None:
+    snapshot = _load_json_list(RELEASE_TRAFFIC_FILE)
+    snapshot.append(
+        {
+            "bucket": route.get("bucket"),
+            "label": str(result.get("label") or "unknown"),
+            "score": float(result.get("score") or 0.0),
+            "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+            "canaryRunId": route.get("canaryRunId"),
+            "stableRunId": route.get("stableRunId"),
+        }
+    )
+    _save_json_list(RELEASE_TRAFFIC_FILE, snapshot, max_size=4000)
+
+
+def _build_release_traffic_stats() -> Dict[str, Any]:
+    rows = _load_json_list(RELEASE_TRAFFIC_FILE)
+    if not rows:
+        return {
+            "available": False,
+            "reason": "NO_TRAFFIC_ROWS",
+            "rows": 0,
+            "ab": {},
+        }
+    by_bucket: Dict[str, List[Dict[str, Any]]] = {"stable": [], "canary": []}
+    for row in rows:
+        bucket = str(row.get("bucket") or "stable").lower()
+        if bucket not in by_bucket:
+            continue
+        by_bucket[bucket].append(row)
+    stable_scores = [float(x.get("score") or 0.0) for x in by_bucket["stable"]]
+    canary_scores = [float(x.get("score") or 0.0) for x in by_bucket["canary"]]
+    stable_mean = round(float(statistics.fmean(stable_scores)), 6) if stable_scores else 0.0
+    canary_mean = round(float(statistics.fmean(canary_scores)), 6) if canary_scores else 0.0
+    delta = round(canary_mean - stable_mean, 6)
+    return {
+        "available": True,
+        "rows": len(rows),
+        "stableRows": len(by_bucket["stable"]),
+        "canaryRows": len(by_bucket["canary"]),
+        "ab": {
+            "stableAvgScore": stable_mean,
+            "canaryAvgScore": canary_mean,
+            "scoreDelta": delta,
+            "winner": "canary" if delta > 0.01 else ("stable" if delta < -0.01 else "tie"),
+        },
+    }
+
+
+def _load_feedback_rows() -> List[Dict[str, Any]]:
+    return _load_json_list(PREDICT_FEEDBACK_FILE)
+
+
+def _feedback_confusion(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+    total = 0
+    fp = 0
+    fn = 0
+    correct = 0
+    for row in rows:
+        pred = str(row.get("predictedLabel") or "unknown")
+        truth = str(row.get("trueLabel") or "unknown")
+        if pred not in LABELS:
+            pred = "unknown"
+        if truth not in LABELS:
+            truth = "unknown"
+        total += 1
+        if pred == truth:
+            correct += 1
+        if pred != "unknown" and truth == "unknown":
+            fp += 1
+        if pred == "unknown" and truth != "unknown":
+            fn += 1
+    return {
+        "total": total,
+        "correct": correct,
+        "falsePositive": fp,
+        "falseNegative": fn,
+        "falsePositiveRate": round(fp / total, 6) if total > 0 else 0.0,
+        "falseNegativeRate": round(fn / total, 6) if total > 0 else 0.0,
+        "accuracy": round(correct / total, 6) if total > 0 else 0.0,
+    }
+
+
+def _triad_drift_status(baseline_distribution: Dict[str, float], recent_distribution: Dict[str, float], recent: List[Dict[str, Any]]) -> Dict[str, Any]:
+    label_drift = round(_l1_distance(recent_distribution, baseline_distribution), 6)
+    baseline_unknown = float(baseline_distribution.get("unknown", 0.0))
+    recent_unknown = float(recent_distribution.get("unknown", 0.0))
+    business_kpi_drift = round(abs(recent_unknown - baseline_unknown), 6)
+
+    recent_conf = [float(item.get("score") or 0.0) for item in recent]
+    conf_mean = float(statistics.fmean(recent_conf)) if recent_conf else 0.0
+    base_perf = float(_ml_clf.last_metrics.get("test_accuracy") or _ml_clf.last_metrics.get("train_accuracy") or 0.0)
+    performance_drift = round(abs(conf_mean - base_perf), 6)
+
+    feedback_rows = _load_feedback_rows()
+    confusion = _feedback_confusion(feedback_rows)
+
+    thresholds = {
+        "labelDrift": DRIFT_ALERT_THRESHOLD,
+        "performanceDrift": 0.15,
+        "businessKpiDrift": 0.20,
+    }
+    alert = (
+        label_drift >= thresholds["labelDrift"]
+        or performance_drift >= thresholds["performanceDrift"]
+        or business_kpi_drift >= thresholds["businessKpiDrift"]
+    )
+    return {
+        "labelDrift": label_drift,
+        "performanceDrift": performance_drift,
+        "businessKpiDrift": business_kpi_drift,
+        "thresholds": thresholds,
+        "alert": alert,
+        "feedback": confusion,
+    }
+
+
+def _maybe_auto_rollback_by_drift(drift: Dict[str, Any]) -> Dict[str, Any]:
+    triad = drift.get("triad") if isinstance(drift, dict) else None
+    release = release_status()
+    canary = release.get("canary") if isinstance(release, dict) else None
+    stable = release.get("stable") if isinstance(release, dict) else None
+    if not isinstance(triad, dict) or not triad.get("alert"):
+        return {"triggered": False, "reason": "TRIAD_NOT_ALERT"}
+    if not canary or not stable:
+        return {"triggered": False, "reason": "CANARY_OR_STABLE_MISSING"}
+    stable_run = str(stable.get("runId") or "").strip()
+    if not stable_run:
+        return {"triggered": False, "reason": "STABLE_RUN_MISSING"}
+    try:
+        rollback = rollback_to(stable_run)
+        return {"triggered": True, "rollback": rollback}
+    except Exception as ex:
+        return {"triggered": False, "reason": f"ROLLBACK_FAILED:{ex}"}
+
+
+def build_drift_status() -> Dict[str, Any]:
+    recent = _load_recent_predictions()
+    baseline = _load_baseline_distribution()
+    min_required = min(30, DRIFT_MAX_RECENT)
+    if len(recent) < min_required:
+        return {
+            "available": False,
+            "reason": "INSUFFICIENT_RECENT_PREDICTIONS",
+            "required": min_required,
+            "recentCount": len(recent),
+            "threshold": DRIFT_ALERT_THRESHOLD,
+            "baselineAvailable": bool(baseline.get("available")),
+            "baselineRunFile": baseline.get("runFile"),
+        }
+    if not baseline.get("available"):
+        return {
+            "available": False,
+            "reason": baseline.get("reason") or "BASELINE_NOT_READY",
+            "required": min_required,
+            "recentCount": len(recent),
+            "threshold": DRIFT_ALERT_THRESHOLD,
+            "baselineAvailable": False,
+            "baselineRunFile": baseline.get("runFile"),
+        }
+
+    recent_distribution = _calc_recent_distribution(recent)
+    baseline_distribution = baseline.get("distribution") or {label: 0.0 for label in LABELS}
+    drift_score = round(_l1_distance(recent_distribution, baseline_distribution), 6)
+    avg_conf = round(float(np.mean([float(item.get("score") or 0.0) for item in recent])), 6)
+    triad = _triad_drift_status(baseline_distribution, recent_distribution, recent)
+    auto_rollback = _maybe_auto_rollback_by_drift({"triad": triad})
+    return {
+        "available": True,
+        "reason": "",
+        "threshold": DRIFT_ALERT_THRESHOLD,
+        "driftScore": drift_score,
+        "driftLevel": "high" if drift_score >= DRIFT_ALERT_THRESHOLD else "normal",
+        "alert": drift_score >= DRIFT_ALERT_THRESHOLD,
+        "recentCount": len(recent),
+        "recentAverageConfidence": avg_conf,
+        "recentDistribution": recent_distribution,
+        "baselineDistribution": baseline_distribution,
+        "baselineRunFile": baseline.get("runFile"),
+        "triad": triad,
+        "autoRollback": auto_rollback,
+    }
+
+
 # ── HTTP routes ────────────────────────────────────────────────────────────────
 @app.route("/predict", methods=["POST"])
 def predict():
     payload = request.get_json(force=True) or {}
     text = payload.get("text", "")
     result = classify_text(text)
+    _track_prediction_for_drift(result)
     return jsonify(result)
 
 
@@ -785,6 +1326,8 @@ def batch_predict():
     if not isinstance(texts, list):
         return jsonify({"error": "texts must be a list"}), 400
     results = [classify_text(t) for t in texts]
+    for item in results:
+        _track_prediction_for_drift(item)
     return jsonify({"results": results})
 
 
@@ -821,7 +1364,199 @@ def train():
     if not new_samples:
         return jsonify({"error": f"No valid {{text, label}} pairs. Valid labels: {LABELS}"}), 400
     metrics = _ml_clf.train_more(new_samples)
-    return jsonify({"status": "ok", **metrics})
+    release_candidate = _try_register_release_candidate(metrics)
+    return jsonify({"status": "ok", **metrics, "releaseCandidate": release_candidate})
+
+
+@app.route("/data-factory/build", methods=["POST"])
+def data_factory_build():
+    payload = request.get_json(force=True) or {}
+    factory_result = DATA_FACTORY.build_dataset(
+        backend_base_url=payload.get("backendBaseUrl") or os.environ.get("AEGIS_BACKEND_URL"),
+        username=payload.get("username") or os.environ.get("AEGIS_BACKEND_USER"),
+        password=payload.get("password") or os.environ.get("AEGIS_BACKEND_PASS"),
+        include_adversarial=bool(payload.get("includeAdversarial", True)),
+        max_samples=int(payload.get("maxSamples", 5000)),
+    )
+    return jsonify({"status": "ok", **factory_result})
+
+
+@app.route("/train/factory", methods=["POST"])
+def train_factory_dataset():
+    payload = request.get_json(force=True) or {}
+    dataset_file = payload.get("datasetFile")
+    samples, resolved_file = _load_dataset_samples(dataset_file)
+    metrics = _ml_clf.train_with_dataset(samples, source_files=[resolved_file])
+    release_candidate = _try_register_release_candidate(metrics)
+    return jsonify(
+        {
+            "status": "ok",
+            "datasetFile": resolved_file,
+            "datasetSamples": len(samples),
+            **metrics,
+            "releaseCandidate": release_candidate,
+        }
+    )
+
+
+@app.route("/train/adversarial-feedback", methods=["POST"])
+def train_adversarial_feedback():
+    payload = request.get_json(force=True) or {}
+    build_result = DATA_FACTORY.build_dataset(
+        backend_base_url=payload.get("backendBaseUrl") or os.environ.get("AEGIS_BACKEND_URL"),
+        username=payload.get("username") or os.environ.get("AEGIS_BACKEND_USER"),
+        password=payload.get("password") or os.environ.get("AEGIS_BACKEND_PASS"),
+        include_adversarial=True,
+        max_samples=int(payload.get("maxSamples", 5000)),
+    )
+    samples, resolved_file = _load_dataset_samples(build_result.get("latestFile"))
+    metrics = _ml_clf.train_with_dataset(samples, source_files=[resolved_file, str(BASE_DIR / "report.json")])
+    release_candidate = _try_register_release_candidate(metrics)
+    return jsonify(
+        {
+            "status": "ok",
+            "flow": "adversarial_feedback_retrain",
+            "factory": build_result,
+            "datasetFile": resolved_file,
+            "datasetSamples": len(samples),
+            **metrics,
+            "releaseCandidate": release_candidate,
+        }
+    )
+
+
+@app.route("/model-release/register-candidate", methods=["POST"])
+def model_release_register_candidate():
+    payload = request.get_json(force=True) or {}
+    run_id = payload.get("runId") or ((_ml_clf.last_run or {}).get("runId"))
+    if not run_id:
+        return jsonify({"error": "runId is required when no recent training run exists"}), 400
+    gate = payload.get("gate") if isinstance(payload.get("gate"), dict) else DEFAULT_RELEASE_GATE
+    metrics = payload.get("metrics") if isinstance(payload.get("metrics"), dict) else _ml_clf.last_metrics
+    candidate = register_candidate(model_key="sensitive_clf", run_id=str(run_id), metrics=metrics or {}, gate=gate)
+    return jsonify({"status": "ok", "candidate": candidate})
+
+
+@app.route("/model-release/promote-canary", methods=["POST"])
+def model_release_promote_canary():
+    payload = request.get_json(force=True) or {}
+    candidate_id = str(payload.get("candidateId") or "").strip()
+    if not candidate_id:
+        return jsonify({"error": "candidateId is required"}), 400
+    traffic_percent = float(payload.get("trafficPercent", 10.0))
+    promoted = promote_canary(candidate_id=candidate_id, traffic_percent=traffic_percent)
+    return jsonify({"status": "ok", "canary": promoted, "release": release_status()})
+
+
+@app.route("/model-release/promote-stable", methods=["POST"])
+def model_release_promote_stable():
+    payload = request.get_json(force=True) or {}
+    candidate_id = str(payload.get("candidateId") or "").strip()
+    if not candidate_id:
+        return jsonify({"error": "candidateId is required"}), 400
+    promoted = promote_stable(candidate_id=candidate_id)
+    return jsonify({"status": "ok", "stable": promoted, "release": release_status()})
+
+
+@app.route("/model-release/rollback", methods=["POST"])
+def model_release_rollback():
+    payload = request.get_json(force=True) or {}
+    run_id = str(payload.get("runId") or "").strip()
+    if not run_id:
+        return jsonify({"error": "runId is required"}), 400
+    rolled_back = rollback_to(run_id=run_id)
+    return jsonify({"status": "ok", "stable": rolled_back, "release": release_status()})
+
+
+@app.route("/model-release/status", methods=["GET"])
+def model_release_status():
+    return jsonify(release_status())
+
+
+@app.route("/model-release/traffic-stats", methods=["GET"])
+def model_release_traffic_stats():
+    return jsonify(_build_release_traffic_stats())
+
+
+@app.route("/predict/feedback", methods=["POST"])
+def predict_feedback():
+    payload = request.get_json(force=True) or {}
+    predicted = str(payload.get("predictedLabel") or "unknown").strip()
+    truth = str(payload.get("trueLabel") or "unknown").strip()
+    group = str(payload.get("group") or "default").strip() or "default"
+    if predicted not in LABELS or truth not in LABELS:
+        return jsonify({"error": f"predictedLabel/trueLabel must be within {LABELS}"}), 400
+    rows = _load_feedback_rows()
+    rows.append(
+        {
+            "predictedLabel": predicted,
+            "trueLabel": truth,
+            "group": group,
+            "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+        }
+    )
+    _save_json_list(PREDICT_FEEDBACK_FILE, rows, max_size=5000)
+    return jsonify({"status": "ok", "feedbackStats": _feedback_confusion(rows)})
+
+
+@app.route("/explainability/report", methods=["GET"])
+def explainability_report():
+    if _ml_clf.pipeline is None:
+        return jsonify({"available": False, "reason": "PIPELINE_NOT_READY"})
+    try:
+        clf = _ml_clf.pipeline.named_steps.get("clf")
+        if clf is None:
+            return jsonify({"available": False, "reason": "CLASSIFIER_NOT_READY"})
+        coef = np.array(clf.coef_, dtype=float)
+        global_importance = []
+        for i in range(coef.shape[1]):
+            name = FEATURE_NAMES[i] if i < len(FEATURE_NAMES) else f"f_{i}"
+            global_importance.append({"feature": name, "importance": round(float(np.mean(np.abs(coef[:, i]))), 6)})
+        global_importance = sorted(global_importance, key=lambda x: -x["importance"])[:10]
+
+        recent = _load_recent_predictions()
+        segment_counts: Dict[str, int] = {label: 0 for label in LABELS}
+        for item in recent:
+            lbl = str(item.get("label") or "unknown")
+            segment_counts[lbl if lbl in LABELS else "unknown"] += 1
+
+        feedback_rows = _load_feedback_rows()
+        by_group: Dict[str, List[Dict[str, Any]]] = {}
+        for row in feedback_rows:
+            g = str(row.get("group") or "default")
+            by_group.setdefault(g, []).append(row)
+        fairness = []
+        for group, rows in by_group.items():
+            stats = _feedback_confusion(rows)
+            fairness.append(
+                {
+                    "group": group,
+                    "samples": stats["total"],
+                    "accuracy": stats["accuracy"],
+                    "falsePositiveRate": stats["falsePositiveRate"],
+                    "falseNegativeRate": stats["falseNegativeRate"],
+                }
+            )
+        acc_values = [float(item["accuracy"]) for item in fairness if int(item.get("samples", 0)) > 0]
+        disparity = round(max(acc_values) - min(acc_values), 6) if len(acc_values) >= 2 else 0.0
+        return jsonify(
+            {
+                "available": True,
+                "globalImportance": global_importance,
+                "segmentExplainability": {
+                    "recentPredictionCount": len(recent),
+                    "labelCounts": segment_counts,
+                },
+                "fairness": {
+                    "groupStats": fairness,
+                    "accuracyDisparity": disparity,
+                    "alert": disparity >= 0.15,
+                    "threshold": 0.15,
+                },
+            }
+        )
+    except Exception as ex:
+        return jsonify({"available": False, "reason": f"REPORT_FAILED:{ex}"})
 
 
 @app.route("/metrics", methods=["GET"])
@@ -845,6 +1580,12 @@ def metrics():
     }
     if _ml_clf.last_metrics:
         ml_info["last_train_metrics"] = _ml_clf.last_metrics
+    if _ml_clf.last_run:
+        ml_info["last_train_run"] = _ml_clf.last_run
+
+    model_registry = load_model_registry_summary()
+    release = release_status()
+    drift_status = build_drift_status()
     return jsonify({
         "classifier_stack": [
             {
@@ -886,8 +1627,21 @@ def metrics():
             "cached_series_count": len(_lstm_cache),
             "last_innovation": _last_lstm_innovation,
         },
+        "model_registry": model_registry,
+        "model_release": release,
+        "model_drift": drift_status,
         "benchmark": bench,
     })
+
+
+@app.route("/model-lineage", methods=["GET"])
+def model_lineage():
+    return jsonify(load_model_registry_summary())
+
+
+@app.route("/drift/status", methods=["GET"])
+def drift_status():
+    return jsonify(build_drift_status())
 
 
 @app.route("/innovation/report", methods=["GET"])
@@ -901,6 +1655,9 @@ def innovation_report():
 
 @app.route("/health", methods=["GET"])
 def health():
+    model_registry = load_model_registry_summary()
+    release = release_status()
+    drift = build_drift_status()
     return jsonify({
         "status": "ok",
         "model": MODEL_NAME,
@@ -909,6 +1666,12 @@ def health():
         "bert_fine_tuned": _BERT_IS_FINETUNED,
         "bert_error": _BERT_LOAD_ERROR,
         "ml_classifier_ready": _ml_clf.pipeline is not None,
+        "model_registry_updated_at": model_registry.get("updatedAt"),
+        "model_registry_total_runs": model_registry.get("totalRuns"),
+        "release_stable": release.get("stable"),
+        "release_canary": release.get("canary"),
+        "drift_available": bool(drift.get("available")),
+        "drift_level": drift.get("driftLevel") if drift.get("available") else "unknown",
     })
 
 

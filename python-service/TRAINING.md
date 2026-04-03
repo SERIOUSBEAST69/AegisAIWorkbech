@@ -40,6 +40,48 @@
 
 ## 二、你必须亲自做的事
 
+### 新增：训练谱系与版本可追溯（Phase-1 已实现）
+
+现在每次关键训练都会自动写入模型谱系：
+
+- `models/model_registry.json`：全局注册表（最新版本、最近运行、累计运行次数）
+- `models/model_runs/*.json`：每次训练的不可变运行记录（runId、指标、超参数、数据摘要、产物 SHA256）
+- `GET /model-lineage`：直接查看谱系摘要
+- `GET /metrics`：返回 `model_registry` 字段（方便后端汇聚展示）
+
+已接入谱系记录的训练流程：
+
+- `POST /train`（在线增量训练逻辑回归）
+- `python train_offline.py`（离线分类训练）
+- `python train_anomaly.py`（异常检测 IsolationForest）
+- `python finetune_bert.py`（BERT 微调）
+
+### 新增：生产化训练闭环（Phase-2 已实现）
+
+以下能力已经接入 `app.py`：
+
+- 真实训练数据工厂：
+  - `POST /data-factory/build`
+  - 数据源优先级：后端 API（审计/风险事件/数据资产）> 本地 fallback 文件
+  - 自动合成 hard examples，并可合并对抗报告 `report.json`
+- 训练可复现化：
+  - `POST /train/factory` 使用工厂数据训练
+  - 每次训练记录 `dataVersion` + `codeVersion` + `evaluationGate`
+  - `POST /predict` 与 `POST /batch_predict` 返回 `explainability.topFeatures`
+- 模型注册与发布策略：
+  - `GET /model-release/status`
+  - `POST /model-release/register-candidate`
+  - `POST /model-release/promote-canary`
+  - `POST /model-release/promote-stable`
+  - `POST /model-release/rollback`
+- 对抗反馈闭环：
+  - `POST /train/adversarial-feedback`
+  - 自动执行：构建含对抗样本的数据集 -> 训练 -> 注册候选版本
+
+说明：
+- 发布门禁默认阈值为 `macro_f1 >= 0.88` 且 `test_accuracy >= 0.90`。
+- 当前发布注册表用于治理与发布编排；在线推理默认仍使用本地已加载分类模型。
+
 ### 任务 A：为 ML 分类器收集真实标注数据（最优先）
 
 **目标**：每个敏感类别至少 50 条真实数据样本。
@@ -154,6 +196,9 @@ python app.py
 
 # 查看模型信息和基准测试
 curl http://localhost:5000/metrics
+
+# 查看模型训练谱系（最新版本/最近运行）
+curl http://localhost:5000/model-lineage
 
 # 测试分类
 curl -X POST http://localhost:5000/predict \

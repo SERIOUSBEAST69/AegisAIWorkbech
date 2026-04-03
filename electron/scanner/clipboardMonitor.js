@@ -43,6 +43,7 @@ const DEFAULT_CONFIG = {
   exfilObservationSec: 45,
   configHotReloadSec: 5,
   configVersion: 1,
+  configChecksum: '',
   syncIntervalSec: 60,
   sensitiveKeywords: ['身份证', '银行卡', '手机号', '公司代码'],
   sensitiveFileRules: {
@@ -257,6 +258,7 @@ class ClipboardPrivacyMonitor {
     this.timer = null;
     this.config = { ...DEFAULT_CONFIG };
     this.configVersion = Number(DEFAULT_CONFIG.configVersion || 1);
+    this.configChecksum = String(DEFAULT_CONFIG.configChecksum || '');
     this.lastConfigFetchAt = 0;
     this.auditFilePath = buildAuditFilePath();
   }
@@ -292,13 +294,17 @@ class ClipboardPrivacyMonitor {
     try {
       const resp = await axios.get(`${backendUrl}/api/privacy/config/public`, {
         timeout: 3000,
-        params: { sinceVersion: this.configVersion || 1 },
+        params: {
+          sinceVersion: this.configVersion || 1,
+          sinceChecksum: this.configChecksum || '',
+        },
       });
       const data = resp?.data;
       const payload = data?.data ? data.data : data;
       if (payload && typeof payload === 'object') {
         if (payload.changed === false) {
           this.configVersion = Number(payload.configVersion || this.configVersion || 1);
+          this.configChecksum = String(payload.configChecksum || this.configChecksum || '');
           this.config = {
             ...this.config,
             syncIntervalSec: Number(payload.syncIntervalSec || this.config.syncIntervalSec || 60),
@@ -306,6 +312,7 @@ class ClipboardPrivacyMonitor {
         } else {
           this.config = { ...DEFAULT_CONFIG, ...payload };
           this.configVersion = Number(this.config.configVersion || payload.configVersion || this.configVersion || 1);
+          this.configChecksum = String(this.config.configChecksum || payload.configChecksum || this.configChecksum || '');
         }
       }
     } catch {

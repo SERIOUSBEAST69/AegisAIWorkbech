@@ -170,23 +170,49 @@ public class PrivacyShieldController {
     public R<Map<String, Object>> getConfig() {
         User currentUser = currentUserService.requireCurrentUser();
         touchPolicyPull(currentUser);
-        return R.ok(privacyShieldConfigService.getOrCreateConfig());
+        Map<String, Object> config = new LinkedHashMap<>(privacyShieldConfigService.getOrCreateConfig());
+        config.put("configVersion", privacyShieldConfigService.getConfigVersion());
+        config.put("configChecksum", privacyShieldConfigService.getConfigChecksum());
+        return R.ok(config);
+    }
+
+    @GetMapping("/config/version")
+    public R<Map<String, Object>> getConfigVersion(@RequestParam(required = false) Long sinceVersion,
+                                                   @RequestParam(required = false) String sinceChecksum) {
+        Map<String, Object> config = new LinkedHashMap<>(privacyShieldConfigService.getOrCreateConfig());
+        long version = privacyShieldConfigService.getConfigVersion();
+        String checksum = privacyShieldConfigService.getConfigChecksum();
+        boolean checksumMatched = !StringUtils.hasText(sinceChecksum) || checksum.equalsIgnoreCase(String.valueOf(sinceChecksum));
+        boolean unchanged = sinceVersion != null && sinceVersion >= version && checksumMatched;
+
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("changed", !unchanged);
+        data.put("configVersion", version);
+        data.put("configChecksum", checksum);
+        data.put("syncIntervalSec", config.getOrDefault("syncIntervalSec", 60));
+        touchPolicyPullSafe();
+        return R.ok(data);
     }
 
     @GetMapping("/config/public")
-    public R<Map<String, Object>> getPublicConfig(@RequestParam(required = false) Long sinceVersion) {
+    public R<Map<String, Object>> getPublicConfig(@RequestParam(required = false) Long sinceVersion,
+                                                  @RequestParam(required = false) String sinceChecksum) {
         Map<String, Object> config = new LinkedHashMap<>(privacyShieldConfigService.getOrCreateConfig());
         long version = privacyShieldConfigService.getConfigVersion();
-        if (sinceVersion != null && sinceVersion >= version) {
+        String checksum = privacyShieldConfigService.getConfigChecksum();
+        boolean checksumMatched = !StringUtils.hasText(sinceChecksum) || checksum.equalsIgnoreCase(String.valueOf(sinceChecksum));
+        if (sinceVersion != null && sinceVersion >= version && checksumMatched) {
             Map<String, Object> unchanged = new LinkedHashMap<>();
             unchanged.put("changed", false);
             unchanged.put("configVersion", version);
+            unchanged.put("configChecksum", checksum);
             unchanged.put("syncIntervalSec", config.getOrDefault("syncIntervalSec", 60));
             touchPolicyPullSafe();
             return R.ok(unchanged);
         }
         config.put("changed", true);
         config.put("configVersion", version);
+        config.put("configChecksum", checksum);
         touchPolicyPullSafe();
         return R.ok(config);
     }

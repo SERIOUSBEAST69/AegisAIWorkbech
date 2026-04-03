@@ -33,6 +33,7 @@ public class CompanySchemaInitializer implements CommandLineRunner {
         ensureTenantForeignKeys();
         seedDefaultCompanies();
         bindLegacyUsersToDefaultCompany();
+        backfillLegacySensitiveScanTraceability();
         seedDefaultSodRules();
     }
 
@@ -288,6 +289,7 @@ public class CompanySchemaInitializer implements CommandLineRunner {
         ensureColumn("role", "allow_self_register", "BOOLEAN DEFAULT FALSE");
         ensureColumn("role", "is_system", "BOOLEAN DEFAULT FALSE");
         ensureColumn("permission", "company_id", "BIGINT NOT NULL");
+        ensureColumn("ai_model", "company_id", "BIGINT");
         ensureColumn("data_asset", "company_id", "BIGINT NOT NULL");
         ensureColumn("risk_event", "company_id", "BIGINT NOT NULL");
         ensureColumn("security_event", "company_id", "BIGINT NOT NULL");
@@ -308,6 +310,7 @@ public class CompanySchemaInitializer implements CommandLineRunner {
         ensureColumn("sensitive_scan_task", "company_id", "BIGINT");
         ensureColumn("sensitive_scan_task", "user_id", "BIGINT");
         ensureColumn("sensitive_scan_task", "trace_json", "LONGTEXT");
+        ensureColumn("sensitive_scan_task", "report_data", "LONGTEXT");
     }
 
     private void ensureColumn(String table, String column, String type) {
@@ -385,6 +388,7 @@ public class CompanySchemaInitializer implements CommandLineRunner {
             jdbcTemplate.update("UPDATE sys_user SET account_status = CASE WHEN status = 0 THEN 'disabled' ELSE 'active' END WHERE account_status IS NULL OR account_status = ''");
             jdbcTemplate.update("UPDATE role SET company_id = 1 WHERE company_id IS NULL");
             jdbcTemplate.update("UPDATE permission SET company_id = 1 WHERE company_id IS NULL");
+            jdbcTemplate.update("UPDATE ai_model SET company_id = 1 WHERE company_id IS NULL");
             jdbcTemplate.update("UPDATE approval_request SET company_id = 1 WHERE company_id IS NULL");
             jdbcTemplate.update("UPDATE subject_request SET company_id = 1 WHERE company_id IS NULL");
             jdbcTemplate.update("UPDATE compliance_policy SET company_id = 1 WHERE company_id IS NULL");
@@ -397,6 +401,35 @@ public class CompanySchemaInitializer implements CommandLineRunner {
             jdbcTemplate.update("UPDATE privacy_event SET policy_version = 1 WHERE policy_version IS NULL");
         } catch (Exception ex) {
             log.debug("Skip binding legacy users to default company: {}", ex.getMessage());
+        }
+    }
+
+    private void backfillLegacySensitiveScanTraceability() {
+        try {
+            jdbcTemplate.update("UPDATE sensitive_scan_task t LEFT JOIN sys_user u ON t.user_id = u.id SET t.company_id = COALESCE(t.company_id, u.company_id, 1)");
+            jdbcTemplate.update(
+                "UPDATE sensitive_scan_task t " +
+                    "SET t.user_id = COALESCE(t.user_id, (" +
+                    "SELECT su.id FROM sys_user su WHERE su.company_id = COALESCE(t.company_id, 1) ORDER BY su.id ASC LIMIT 1" +
+                    "))"
+            );
+            jdbcTemplate.update(
+                "UPDATE sensitive_scan_task t " +
+                    "LEFT JOIN sys_user u ON t.user_id = u.id " +
+                    "LEFT JOIN role r ON u.role_id = r.id " +
+                    "SET t.trace_json = JSON_OBJECT(" +
+                    "'username', COALESCE(u.username, '-')," +
+                    "'userId', COALESCE(CAST(u.id AS CHAR), '-')," +
+                    "'role', COALESCE(r.code, '-')," +
+                    "'department', COALESCE(u.department, '-')," +
+                    "'position', COALESCE(u.job_title, '-')," +
+                    "'companyId', COALESCE(CAST(t.company_id AS CHAR), '1')," +
+                    "'device', COALESCE(u.device_id, '-')" +
+                    ") " +
+                    "WHERE t.trace_json IS NULL OR t.trace_json = ''"
+            );
+        } catch (Exception ex) {
+            log.debug("Skip backfill for sensitive_scan_task traceability: {}", ex.getMessage());
         }
     }
 }

@@ -717,7 +717,7 @@ async function establishAndRoute(response) {
   await enforceEmployeeAgreement(user);
   await playCinematicSuccess();
   sessionStorage.setItem('aegis.transition.origin', 'login');
-  const redirect = typeof router.currentRoute.value.query.redirect === 'string' ? router.currentRoute.value.query.redirect : '/';
+  const redirect = '/';
 
   // Use the modern View Transitions API if supported for silky smooth transition
   if (document.startViewTransition) {

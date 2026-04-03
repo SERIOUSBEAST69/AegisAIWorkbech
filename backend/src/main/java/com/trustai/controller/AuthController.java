@@ -626,20 +626,6 @@ public class AuthController {
         return sb.toString();
     }
 
-    private String buildCompanyCode(String companyName) {
-        String base = companyName.toLowerCase().replaceAll("[^a-z0-9]+", "-").replaceAll("^-+|-+$", "");
-        if (!StringUtils.hasText(base)) {
-            base = "tenant";
-        }
-        String candidate = base;
-        int suffix = 1;
-        while (companyService.count(new QueryWrapper<Company>().eq("company_code", candidate)) > 0) {
-            candidate = base + "-" + suffix;
-            suffix++;
-        }
-        return candidate;
-    }
-
     private String resolveUsername(RegisterReq req, String loginType) {
         if (StringUtils.hasText(req.getUsername())) {
             return req.getUsername().trim();

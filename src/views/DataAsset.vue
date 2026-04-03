@@ -118,14 +118,34 @@
           </el-table-column>
           <el-table-column prop="type" label="类型" width="110" />
           <el-table-column prop="sensitivityLevel" label="敏感等级" width="110" />
+          <el-table-column label="DIA" min-width="190">
+            <template #default="scope">
+              <el-space wrap>
+                <el-tag v-if="scope.row.diaRiskLevel" :type="diaTagType(scope.row.diaRiskLevel)">{{ String(scope.row.diaRiskLevel).toUpperCase() }}</el-tag>
+                <span>{{ scope.row.diaScore ?? '-' }}</span>
+                <span class="dia-meta" v-if="scope.row.diaFramework">{{ scope.row.diaFramework }}</span>
+              </el-space>
+            </template>
+          </el-table-column>
           <el-table-column prop="description" label="治理摘要" min-width="350" show-overflow-tooltip>
             <template #default="scope">{{ normalizeDisplayText(scope.row.description) }}</template>
           </el-table-column>
           <el-table-column prop="location" label="位置 / 来源" min-width="220" show-overflow-tooltip />
           <el-table-column prop="createTime" label="创建时间" min-width="170" />
-          <el-table-column v-if="canWriteAsset || canDeleteAsset" label="操作" width="240" fixed="right">
+          <el-table-column v-if="canWriteAsset || canDeleteAsset" label="操作" width="390" fixed="right">
             <template #default="scope">
               <el-button size="small" type="primary" plain @click="viewAssetDetail(scope.row.id)">详情</el-button>
+              <el-button
+                v-if="canWriteAsset"
+                size="small"
+                type="warning"
+                plain
+                :loading="diaRunningAssetId === scope.row.id"
+                @click="runDiaAssess(scope.row)"
+              >
+                DIA评估
+              </el-button>
+              <el-button size="small" plain @click="viewDiaLatest(scope.row)">DIA结果</el-button>
               <el-button v-if="canWriteAsset" size="small" @click="editAsset(scope.row)">编辑</el-button>
               <el-button v-if="canDeleteAsset" size="small" type="danger" @click="deleteAsset(scope.row.id)">删除</el-button>
             </template>
@@ -173,12 +193,30 @@
           <div><strong>负责人：</strong>{{ detailData.ownerId }}</div>
           <div><strong>创建时间：</strong>{{ detailData.createTime }}</div>
           <div><strong>更新时间：</strong>{{ detailData.updateTime }}</div>
+          <div><strong>DIA评分：</strong>{{ detailData.diaScore ?? '—' }}</div>
+          <div><strong>DIA等级：</strong>{{ detailData.diaRiskLevel || '—' }}</div>
+          <div><strong>DIA框架：</strong>{{ detailData.diaFramework || '—' }}</div>
+          <div><strong>DIA时间：</strong>{{ detailData.diaUpdatedAt || '—' }}</div>
           <div class="detail-span"><strong>治理摘要：</strong>{{ normalizeDisplayText(detailData.description) || '—' }}</div>
           <div class="detail-span"><strong>调用次数：</strong>{{ detailData.callCount ?? 0 }}</div>
         </div>
       </el-skeleton>
       <template #footer>
         <el-button @click="showDetail = false">关闭</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="showDiaDetail" title="DIA评估详情" width="560px">
+      <div v-if="diaDetail" class="detail-grid">
+        <div><strong>资产ID：</strong>{{ diaDetail.assetId }}</div>
+        <div><strong>框架：</strong>{{ diaDetail.framework || 'PIPL' }}</div>
+        <div><strong>评分：</strong>{{ diaDetail.impactScore }}</div>
+        <div><strong>等级：</strong>{{ diaDetail.riskLevel || '-' }}</div>
+        <div><strong>更新时间：</strong>{{ diaDetail.updatedAt || '-' }}</div>
+        <div class="detail-span"><strong>因子：</strong>{{ formatDiaFactors(diaDetail.riskFactors) }}</div>
+      </div>
+      <template #footer>
+        <el-button @click="showDiaDetail = false">关闭</el-button>
       </template>
     </el-dialog>
   </div>
@@ -203,6 +241,9 @@ const fileInputRef = ref(null);
 const detailData = ref(null);
 const detailLoading = ref(false);
 const recommendedSensitivityLevel = ref('');
+const diaRunningAssetId = ref(null);
+const showDiaDetail = ref(false);
+const diaDetail = ref(null);
 
 const query = ref({ name: '' });
 const addForm = ref({ name: '', type: '', sensitivityLevel: 'medium', location: '', description: '' });
@@ -367,6 +408,68 @@ async function viewAssetDetail(id) {
   }
 }
 
+async function runDiaAssess(row) {
+  if (!row?.id || diaRunningAssetId.value === row.id) return;
+  diaRunningAssetId.value = row.id;
+  try {
+    const res = await request.post(`/data-asset/${row.id}/privacy-assess`, { framework: 'PIPL' });
+    ElMessage.success(`DIA评估完成：${(res?.riskLevel || '-').toUpperCase()} / ${res?.impactScore ?? '-'} 分`);
+    await fetchAssets();
+    if (detailData.value?.id === row.id && showDetail.value) {
+      detailData.value = await request.get(`/data-asset/${row.id}`);
+    }
+  } catch (err) {
+    ElMessage.error(err?.message || 'DIA评估失败');
+  } finally {
+    diaRunningAssetId.value = null;
+  }
+}
+
+async function viewDiaLatest(row) {
+  if (!row?.id) return;
+  try {
+    const res = await request.get(`/data-asset/${row.id}/privacy-assess/latest`);
+    if (!res?.exists) {
+      ElMessage.warning('该资产暂无DIA评估记录');
+      return;
+    }
+    diaDetail.value = {
+      ...res,
+      riskFactors: parseJsonMaybe(res?.riskFactors),
+    };
+    showDiaDetail.value = true;
+  } catch (err) {
+    ElMessage.error(err?.message || '获取DIA结果失败');
+  }
+}
+
+function parseJsonMaybe(value) {
+  if (!value) return {};
+  if (typeof value === 'object') return value;
+  try {
+    return JSON.parse(String(value));
+  } catch {
+    return { raw: String(value) };
+  }
+}
+
+function formatDiaFactors(value) {
+  const factors = parseJsonMaybe(value);
+  try {
+    return JSON.stringify(factors, null, 2);
+  } catch {
+    return String(value || '{}');
+  }
+}
+
+function diaTagType(level) {
+  const key = String(level || '').toLowerCase();
+  if (key === 'high') return 'danger';
+  if (key === 'medium') return 'warning';
+  if (key === 'low') return 'success';
+  return 'info';
+}
+
 function normalizeDisplayText(text) {
   if (!text) return text;
   return String(text)
@@ -507,6 +610,11 @@ onMounted(async () => {
   margin-top: 8px;
   color: var(--color-text-muted);
   font-size: 13px;
+}
+
+.dia-meta {
+  color: var(--color-text-muted);
+  font-size: 12px;
 }
 
 .detail-grid {

@@ -1,4 +1,4 @@
-# Governance-Admin 8-Issue Closure Report (2026-04-01)
+﻿# Governance-Admin 8-Issue Closure Report (2026-04-01)
 
 ## Scope
 This report closes the 8 governance-admin complaints raised in the latest review cycle, with direct code evidence and post-change validation outcomes.
@@ -187,3 +187,140 @@ This addendum records the follow-up implementation for the 6 additional issues r
 
 ### Runtime Note
 - Some newly added APIs/data-seeding effects require backend runtime refresh (new image/container restart) to be observed in live environment.
+
+---
+
+## Addendum: Continuation Hardening (2026-04-02)
+
+### B1) Risk-event page operation boundary aligned with backend permissions
+- Status: Implemented
+- Change:
+  - Added front-end view/handle split for risk events:
+    - users with `risk:event:view` can query/list;
+    - only users with `risk:event:handle` can create/edit/delete.
+  - Added UX guards and warning prompts for unauthorized operations to avoid false-action attempts.
+- Code:
+  - `src/views/RiskEventManage.vue`
+
+### B2) Subject-request / approval trace parsing robustness and readability
+- Status: Implemented
+- Change:
+  - Replaced fragile trace regex extraction with robust `[TRACE ...]` parser.
+  - Removed TRACE suffix from reason/comment main text display while retaining identity columns for traceability.
+  - Added missing handler/approver trace columns (position/company/device) to complete identity depth.
+- Code:
+  - `src/views/SubjectRequest.vue`
+  - `src/views/ApprovalManage.vue`
+
+### B3) Approval page action buttons now follow row-level authority scope
+- Status: Implemented
+- Change:
+  - Added row-level gating for approve/reject/delete based on role + request-type scope parity with backend behavior.
+  - Non-operable rows render as view-only to reduce noisy 403 responses.
+- Code:
+  - `src/views/ApprovalManage.vue`
+
+---
+
+## Addendum: Final Plan Completion (2026-04-02)
+
+### C1) Risk-event backend duty matrix and trace persistence
+- Status: Implemented
+- Change:
+  - Added SECOPS sub-duty matrix in backend risk-event APIs:
+    - `secops`: full disposal actions;
+    - `secops_2`: no delete / no final close;
+    - `secops_3`: close-review only (no create/delete, update must be final status).
+  - Added mandatory process-log TRACE append on create/update to persist operator snapshot.
+  - Added list ordering by `update_time desc` for operational triage.
+- Code:
+  - `backend/src/main/java/com/trustai/controller/RiskEventController.java`
+
+### C2) Governance observability redesigned to Audit Cockpit style
+- Status: Implemented
+- Change:
+  - Refactored observability landing into cockpit-style visual hierarchy with:
+    - command banner,
+    - KPI strip (risk pressure, health status, audit coverage, AI calls),
+    - signal rail (open risk / pending security / latest health-check timestamp).
+  - Preserved original data pipelines (`/dashboard/workbench`, `/alert-center/stats`, `/ai/monitor/summary`, tenant health APIs).
+  - Added mobile-adaptive cockpit layout and stronger visual identity while keeping chart interactions intact.
+- Code:
+  - `src/views/OpsObservability.vue`
+
+### C3) Risk-event page front-end authority hardening and trace readability
+- Status: Implemented
+- Change:
+  - Added front-end view/handle split and operation guards (query vs create/edit/delete).
+  - Added process-log column with TRACE suffix stripping for clean readability.
+  - Added process-log input in add/edit dialogs to preserve disposal narrative.
+- Code:
+  - `src/views/RiskEventManage.vue`
+
+### Build Validation (Final)
+- Backend compile: passed (`mvn -DskipTests compile`)
+- Frontend build: passed (`npm run build`)
+
+### Runtime Validation (Final)
+- Backend image/container refresh: passed (`docker compose build aegisai-backend` + `docker compose up -d aegisai-backend`)
+- Startup compatibility hotfix: implemented in duplicate-default-role cleanup to support legacy `user` table schema without `company_id`.
+  - Code:
+    - `backend/src/main/java/com/trustai/config/DataInitializer.java`
+- API smoke after restart: passed
+  - `POST /api/auth/login` -> `code=20000`
+  - `GET /api/auth/me` -> `code=20000`
+  - `GET /api/risk-event/list` -> `code=20000`
+  - `GET /api/company/health/latest` -> `code=20000`
+
+### Walkthrough Task Chain Validation (Final)
+- Task `run-walkthrough`: failed
+  - Cause: script attempted `GetNetworkCredential()` on null `AdminCredential` inside script execution context.
+- Task `run-walkthrough2`: failed
+  - Cause: PowerShell execution policy blocked direct script invocation (`PSSecurityException`).
+- Task `run-walkthrough3`: passed (recommended invocation pattern)
+  - Command pattern: `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force` + direct script call with credential.
+  - Executed steps: passed 6/6
+    - Login as admin
+    - Create invite code
+    - Fetch registration options by invite
+    - Register new user with invite code
+    - Validate account visibility
+    - Smoke-check core dashboards
+  - Evidence outputs:
+    - `newUser=walkthrough_20260402192618`
+    - `inviteCode=AEGIS-0B03EA07B7`
+
+---
+
+## Addendum: Plan Closure Delta (2026-04-02)
+
+### D1) Warning-cleanup final sweep
+- Status: Implemented
+- Change:
+  - Completed backend warning-cleanup batch for unused imports/methods/suppressions and null-flow risk paths.
+  - Kept business behavior unchanged; focus was diagnostics hygiene and maintainability.
+- Representative code:
+  - `backend/src/main/java/com/trustai/controller/AiRiskRatingController.java`
+  - `backend/src/main/java/com/trustai/controller/AuthController.java`
+  - `backend/src/main/java/com/trustai/controller/ClientReportController.java`
+  - `backend/src/main/java/com/trustai/service/AiService.java`
+  - `backend/src/main/java/com/trustai/service/RiskDetectionService.java`
+  - `backend/src/main/java/com/trustai/config/EsConfig.java`
+
+### D2) Dependency support-line adjustment
+- Status: Implemented
+- Change:
+  - Updated backend dependency baseline to a stable supported patch line for current project constraints:
+    - `spring-boot.version: 3.3.13`
+    - `spring-cloud.version: 2023.0.5`
+    - `maven-surefire-plugin: 3.5.2`
+  - Revalidated backend compile after the update.
+
+### D3) Current diagnostics residual
+- Remaining item class: lifecycle advisory only (non-compile blocker)
+  - `backend/pom.xml`: Spring Boot 3.3.x OSS support window reminder.
+- No backend Java compile errors observed.
+
+### D4) Verification
+- Backend compile: passed (`mvn clean compile -DskipTests`)
+- Test source compile: passed (`mvn test-compile -DskipTests`)

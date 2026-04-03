@@ -3,6 +3,7 @@ package com.trustai.controller;
 import com.trustai.service.AwardEvidenceService;
 import com.trustai.service.CompanyScopeService;
 import com.trustai.service.ExternalAnchorService;
+import com.trustai.service.NationalAwardReadinessService;
 import com.trustai.utils.R;
 import java.time.LocalDate;
 import java.util.List;
@@ -23,13 +24,16 @@ public class AwardEvidenceController {
     private final AwardEvidenceService awardEvidenceService;
     private final ExternalAnchorService externalAnchorService;
     private final CompanyScopeService companyScopeService;
+    private final NationalAwardReadinessService nationalAwardReadinessService;
 
     public AwardEvidenceController(AwardEvidenceService awardEvidenceService,
                                    ExternalAnchorService externalAnchorService,
-                                   CompanyScopeService companyScopeService) {
+                                   CompanyScopeService companyScopeService,
+                                   NationalAwardReadinessService nationalAwardReadinessService) {
         this.awardEvidenceService = awardEvidenceService;
         this.externalAnchorService = externalAnchorService;
         this.companyScopeService = companyScopeService;
+        this.nationalAwardReadinessService = nationalAwardReadinessService;
     }
 
     @GetMapping("/experiment-report")
@@ -156,6 +160,25 @@ public class AwardEvidenceController {
         return R.ok(awardEvidenceService.buildFixedEvaluationPackage());
     }
 
+    @GetMapping("/readiness/report")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','EXECUTIVE')")
+    public R<Map<String, Object>> readinessReport() {
+        return R.ok(nationalAwardReadinessService.readinessReport());
+    }
+
+    @PostMapping("/readiness/auto-remediate")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
+    public R<Map<String, Object>> autoRemediate(@RequestBody(required = false) AutoRemediateReq req) {
+        boolean dryRun = req == null || req.getDryRun() == null || req.getDryRun();
+        return R.ok(nationalAwardReadinessService.runAutoRemediationNow(dryRun));
+    }
+
+    @GetMapping("/readiness/auto-remediate/last")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','EXECUTIVE')")
+    public R<Map<String, Object>> lastAutoRemediate() {
+        return R.ok(nationalAwardReadinessService.lastAutopilotRun());
+    }
+
     public static class EvidenceRangeReq {
         @DateTimeFormat(pattern = "yyyy-MM-dd")
         private LocalDate from;
@@ -237,6 +260,18 @@ public class AwardEvidenceController {
 
         public void setIncludeJson(Boolean includeJson) {
             this.includeJson = includeJson;
+        }
+    }
+
+    public static class AutoRemediateReq {
+        private Boolean dryRun;
+
+        public Boolean getDryRun() {
+            return dryRun;
+        }
+
+        public void setDryRun(Boolean dryRun) {
+            this.dryRun = dryRun;
         }
     }
 }

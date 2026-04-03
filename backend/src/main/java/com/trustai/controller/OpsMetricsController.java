@@ -80,8 +80,9 @@ public class OpsMetricsController {
     private Long resolveCompanyId(HttpServletRequest request) {
         String companyHeader = request == null ? null : request.getHeader("X-Company-Id");
         if (StringUtils.hasText(companyHeader)) {
+            String normalizedCompanyHeader = companyHeader == null ? "" : companyHeader.trim();
             try {
-                long parsed = Long.parseLong(companyHeader.trim());
+                long parsed = Long.parseLong(normalizedCompanyHeader);
                 if (parsed <= 0L) {
                     throw new NumberFormatException("company id must be positive");
                 }

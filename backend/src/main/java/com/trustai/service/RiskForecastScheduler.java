@@ -93,7 +93,14 @@ public class RiskForecastScheduler {
 
         if (history.isEmpty()) {
             log.warn("[RiskForecastScheduler] No history data, returning zero forecast");
-            return new ForecastResult(Collections.nCopies(HORIZON, 0.0), "empty_history", history, null);
+            return new ForecastResult(
+                Collections.nCopies(HORIZON, 0.0),
+                "empty_history",
+                history,
+                "风险事件历史为空，预测值为 0。请先上传并产生风险事件数据后再观察曲线",
+                true,
+                "degraded"
+            );
         }
 
         // 尝试调用 LSTM 微服务
@@ -103,7 +110,14 @@ public class RiskForecastScheduler {
             req.setHorizon(HORIZON);
             RiskForecastResponse resp = aiInferenceClient.predictRisk(req);
             if (resp != null && resp.getForecast() != null && !resp.getForecast().isEmpty()) {
-                return new ForecastResult(resp.getForecast(), "lstm", history, null);
+                return new ForecastResult(
+                    resp.getForecast(),
+                    "lstm",
+                    history,
+                    "基于真实历史风险事件时序生成",
+                    false,
+                    "real_db"
+                );
             }
         } catch (Exception e) {
             log.warn("[RiskForecastScheduler] Python LSTM unavailable ({}), using moving-average fallback",
@@ -112,8 +126,14 @@ public class RiskForecastScheduler {
 
         // 降级：基于最近窗口斜率的确定性趋势外推（避免水平直线）
         List<Double> fallback = buildTrendFallback(history, HORIZON);
-        return new ForecastResult(fallback, "trend_fallback", history,
-            "Python 微服务不可用，已降级至趋势外推预测");
+        return new ForecastResult(
+            fallback,
+            "trend_fallback",
+            history,
+            "Python 微服务不可用，已降级至趋势外推预测",
+            true,
+            "degraded"
+        );
     }
 
     private List<Double> buildTrendFallback(List<Double> history, int horizon) {
@@ -175,14 +195,21 @@ public class RiskForecastScheduler {
         public final List<Double> forecast;
         public final String method;
         public final List<Double> inputHistory;
+        public final int historyPoints;
         public final String note;
+        public final boolean fallback;
+        public final String _dataSource;
 
         public ForecastResult(List<Double> forecast, String method,
-                              List<Double> inputHistory, String note) {
+                              List<Double> inputHistory, String note,
+                              boolean fallback, String dataSource) {
             this.forecast     = forecast;
             this.method       = method;
             this.inputHistory = inputHistory;
+            this.historyPoints = inputHistory == null ? 0 : inputHistory.size();
             this.note         = note;
+            this.fallback     = fallback;
+            this._dataSource  = dataSource;
         }
     }
 }

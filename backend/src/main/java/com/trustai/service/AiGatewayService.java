@@ -97,9 +97,227 @@ public class AiGatewayService {
         return result;
     }
 
+    public Map<String, Object> modelLineage() {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            Map<String, Object> lineage = aiInferenceClient.modelLineage();
+            result.put("available", true);
+            result.put("fetchedAt", System.currentTimeMillis());
+            result.put("lineage", lineage);
+        } catch (Exception ex) {
+            result.put("available", false);
+            result.put("reason", "PYTHON_SERVICE_UNAVAILABLE");
+            result.put("message", ex.getMessage());
+            result.put("lineage", Map.of());
+        }
+        return result;
+    }
+
+    public Map<String, Object> modelDriftStatus() {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            Map<String, Object> drift = aiInferenceClient.driftStatus();
+            result.put("available", true);
+            result.put("fetchedAt", System.currentTimeMillis());
+            result.put("drift", drift);
+        } catch (Exception ex) {
+            result.put("available", false);
+            result.put("reason", "PYTHON_SERVICE_UNAVAILABLE");
+            result.put("message", ex.getMessage());
+            result.put("drift", Map.of());
+        }
+        return result;
+    }
+
+    public Map<String, Object> explainabilityReport() {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            Map<String, Object> report = aiInferenceClient.explainabilityReport();
+            result.put("available", true);
+            result.put("fetchedAt", System.currentTimeMillis());
+            result.put("report", report);
+        } catch (Exception ex) {
+            result.put("available", false);
+            result.put("reason", "PYTHON_SERVICE_UNAVAILABLE");
+            result.put("message", ex.getMessage());
+            result.put("report", Map.of());
+        }
+        return result;
+    }
+
+    public Map<String, Object> dataFactoryBuild(Map<String, Object> payload) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            Map<String, Object> data = aiInferenceClient.buildDataFactory(payload == null ? Map.of() : payload);
+            result.put("available", true);
+            result.put("fetchedAt", System.currentTimeMillis());
+            result.put("data", data);
+        } catch (Exception ex) {
+            result.put("available", false);
+            result.put("reason", "PYTHON_SERVICE_UNAVAILABLE");
+            result.put("message", ex.getMessage());
+            result.put("data", Map.of());
+        }
+        return result;
+    }
+
+    public Map<String, Object> trainFactory(Map<String, Object> payload) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            Map<String, Object> data = aiInferenceClient.trainFactory(payload == null ? Map.of() : payload);
+            result.put("available", true);
+            result.put("fetchedAt", System.currentTimeMillis());
+            result.put("data", data);
+        } catch (Exception ex) {
+            result.put("available", false);
+            result.put("reason", "PYTHON_SERVICE_UNAVAILABLE");
+            result.put("message", ex.getMessage());
+            result.put("data", Map.of());
+        }
+        return result;
+    }
+
+    public Map<String, Object> trainAdversarialFeedback(Map<String, Object> payload) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            Map<String, Object> data = aiInferenceClient.trainAdversarialFeedback(payload == null ? Map.of() : payload);
+            result.put("available", true);
+            result.put("fetchedAt", System.currentTimeMillis());
+            result.put("data", data);
+        } catch (Exception ex) {
+            result.put("available", false);
+            result.put("reason", "PYTHON_SERVICE_UNAVAILABLE");
+            result.put("message", ex.getMessage());
+            result.put("data", Map.of());
+        }
+        return result;
+    }
+
+    public Map<String, Object> modelReleaseStatus() {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            Map<String, Object> release = aiInferenceClient.modelReleaseStatus();
+            result.put("available", true);
+            result.put("fetchedAt", System.currentTimeMillis());
+            result.put("release", release);
+        } catch (Exception ex) {
+            result.put("available", false);
+            result.put("reason", "PYTHON_SERVICE_UNAVAILABLE");
+            result.put("message", ex.getMessage());
+            result.put("release", Map.of());
+        }
+        return result;
+    }
+
+    public Map<String, Object> modelReleaseTrafficStats() {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            Map<String, Object> stats = aiInferenceClient.modelReleaseTrafficStats();
+            long totalRequests = toLong(
+                firstNonNull(
+                    stats == null ? null : stats.get("totalRequests"),
+                    stats == null ? null : stats.get("requestTotal"),
+                    nested(stats, "traffic", "totalRequests"),
+                    nested(stats, "traffic", "requestTotal"),
+                    nested(stats, "summary", "totalRequests")
+                ),
+                0L
+            );
+            Object buckets = firstNonNull(
+                stats == null ? null : stats.get("buckets"),
+                stats == null ? null : stats.get("bucketStats"),
+                nested(stats, "traffic", "buckets"),
+                nested(stats, "traffic", "bucketStats"),
+                nested(stats, "traffic", "variants")
+            );
+            int bucketCount = toSize(buckets);
+            result.put("available", true);
+            result.put("fetchedAt", System.currentTimeMillis());
+            result.put("traffic", stats);
+            result.put("totalRequests", totalRequests);
+            result.put("bucketCount", bucketCount);
+        } catch (Exception ex) {
+            result.put("available", false);
+            result.put("reason", "PYTHON_SERVICE_UNAVAILABLE");
+            result.put("message", ex.getMessage());
+            result.put("traffic", Map.of());
+            result.put("totalRequests", 0L);
+            result.put("bucketCount", 0);
+        }
+        return result;
+    }
+
+    public Map<String, Object> registerModelReleaseCandidate(Map<String, Object> payload) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            Map<String, Object> data = aiInferenceClient.registerModelReleaseCandidate(payload == null ? Map.of() : payload);
+            result.put("available", true);
+            result.put("fetchedAt", System.currentTimeMillis());
+            result.put("data", data);
+        } catch (Exception ex) {
+            result.put("available", false);
+            result.put("reason", "PYTHON_SERVICE_UNAVAILABLE");
+            result.put("message", ex.getMessage());
+            result.put("data", Map.of());
+        }
+        return result;
+    }
+
+    public Map<String, Object> promoteModelReleaseCanary(Map<String, Object> payload) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            Map<String, Object> data = aiInferenceClient.promoteModelReleaseCanary(payload == null ? Map.of() : payload);
+            result.put("available", true);
+            result.put("fetchedAt", System.currentTimeMillis());
+            result.put("data", data);
+        } catch (Exception ex) {
+            result.put("available", false);
+            result.put("reason", "PYTHON_SERVICE_UNAVAILABLE");
+            result.put("message", ex.getMessage());
+            result.put("data", Map.of());
+        }
+        return result;
+    }
+
+    public Map<String, Object> promoteModelReleaseStable(Map<String, Object> payload) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            Map<String, Object> data = aiInferenceClient.promoteModelReleaseStable(payload == null ? Map.of() : payload);
+            result.put("available", true);
+            result.put("fetchedAt", System.currentTimeMillis());
+            result.put("data", data);
+        } catch (Exception ex) {
+            result.put("available", false);
+            result.put("reason", "PYTHON_SERVICE_UNAVAILABLE");
+            result.put("message", ex.getMessage());
+            result.put("data", Map.of());
+        }
+        return result;
+    }
+
+    public Map<String, Object> rollbackModelRelease(Map<String, Object> payload) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            Map<String, Object> data = aiInferenceClient.rollbackModelRelease(payload == null ? Map.of() : payload);
+            result.put("available", true);
+            result.put("fetchedAt", System.currentTimeMillis());
+            result.put("data", data);
+        } catch (Exception ex) {
+            result.put("available", false);
+            result.put("reason", "PYTHON_SERVICE_UNAVAILABLE");
+            result.put("message", ex.getMessage());
+            result.put("data", Map.of());
+        }
+        return result;
+    }
+
     public Map<String, Object> chat(ChatReq req) {
         Instant begin = Instant.now();
-        AiModel model = aiModelService.lambdaQuery().eq(AiModel::getModelCode, req.getModel()).one();
+        Long companyId = companyScopeService.requireCompanyId();
+        AiModel model = aiModelService.lambdaQuery()
+            .eq(AiModel::getModelCode, req.getModel())
+            .eq(companyId != null, AiModel::getCompanyId, companyId)
+            .one();
         if (!isOfficialModel(model)) {
             throw new BizException(40000, "仅允许使用官方可信5个AI目录中的模型");
         }
@@ -146,7 +364,9 @@ public class AiGatewayService {
     }
 
     public List<Map<String, Object>> modelCatalog() {
+        Long companyId = companyScopeService.requireCompanyId();
         return aiModelService.lambdaQuery()
+            .eq(companyId != null, AiModel::getCompanyId, companyId)
             .eq(AiModel::getStatus, "enabled")
             .list()
             .stream()
@@ -158,6 +378,7 @@ public class AiGatewayService {
                 model.put("modelName", item.getModelName());
                 model.put("provider", item.getProvider());
                 model.put("riskLevel", item.getRiskLevel());
+                model.put("isolationLevel", item.getIsolationLevel() == null ? "L2" : item.getIsolationLevel());
                 model.put("status", item.getStatus());
                 return model;
             })
@@ -347,36 +568,6 @@ public class AiGatewayService {
         return merged;
     }
 
-    private Map<String, Object> buildLocalAdversarialFallback(String scenario,
-                                                               int rounds,
-                                                               Integer seed,
-                                                               Map<String, Object> assessment,
-                                                               Exception ex) {
-        long riskScore = toLong(assessment.get("riskScore"), 0L);
-        String threatLevel = String.valueOf(assessment.getOrDefault("threatLevel", "medium"));
-        Random rng = new Random(seed == null ? System.nanoTime() : seed.longValue());
-        String defender = riskScore >= 60 && rng.nextDouble() > 0.4 ? "attacker" : "defender";
-        String fallbackMode = ex != null && String.valueOf(ex.getMessage()).toLowerCase(Locale.ROOT).contains("timed out")
-            ? "timeout-fallback"
-            : "local-fallback";
-
-        Map<String, Object> battle = buildSyntheticBattle(assessment, rounds, seed, scenario, fallbackMode);
-
-        Map<String, Object> result = new HashMap<>();
-        result.put("scenario", scenario);
-        result.put("rounds", rounds);
-        result.put("seed", seed);
-        result.put("winner", defender);
-        result.put("threatLevel", threatLevel);
-        result.put("score", Math.max(1L, 100L - riskScore));
-        result.put("mode", fallbackMode);
-        result.put("engine", "local-evaluator");
-        result.put("summary", "Python攻防引擎当前不可达，已自动切换到本地策略评估并给出处置建议");
-        result.put("battle", battle);
-        result.put("ok", true);
-        return result;
-    }
-
     private Map<String, Object> buildSyntheticBattle(Map<String, Object> assessment,
                                                      int rounds,
                                                      Integer seed,
@@ -415,7 +606,7 @@ public class AiGatewayService {
             roundList.add(roundPayload);
         }
 
-        String winner = attackerScore > defenderScore ? "攻击方 (OpenClaw-v2)" : "防御方 (AegisAI-Guard)";
+        String winner = attackerScore > defenderScore ? "攻击方" : "防御方";
         Map<String, Object> battle = new HashMap<>();
         battle.put("scenario", scenario);
         battle.put("mode", mode);
@@ -498,7 +689,33 @@ public class AiGatewayService {
         if (value instanceof List<?> list) {
             return list.size();
         }
+        if (value instanceof Map<?, ?> map) {
+            return map.size();
+        }
         return 0;
+    }
+
+    private Object nested(Map<String, Object> root, String parentKey, String childKey) {
+        if (root == null) {
+            return null;
+        }
+        Object parent = root.get(parentKey);
+        if (parent instanceof Map<?, ?> map) {
+            return map.get(childKey);
+        }
+        return null;
+    }
+
+    private Object firstNonNull(Object... values) {
+        if (values == null) {
+            return null;
+        }
+        for (Object value : values) {
+            if (value != null) {
+                return value;
+            }
+        }
+        return null;
     }
 
     private long toLong(Object value, long defaultValue) {

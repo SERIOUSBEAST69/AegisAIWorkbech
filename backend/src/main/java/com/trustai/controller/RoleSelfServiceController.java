@@ -131,6 +131,9 @@ public class RoleSelfServiceController {
     public R<?> updateRole(@PathVariable Long id, @Valid @RequestBody RoleUpsertReq req) {
         User currentUser = requireRoleManageAccess();
         Role role = requireCompanyRole(id, currentUser.getCompanyId());
+        if (Boolean.TRUE.equals(role.getIsSystem())) {
+            throw new BizException(40000, "系统预设角色不允许编辑");
+        }
 
         String code = normalizeRoleCode(req.getCode());
         ensureRoleCodeUnique(currentUser.getCompanyId(), code, role.getId());
@@ -319,6 +322,9 @@ public class RoleSelfServiceController {
     public R<?> updateRolePermissions(@PathVariable Long id, @Valid @RequestBody RolePermissionUpdateReq req) {
         User currentUser = requireRoleManageAccess();
         Role role = requireCompanyRole(id, currentUser.getCompanyId());
+        if (Boolean.TRUE.equals(role.getIsSystem())) {
+            throw new BizException(40000, "系统预设角色不允许编辑");
+        }
         replaceRolePermissions(currentUser.getCompanyId(), role.getId(), req.getPermissionCodes());
         return R.okMsg("权限更新成功");
     }

@@ -10,6 +10,7 @@ public class MybatisSlowSqlInnerInterceptor implements InnerInterceptor {
     private static final long SLOW_SQL_MS = 200;
 
     @Override
+    @SuppressWarnings("rawtypes")
     public void beforeQuery(
         org.apache.ibatis.executor.Executor executor,
         org.apache.ibatis.mapping.MappedStatement ms,
@@ -31,6 +32,7 @@ public class MybatisSlowSqlInnerInterceptor implements InnerInterceptor {
         org.apache.ibatis.mapping.MappedStatement ms,
         Object parameter,
         org.apache.ibatis.session.RowBounds rowBounds,
+        @SuppressWarnings("rawtypes")
         org.apache.ibatis.session.ResultHandler resultHandler,
         org.apache.ibatis.mapping.BoundSql boundSql,
         java.util.List<?> resultList

@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.trustai.entity.SystemConfig;
 import com.trustai.repository.SystemConfigRepository;
 import com.trustai.service.PrivacyShieldConfigService;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -46,7 +48,7 @@ public class PrivacyShieldConfigServiceImpl implements PrivacyShieldConfigServic
         return systemConfigRepository.findByConfigKey(CONFIG_KEY)
                 .map(this::parseConfigSafely)
                 .orElseGet(() -> {
-                    Map<String, Object> defaults = defaultConfig();
+                    Map<String, Object> defaults = stampConfig(defaultConfig());
                     saveConfig(defaults);
                     return defaults;
                 });
@@ -66,6 +68,7 @@ public class PrivacyShieldConfigServiceImpl implements PrivacyShieldConfigServic
         long requestedVersion = toLong(merged.get("configVersion"), currentVersion);
         merged.put("configVersion", Math.max(currentVersion + 1, requestedVersion));
         merged.put("updatedAt", System.currentTimeMillis());
+        merged = stampConfig(merged);
         saveConfig(merged);
         return merged;
     }
@@ -76,11 +79,18 @@ public class PrivacyShieldConfigServiceImpl implements PrivacyShieldConfigServic
         return toLong(getOrCreateConfig().get("configVersion"), 1L);
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public String getConfigChecksum() {
+        return String.valueOf(getOrCreateConfig().getOrDefault("configChecksum", ""));
+    }
+
     private void saveConfig(Map<String, Object> config) {
+        Map<String, Object> normalized = stampConfig(config);
         SystemConfig entity = systemConfigRepository.findByConfigKey(CONFIG_KEY).orElseGet(SystemConfig::new);
         String serialized;
         try {
-            serialized = objectMapper.writeValueAsString(config);
+            serialized = objectMapper.writeValueAsString(normalized);
         } catch (Exception ex) {
             serialized = "{}";
         }
@@ -110,9 +120,9 @@ public class PrivacyShieldConfigServiceImpl implements PrivacyShieldConfigServic
             merged = sanitizeCompetitionConfig(merged);
             merged.put("configVersion", toLong(merged.get("configVersion"), 1L));
             merged.putIfAbsent("updatedAt", System.currentTimeMillis());
-            return merged;
+            return stampConfig(merged);
         } catch (Exception ex) {
-            return defaultConfig();
+            return stampConfig(defaultConfig());
         }
     }
 
@@ -174,7 +184,6 @@ public class PrivacyShieldConfigServiceImpl implements PrivacyShieldConfigServic
         return sanitized;
     }
 
-    @SuppressWarnings("unchecked")
     private List<String> toStringList(Object value) {
         if (value instanceof List<?> list) {
             List<String> out = new ArrayList<>();
@@ -205,6 +214,29 @@ public class PrivacyShieldConfigServiceImpl implements PrivacyShieldConfigServic
             return Long.parseLong(String.valueOf(value));
         } catch (Exception ignored) {
             return defaultValue;
+        }
+    }
+
+    private Map<String, Object> stampConfig(Map<String, Object> config) {
+        Map<String, Object> normalized = new LinkedHashMap<>(config == null ? Map.of() : config);
+        normalized.remove("changed");
+        normalized.remove("configChecksum");
+        normalized.put("configChecksum", checksumOf(normalized));
+        return normalized;
+    }
+
+    private String checksumOf(Map<String, Object> config) {
+        try {
+            String serialized = objectMapper.writeValueAsString(config == null ? Map.of() : config);
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hashed = digest.digest(serialized.getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder(hashed.length * 2);
+            for (byte b : hashed) {
+                sb.append(String.format("%02x", b));
+            }
+            return sb.toString();
+        } catch (Exception ex) {
+            return "";
         }
     }
 }

@@ -245,7 +245,6 @@ public class AiRiskRatingController {
         return R.ok(data);
     }
 
-    @SuppressWarnings("unchecked")
     private List<Map<String, Object>> pendingRequests(Map<String, Object> config, Long companyId) {
         Object raw = config.get("aiWhitelistPending");
         if (!(raw instanceof List<?> list)) {
@@ -264,7 +263,6 @@ public class AiRiskRatingController {
         return result;
     }
 
-    @SuppressWarnings("unchecked")
     private List<String> resolveCompanyWhitelist(Map<String, Object> config, Long companyId) {
         Object raw = config.get("aiWhitelistByCompany");
         if (raw instanceof Map<?, ?> map) {
@@ -277,7 +275,6 @@ public class AiRiskRatingController {
         return toStringList(config.get("aiWhitelist"));
     }
 
-    @SuppressWarnings("unchecked")
     private void setCompanyWhitelist(Map<String, Object> config, Long companyId, List<String> whitelist) {
         Map<String, Object> bucket;
         Object raw = config.get("aiWhitelistByCompany");
@@ -291,7 +288,6 @@ public class AiRiskRatingController {
         config.put("aiWhitelistByCompany", bucket);
     }
 
-    @SuppressWarnings("unchecked")
     private List<String> toStringList(Object value) {
         if (!(value instanceof List<?> list)) {
             return List.of();
@@ -332,7 +328,10 @@ public class AiRiskRatingController {
         }
 
         Map<String, AiModel> official = new LinkedHashMap<>();
-        for (AiModel model : aiModelService.lambdaQuery().eq(AiModel::getStatus, "enabled").list()) {
+        List<AiModel> scopedModels = aiModelService.list(new QueryWrapper<AiModel>()
+            .eq(companyId != null, "company_id", companyId)
+            .eq("status", "enabled"));
+        for (AiModel model : scopedModels) {
             String officialId = officialId(model);
             if (officialId != null && TRUSTED_SERVICE_IDS.contains(officialId) && !official.containsKey(officialId)) {
                 official.put(officialId, model);
@@ -361,7 +360,9 @@ public class AiRiskRatingController {
     private Map<String, Object> buildRiskDetail(String serviceId) {
         LocalDateTime from = LocalDateTime.now().minusDays(30);
         Long companyId = currentUserService.requireCurrentUser().getCompanyId();
-        List<AiModel> models = aiModelService.lambdaQuery().eq(AiModel::getStatus, "enabled").list();
+        List<AiModel> models = aiModelService.list(new QueryWrapper<AiModel>()
+            .eq(companyId != null, "company_id", companyId)
+            .eq("status", "enabled"));
         AiModel hit = null;
         String officialKey = null;
         for (AiModel model : models) {
@@ -404,6 +405,7 @@ public class AiRiskRatingController {
         model.setProvider(officialId);
         model.setModelType("chat");
         model.setRiskLevel("medium");
+        model.setIsolationLevel("L2");
         model.setStatus("enabled");
         return model;
     }
@@ -431,6 +433,7 @@ public class AiRiskRatingController {
         item.put("provider", model.getProvider());
         item.put("logo", officialLogo(officialId));
         item.put("category", categoryFromType(model.getModelType()));
+        item.put("isolation_level", normalizeIsolationLevel(model.getIsolationLevel()));
         item.put("total_risk_score", rs.totalScore);
         item.put("risk_level", rs.level);
         item.put("tags", rs.tags);
@@ -446,6 +449,7 @@ public class AiRiskRatingController {
         detail.put("provider", model.getProvider());
         detail.put("logo", officialLogo(officialId));
         detail.put("category", categoryFromType(model.getModelType()));
+        detail.put("isolation_level", normalizeIsolationLevel(model.getIsolationLevel()));
         detail.put("description", "基于" + WINDOW_LABEL + "真实调用日志计算风险评级，不包含演示数据。");
         detail.put("total_risk_score", rs.totalScore);
         detail.put("risk_level", rs.level);
@@ -485,10 +489,11 @@ public class AiRiskRatingController {
             default -> 8;
         };
 
-        int totalCalls = logs == null ? 0 : logs.size();
+        List<AiCallLog> safeLogs = logs == null ? List.of() : logs;
+        int totalCalls = safeLogs.size();
         int failure = 0;
         long durationSum = 0L;
-        for (AiCallLog log : logs) {
+        for (AiCallLog log : safeLogs) {
             if (!"success".equalsIgnoreCase(String.valueOf(log.getStatus()))) {
                 failure++;
             }
@@ -505,6 +510,7 @@ public class AiRiskRatingController {
         String level = total >= 70 ? "high" : (total >= 40 ? "medium" : "low");
 
         List<String> tags = new ArrayList<>();
+        tags.add("隔离等级" + normalizeIsolationLevel(model.getIsolationLevel()));
         tags.add(WINDOW_LABEL + "调用" + totalCalls + "次");
         tags.add("失败率" + Math.round(failRate * 100) + "%");
         tags.add("平均耗时" + avgDuration + "ms");
@@ -521,6 +527,22 @@ public class AiRiskRatingController {
         if ("image".equals(t)) return "image";
         if ("platform".equals(t)) return "platform";
         return "chat";
+    }
+
+    private String normalizeIsolationLevel(String isolationLevel) {
+        if (isolationLevel == null || isolationLevel.isBlank()) {
+            return "L2";
+        }
+        String value = isolationLevel.trim().toUpperCase(Locale.ROOT);
+        return switch (value) {
+            case "L0", "L1", "L2", "L3", "L4" -> value;
+            case "0" -> "L0";
+            case "1" -> "L1";
+            case "2" -> "L2";
+            case "3" -> "L3";
+            case "4" -> "L4";
+            default -> "L2";
+        };
     }
 
     private String displayName(String officialId, AiModel model) {
