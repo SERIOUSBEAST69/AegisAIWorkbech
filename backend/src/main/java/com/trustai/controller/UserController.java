@@ -76,28 +76,28 @@ public class UserController {
     private static final long MAX_AVATAR_SIZE_BYTES = 2L * 1024 * 1024;
     private static final Set<String> ALLOWED_AVATAR_EXTENSIONS = Set.of(".png", ".jpg", ".jpeg", ".gif", ".webp");
     private static final Set<String> ALLOWED_AVATAR_CONTENT_TYPES = Set.of("image/png", "image/jpeg", "image/gif", "image/webp");
-    private static final Map<String, String> COMPANY_ONE_PRESET_USER_ROLE = Map.ofEntries(
-        Map.entry("admin", "ADMIN"),
-        Map.entry("admin_reviewer", "ADMIN_REVIEWER"),
-        Map.entry("admin_ops", "ADMIN_OPS"),
-        Map.entry("executive", "EXECUTIVE"),
-        Map.entry("executive_2", "EXECUTIVE_OVERVIEW"),
-        Map.entry("executive_3", "EXECUTIVE_COMPLIANCE"),
-        Map.entry("secops", "SECOPS"),
-        Map.entry("secops_2", "SECOPS_TRIAGE"),
-        Map.entry("secops_3", "SECOPS_RESPONDER"),
-        Map.entry("dataadmin", "DATA_ADMIN"),
-        Map.entry("dataadmin_2", "DATA_ADMIN_MAINTAINER"),
-        Map.entry("dataadmin_3", "DATA_ADMIN_APPROVER"),
-        Map.entry("aibuilder", "AI_BUILDER"),
-        Map.entry("aibuilder_2", "AI_BUILDER_PROMPT"),
-        Map.entry("aibuilder_3", "AI_BUILDER_AUDITOR"),
-        Map.entry("bizowner", "BUSINESS_OWNER"),
-        Map.entry("bizowner_2", "BUSINESS_OWNER_APPROVER"),
-        Map.entry("bizowner_3", "BUSINESS_OWNER_REVIEWER"),
-        Map.entry("employee1", "EMPLOYEE"),
-        Map.entry("employee2", "EMPLOYEE_REQUESTER_FULL"),
-        Map.entry("employee3", "EMPLOYEE_OBSERVER")
+    private static final Map<String, List<String>> COMPANY_ONE_PRESET_USER_ROLE = Map.ofEntries(
+        Map.entry("admin", List.of("ADMIN")),
+        Map.entry("admin_reviewer", List.of("ADMIN_REVIEWER", "ADMIN")),
+        Map.entry("admin_ops", List.of("ADMIN_OPS", "ADMIN")),
+        Map.entry("executive", List.of("EXECUTIVE")),
+        Map.entry("executive_2", List.of("EXECUTIVE_OVERVIEW", "EXECUTIVE")),
+        Map.entry("executive_3", List.of("EXECUTIVE_COMPLIANCE", "EXECUTIVE")),
+        Map.entry("secops", List.of("SECOPS")),
+        Map.entry("secops_2", List.of("SECOPS_TRIAGE", "SECOPS")),
+        Map.entry("secops_3", List.of("SECOPS_RESPONDER", "SECOPS")),
+        Map.entry("dataadmin", List.of("DATA_ADMIN")),
+        Map.entry("dataadmin_2", List.of("DATA_ADMIN_MAINTAINER", "DATA_ADMIN")),
+        Map.entry("dataadmin_3", List.of("DATA_ADMIN_APPROVER", "DATA_ADMIN")),
+        Map.entry("aibuilder", List.of("AI_BUILDER")),
+        Map.entry("aibuilder_2", List.of("AI_BUILDER_PROMPT", "AI_BUILDER")),
+        Map.entry("aibuilder_3", List.of("AI_BUILDER_AUDITOR", "AI_BUILDER")),
+        Map.entry("bizowner", List.of("BUSINESS_OWNER")),
+        Map.entry("bizowner_2", List.of("BUSINESS_OWNER_APPROVER", "BUSINESS_OWNER")),
+        Map.entry("bizowner_3", List.of("BUSINESS_OWNER_REVIEWER", "BUSINESS_OWNER")),
+        Map.entry("employee1", List.of("EMPLOYEE")),
+        Map.entry("employee2", List.of("EMPLOYEE_REQUESTER_FULL", "EMPLOYEE")),
+        Map.entry("employee3", List.of("EMPLOYEE_OBSERVER", "EMPLOYEE"))
     );
 
     @Autowired private UserService userService;
@@ -823,8 +823,8 @@ public class UserController {
             }
 
             if (isDefaultCompany) {
-                String expectedRoleCode = COMPANY_ONE_PRESET_USER_ROLE.get(normalizedUsername);
-                Role expectedRole = expectedRoleCode == null ? null : roleByCode.get(expectedRoleCode);
+                List<String> expectedRoleCodes = COMPANY_ONE_PRESET_USER_ROLE.get(normalizedUsername);
+                Role expectedRole = resolvePresetRole(roleByCode, expectedRoleCodes);
                 Long expectedRoleId = expectedRole == null ? null : expectedRole.getId();
                 if (!Objects.equals(user.getRoleId(), expectedRoleId)) {
                     user.setRoleId(expectedRoleId);
@@ -883,6 +883,22 @@ public class UserController {
             return true;
         }
         return !Objects.equals(user.getRoleId(), expectedRoleId);
+    }
+
+    private Role resolvePresetRole(Map<String, Role> roleByCode, List<String> candidateCodes) {
+        if (roleByCode == null || roleByCode.isEmpty() || candidateCodes == null || candidateCodes.isEmpty()) {
+            return null;
+        }
+        for (String candidateCode : candidateCodes) {
+            if (!StringUtils.hasText(candidateCode)) {
+                continue;
+            }
+            Role role = roleByCode.get(candidateCode.trim().toUpperCase(Locale.ROOT));
+            if (role != null) {
+                return role;
+            }
+        }
+        return null;
     }
 
     private void archiveDeletedUser(User target, User operator, String reason) {

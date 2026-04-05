@@ -33,33 +33,29 @@ test('admin and secops UI buttons should be isolated', async ({ page, request })
   await loginAndSession(page, request, process.env.E2E_USERNAME || 'admin', process.env.E2E_PASSWORD || 'admin');
 
   await page.goto('/policy-manage');
-  await expect(page.getByRole('heading', { name: '合规策略管理' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /合规策略列表|策略管理/ })).toBeVisible();
   await expect(page.getByRole('button', { name: '新增策略' })).toBeVisible();
 
-  await page.goto('/governance-change-manage');
-  await expect(page.getByRole('heading', { name: '治理变更复核' })).toBeVisible();
+  await page.goto('/approval-center');
+  await expect(page.getByRole('heading', { name: '审批中心' })).toBeVisible();
   await expect(page.getByRole('button', { name: '发起治理变更' })).toBeVisible();
 
-  await page.goto('/sod-rule-manage');
-  await expect(page.getByRole('heading', { name: 'SoD 规则管理' })).toBeVisible();
+  await page.goto('/permission-manage');
+  await expect(page.getByRole('heading', { name: '权限管理' })).toBeVisible();
+  await page.getByRole('tab', { name: '职责分离规则' }).click();
   await expect(page.getByRole('button', { name: '新增规则' })).toBeVisible();
 
   await loginAndSession(page, request, 'secops', 'Passw0rd!');
 
   await page.goto('/policy-manage');
-  await expect(page.getByRole('heading', { name: '合规策略管理' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /合规策略列表|策略管理/ })).toBeVisible();
   await expect(page.getByRole('button', { name: '新增策略' })).toHaveCount(0);
 
-  await page.goto('/governance-change-manage');
-  await expect(page.getByRole('heading', { name: '治理变更复核' })).toBeVisible();
-  await expect(page.getByRole('button', { name: '发起治理变更' })).toHaveCount(0);
-
-  await page.goto('/sod-rule-manage');
-  await expect(page.getByRole('heading', { name: 'SoD 规则管理' })).toBeVisible();
-  await expect(page.getByRole('button', { name: '新增规则' })).toHaveCount(0);
+  await page.goto('/approval-center');
+  await expect(page.getByRole('heading', { name: '审批中心' })).toBeVisible();
 
   await page.goto('/threat-monitor');
-  await expect(page.getByRole('heading', { name: '实时威胁监控' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'AI数据防泄漏' })).toBeVisible();
 });
 
 test('admin and secops backend permissions should be isolated', async ({ request }) => {

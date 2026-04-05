@@ -195,6 +195,30 @@ const editRules = {
   accountStatus: [{ required: true, message: '账号状态不能为空', trigger: 'change' }],
 };
 
+const presetRoleLabelByUsername = Object.freeze({
+  admin: '治理管理员 (ADMIN)',
+  admin_reviewer: '治理复核员 (ADMIN_REVIEWER)',
+  admin_ops: '治理运维 (ADMIN_OPS)',
+  executive: '管理层 (EXECUTIVE)',
+  executive_2: '管理层 (EXECUTIVE)',
+  executive_3: '管理层 (EXECUTIVE)',
+  secops: '安全运维 (SECOPS)',
+  secops_2: '安全运维 (SECOPS)',
+  secops_3: '安全运维 (SECOPS)',
+  dataadmin: '数据管理员 (DATA_ADMIN)',
+  dataadmin_2: '数据管理员 (DATA_ADMIN)',
+  dataadmin_3: '数据管理员 (DATA_ADMIN)',
+  aibuilder: 'AI应用开发者 (AI_BUILDER)',
+  aibuilder_2: 'AI应用开发者 (AI_BUILDER)',
+  aibuilder_3: 'AI应用开发者 (AI_BUILDER)',
+  bizowner: '业务负责人 (BUSINESS_OWNER)',
+  bizowner_2: '业务负责人 (BUSINESS_OWNER)',
+  bizowner_3: '业务负责人 (BUSINESS_OWNER)',
+  employee1: '普通员工 (EMPLOYEE)',
+  employee2: '普通员工 (EMPLOYEE)',
+  employee3: '普通员工 (EMPLOYEE)',
+});
+
 function statusTagType(status) {
   if (status === 'pending') return 'warning';
   if (status === 'active') return 'success';
@@ -210,7 +234,12 @@ function roleLabels(user) {
     .map(id => roleIndex.value[id])
     .filter(Boolean)
     .map(role => `${role.name} (${role.code})`);
-  return labels.length > 0 ? labels : ['待分配'];
+  if (labels.length > 0) {
+    return labels;
+  }
+  const username = String(user?.username || '').trim().toLowerCase();
+  const presetLabel = presetRoleLabelByUsername[username];
+  return presetLabel ? [presetLabel] : ['待分配'];
 }
 
 function displayRealName(user) {

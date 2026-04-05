@@ -12,8 +12,8 @@
     </template>
 
     <el-tabs v-model="activeTab" @tab-change="onTabChange" class="approval-tabs">
-      <el-tab-pane v-if="canReview" name="todo" label="待我审批" />
-      <el-tab-pane v-if="canSubmit" name="mine" label="我发起" />
+      <el-tab-pane v-if="showTodoTab" name="todo" label="待我审批" />
+      <el-tab-pane v-if="showMineTab" name="mine" label="我发起" />
     </el-tabs>
 
     <div class="metrics-row">
@@ -198,7 +198,7 @@ import {
   submitGovernanceChange,
 } from '../api/approvalCenter';
 import { getSession } from '../utils/auth';
-import { canReviewGovernanceChange, canSubmitGovernanceChange } from '../utils/roleBoundary';
+import { canReviewGovernanceChange, canSubmitGovernanceChange, normalizeRoleCode } from '../utils/roleBoundary';
 
 const activeTab = ref('todo');
 const query = ref({ status: 'pending', module: '', keyword: '' });
@@ -219,6 +219,17 @@ const submitForm = ref({ module: 'ROLE', action: 'ADD', targetId: null, payloadJ
 
 const canSubmit = computed(() => canSubmitGovernanceChange(getSession()?.user));
 const canReview = computed(() => canReviewGovernanceChange(getSession()?.user));
+const roleCode = computed(() => normalizeRoleCode(getSession()?.user));
+const showTodoTab = computed(() => {
+  if (roleCode.value === 'ADMIN') return false;
+  if (roleCode.value === 'ADMIN_REVIEWER') return true;
+  return canReview.value;
+});
+const showMineTab = computed(() => {
+  if (roleCode.value === 'ADMIN') return true;
+  if (roleCode.value === 'ADMIN_REVIEWER') return false;
+  return canSubmit.value;
+});
 const pendingCount = computed(() => rows.value.filter(item => String(item?.status || '').toLowerCase() === 'pending').length);
 const doneCount = computed(() => rows.value.filter(item => {
   const status = String(item?.status || '').toLowerCase();
@@ -270,10 +281,10 @@ function syncViewport() {
 }
 
 function onTabChange() {
-  if (activeTab.value === 'todo' && !canReview.value && canSubmit.value) {
+  if (activeTab.value === 'todo' && !showTodoTab.value && showMineTab.value) {
     activeTab.value = 'mine';
   }
-  if (activeTab.value === 'mine' && !canSubmit.value && canReview.value) {
+  if (activeTab.value === 'mine' && !showMineTab.value && showTodoTab.value) {
     activeTab.value = 'todo';
   }
   pagination.value.current = 1;
@@ -315,14 +326,14 @@ async function fetchList() {
   try {
     let data;
     if (activeTab.value === 'todo') {
-      if (!canReview.value) {
+      if (!showTodoTab.value) {
         rows.value = [];
         pagination.value.total = 0;
         return;
       }
       data = await fetchTodoPage(getListParams());
     } else {
-      if (!canSubmit.value) {
+      if (!showMineTab.value) {
         rows.value = [];
         pagination.value.total = 0;
         return;
@@ -509,13 +520,12 @@ function submitRequest() {
 onMounted(() => {
   syncViewport();
   window.addEventListener('resize', syncViewport, { passive: true });
-  if (canReview.value) {
+  if (showTodoTab.value) {
     activeTab.value = 'todo';
-    query.value.status = 'pending';
-  } else if (canSubmit.value) {
+  } else if (showMineTab.value) {
     activeTab.value = 'mine';
-    query.value.status = '';
   }
+  query.value.status = activeTab.value === 'todo' ? 'pending' : '';
   fetchList();
 });
 

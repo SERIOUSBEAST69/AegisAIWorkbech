@@ -72,8 +72,7 @@ test('governance admin pages and key buttons should keep session alive', async (
     '/data-asset',
     '/sensitive-scan',
     '/approval-manage',
-    '/governance-change-manage',
-    '/sod-rule-manage',
+    '/approval-center',
     '/policy-manage',
     '/user-manage',
     '/role-manage',
@@ -90,12 +89,18 @@ test('governance admin pages and key buttons should keep session alive', async (
   for (const route of routes) {
     await page.goto(route);
     await assertSessionAlive(page, route);
+    if (route === '/permission-manage') {
+      const sodTab = page.getByRole('tab', { name: '职责分离规则' }).first();
+      if (await sodTab.isVisible().catch(() => false)) {
+        await sodTab.click();
+      }
+    }
     await doCommonOps(page);
     await assertSessionAlive(page, route);
   }
 
-  await page.goto('/governance-change-manage');
-  await assertSessionAlive(page, '/governance-change-manage');
+  await page.goto('/approval-center');
+  await assertSessionAlive(page, '/approval-center');
 
   const canOpenSubmit = await clickButtonIfVisible(page, /发起治理变更/);
   if (canOpenSubmit) {
@@ -115,6 +120,6 @@ test('governance admin pages and key buttons should keep session alive', async (
     }
   }
 
-  await assertSessionAlive(page, '/governance-change-manage-submit');
+  await assertSessionAlive(page, '/approval-center-submit');
   expect(badResponses, `unexpected unauthorized/server errors: ${JSON.stringify(badResponses)}`).toEqual([]);
 });

@@ -2,22 +2,17 @@ import { createRouter, createWebHistory } from 'vue-router';
 
 import Home from '../views/Home.vue';
 import DataAsset from '../views/DataAsset.vue';
-import AuditLog from '../views/AuditLog.vue';
-import AuditReport from '../views/AuditReport.vue';
+import AuditCenter from '../views/AuditCenter.vue';
 import UserManage from '../views/UserManage.vue';
 import RoleManage from '../views/RoleManage.vue';
 import PermissionManage from '../views/PermissionManage.vue';
 import SecurityCommand from '../views/SecurityCommand.vue';
 import RiskEventManage from '../views/RiskEventManage.vue';
 import OpsObservability from '../views/OpsObservability.vue';
-import ApprovalManage from '../views/ApprovalManage.vue';
-import ApprovalCenter from '../views/ApprovalCenter.vue';
-import GovernanceChangeManage from '../views/GovernanceChangeManage.vue';
-import SodRuleManage from '../views/SodRuleManage.vue';
+import ApprovalCenterHub from '../views/ApprovalCenterHub.vue';
 import PolicyManage from '../views/PolicyManage.vue';
-import SensitiveScan from '../views/SensitiveScan.vue';
+import SensitiveDataGovernance from '../views/SensitiveDataGovernance.vue';
 import SubjectRequest from '../views/SubjectRequest.vue';
-import DesensePreview from '../views/DesensePreview.vue';
 import Login from '../views/Login.vue';
 import Profile from '../views/Profile.vue';
 import Settings from '../views/Settings.vue';
@@ -47,22 +42,22 @@ const routes = [
   { path: '/login', name: 'Login', component: Login, meta: { public: true, depth: 0 } },
   { path: '/', name: 'Home', component: Home, meta: { depth: 1 } },
   { path: '/data-asset', name: 'DataAsset', component: DataAsset, meta: { depth: 2 } },
-  { path: '/audit-log', name: 'AuditLog', component: AuditLog, meta: { depth: 2, permission: 'audit:log:view' } },
-  { path: '/audit-report', name: 'AuditReport', component: AuditReport, meta: { depth: 2, permission: 'audit:report:view' } },
+  { path: '/audit-center', name: 'AuditCenter', component: AuditCenter, meta: { depth: 2, permission: 'audit:log:view' } },
+  { path: '/audit-log', redirect: to => ({ path: '/audit-center', query: to.query }) },
+  { path: '/audit-report', redirect: to => ({ path: '/audit-center', query: to.query }) },
   { path: '/user-manage', name: 'UserManage', component: UserManage, meta: { depth: 3, permission: 'user:manage' } },
   { path: '/role-manage', name: 'RoleManage', component: RoleManage, meta: { depth: 3, permission: 'role:manage' } },
   { path: '/permission-manage', name: 'PermissionManage', component: PermissionManage, meta: { depth: 3, permission: 'permission:manage' } },
   { path: '/operations-command', name: 'SecurityCommand', component: SecurityCommand, meta: { depth: 3 } },
   { path: '/ops-observability', name: 'OpsObservability', component: OpsObservability, meta: { depth: 3 } },
-  { path: '/approval-manage', name: 'ApprovalManage', component: ApprovalManage, meta: { depth: 3 } },
-  { path: '/approval-center', name: 'ApprovalCenter', component: ApprovalCenter, meta: { depth: 3 } },
-  { path: '/governance-change-manage', name: 'GovernanceChangeManage', component: GovernanceChangeManage, meta: { depth: 3 } },
-  { path: '/sod-rule-manage', name: 'SodRuleManage', component: SodRuleManage, meta: { depth: 3 } },
+  { path: '/approval-center', name: 'ApprovalCenter', component: ApprovalCenterHub, meta: { depth: 3 } },
+  { path: '/approval-manage', redirect: to => ({ path: '/approval-center', query: to.query }) },
   { path: '/policy-manage', name: 'PolicyManage', component: PolicyManage, meta: { depth: 3 } },
   { path: '/risk-event-manage', name: 'RiskEventManage', component: RiskEventManage, meta: { depth: 3 } },
-  { path: '/sensitive-scan', name: 'SensitiveScan', component: SensitiveScan, meta: { depth: 2 } },
+  { path: '/sensitive-data-governance', name: 'SensitiveDataGovernance', component: SensitiveDataGovernance, meta: { depth: 2 } },
+  { path: '/sensitive-scan', redirect: to => ({ path: '/sensitive-data-governance', query: to.query }) },
+  { path: '/desense-preview', redirect: to => ({ path: '/sensitive-data-governance', query: to.query }) },
   { path: '/subject-request', name: 'SubjectRequest', component: SubjectRequest, meta: { depth: 2 } },
-  { path: '/desense-preview', name: 'DesensePreview', component: DesensePreview, meta: { depth: 2 } },
   { path: '/ai/risk-rating', name: 'AiRiskRating', component: AiRiskRating, meta: { depth: 3 } },
   { path: '/ai/anomaly', name: 'AnomalyDetection', component: EmployeeAiBehaviorMonitor, meta: { depth: 3 } },
   { path: '/shadow-ai', name: 'ShadowAiDiscovery', component: ShadowAiDiscovery, meta: { depth: 2 } },

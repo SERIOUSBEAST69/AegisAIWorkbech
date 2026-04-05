@@ -108,6 +108,55 @@
           </el-table-column>
         </el-table>
       </el-tab-pane>
+      <el-tab-pane label="职责分离规则" name="sod">
+        <el-form :inline="true" @submit.prevent>
+          <el-form-item label="场景">
+            <el-input v-model="sodQuery.scenario" placeholder="例如 PRIVILEGE_CHANGE_REVIEW" />
+          </el-form-item>
+          <el-form-item label="启用状态">
+            <el-select v-model="sodQuery.enabled" placeholder="全部" clearable style="width: 120px">
+              <el-option label="启用" :value="1" />
+              <el-option label="禁用" :value="0" />
+            </el-select>
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" :loading="sodLoading" @click="fetchSodRules">查询</el-button>
+            <el-button v-if="canManageSod" @click="openAddSodRule">新增规则</el-button>
+          </el-form-item>
+        </el-form>
+
+        <el-table :data="sodRules" v-loading="sodLoading" style="width: 100%" empty-text="暂无记录">
+          <el-table-column prop="id" label="ID" width="100" />
+          <el-table-column prop="scenario" label="场景" min-width="180" />
+          <el-table-column prop="roleCodeA" label="角色A" width="140" />
+          <el-table-column prop="roleCodeB" label="角色B" width="140" />
+          <el-table-column label="启用" width="110">
+            <template #default="scope">
+              <el-tag :type="scope.row.enabled ? 'success' : 'info'">{{ scope.row.enabled ? '启用' : '禁用' }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="description" label="说明" min-width="220" />
+          <el-table-column label="操作" width="220" fixed="right">
+            <template #default="scope">
+              <el-button v-if="canManageSod" size="small" @click="editSodRule(scope.row)">编辑</el-button>
+              <el-button v-if="canManageSod" size="small" type="danger" @click="deleteSodRule(scope.row.id)">删除</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+
+        <div style="display: flex; justify-content: flex-end; margin-top: 16px">
+          <el-pagination
+            background
+            layout="total, sizes, prev, pager, next"
+            :total="sodPagination.total"
+            v-model:current-page="sodPagination.current"
+            v-model:page-size="sodPagination.pageSize"
+            :page-sizes="[10, 20, 50]"
+            @current-change="onSodPageChange"
+            @size-change="onSodPageSizeChange"
+          />
+        </div>
+      </el-tab-pane>
     </el-tabs>
     <el-dialog v-model="showAdd" title="新增权限">
         <el-form :model="addForm" :rules="rules" ref="addFormRef">
@@ -154,14 +203,39 @@
         <el-button type="primary" :loading="saving" @click="updatePermission">保存</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="showSodEdit" :title="sodEditForm.id ? '编辑 SoD 规则' : '新增 SoD 规则'" width="580px">
+      <el-form :model="sodEditForm" :rules="sodValidationRules" ref="sodEditFormRef" label-width="90px">
+        <el-form-item label="场景" prop="scenario">
+          <el-input v-model="sodEditForm.scenario" placeholder="例如 PRIVILEGE_CHANGE_REVIEW" />
+        </el-form-item>
+        <el-form-item label="角色A" prop="roleCodeA">
+          <el-input v-model="sodEditForm.roleCodeA" placeholder="例如 ADMIN" />
+        </el-form-item>
+        <el-form-item label="角色B" prop="roleCodeB">
+          <el-input v-model="sodEditForm.roleCodeB" placeholder="例如 SECOPS" />
+        </el-form-item>
+        <el-form-item label="启用状态" prop="enabled">
+          <el-switch v-model="sodEnabledSwitch" />
+        </el-form-item>
+        <el-form-item label="规则说明">
+          <el-input v-model="sodEditForm.description" type="textarea" :rows="3" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showSodEdit = false">取消</el-button>
+        <el-button type="primary" :loading="sodSaving" @click="saveSodRule">保存</el-button>
+      </template>
+    </el-dialog>
   </el-card>
 </template>
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import request from '../api/request';
 import { getSession } from '../utils/auth';
+import { canManageSodRule } from '../utils/roleBoundary';
 
 const currentUsername = String(getSession()?.user?.username || '').trim().toLowerCase();
 const canWritePermission = currentUsername === 'admin';
@@ -191,20 +265,29 @@ const permissions = ref([]);
 const loading = ref(false);
 const treeLoading = ref(false);
 const matrixLoading = ref(false);
+const sodLoading = ref(false);
+const sodSaving = ref(false);
 const permissionTree = ref([]);
 const parentPermissionPool = ref([]);
 const matrixRows = ref([]);
+const sodRules = ref([]);
 const permissionNameMap = ref(new Map());
 const showAdd = ref(false);
 const showEdit = ref(false);
+const showSodEdit = ref(false);
 const saving = ref(false);
 const addForm = ref({ name: '', code: '', type: 'menu', parentId: null, status: 'active' });
 const editForm = ref({});
+const sodEditForm = ref({ id: null, scenario: '', roleCodeA: '', roleCodeB: '', enabled: 1, description: '' });
+const sodEnabledSwitch = ref(true);
 const query = ref({ name: '', code: '', type: '', parentId: '' });
 const pagination = ref({ current: 1, pageSize: 10, total: 0 });
+const sodQuery = ref({ scenario: '', enabled: null });
+const sodPagination = ref({ current: 1, pageSize: 10, total: 0 });
 const sortState = ref({ prop: '', order: '' });
 const addFormRef = ref();
 const editFormRef = ref();
+const sodEditFormRef = ref();
 const rules = {
   name: [{ required: true, message: '权限名称不能为空', trigger: 'blur' }],
   code: [
@@ -223,6 +306,16 @@ const rules = {
   ],
   type: [{ required: true, message: '类型不能为空', trigger: 'blur' }]
 };
+const sodValidationRules = {
+  scenario: [{ required: true, message: '场景不能为空', trigger: 'blur' }],
+  roleCodeA: [{ required: true, message: '角色A不能为空', trigger: 'blur' }],
+  roleCodeB: [{ required: true, message: '角色B不能为空', trigger: 'blur' }],
+};
+const canManageSod = computed(() => canManageSodRule(getSession()?.user));
+
+watch(sodEnabledSwitch, value => {
+  sodEditForm.value.enabled = value ? 1 : 0;
+});
 
 const queryParentOptions = computed(() => {
   const source = parentPermissionPool.value.length > 0 ? parentPermissionPool.value : permissions.value;
@@ -386,6 +479,9 @@ function handleTabChange(name) {
   if (name === 'matrix' && matrixRows.value.length === 0) {
     fetchMatrix();
   }
+  if (name === 'sod' && sodRules.value.length === 0) {
+    fetchSodRules();
+  }
 }
 
 function onPageChange(page) {
@@ -406,6 +502,119 @@ function onSortChange({ prop, order }) {
   };
   pagination.value.current = 1;
   fetchPermissions();
+}
+
+function onSodPageChange(page) {
+  sodPagination.value.current = page;
+  fetchSodRules();
+}
+
+function onSodPageSizeChange(size) {
+  sodPagination.value.pageSize = size;
+  sodPagination.value.current = 1;
+  fetchSodRules();
+}
+
+function openAddSodRule() {
+  if (!canManageSod.value) {
+    ElMessage.error('当前身份无 SoD 规则编辑权限');
+    return;
+  }
+  sodEditForm.value = { id: null, scenario: '', roleCodeA: '', roleCodeB: '', enabled: 1, description: '' };
+  sodEnabledSwitch.value = true;
+  showSodEdit.value = true;
+}
+
+function editSodRule(row) {
+  if (!canManageSod.value) {
+    ElMessage.error('当前身份无 SoD 规则编辑权限');
+    return;
+  }
+  sodEditForm.value = {
+    id: row.id,
+    scenario: row.scenario || '',
+    roleCodeA: row.roleCodeA || '',
+    roleCodeB: row.roleCodeB || '',
+    enabled: Number(row.enabled || 0) > 0 ? 1 : 0,
+    description: row.description || '',
+  };
+  sodEnabledSwitch.value = sodEditForm.value.enabled > 0;
+  showSodEdit.value = true;
+}
+
+async function fetchSodRules() {
+  sodLoading.value = true;
+  try {
+    const res = await request.get('/sod-rules/page', {
+      params: {
+        scenario: sodQuery.value.scenario,
+        enabled: sodQuery.value.enabled,
+        page: sodPagination.value.current,
+        pageSize: sodPagination.value.pageSize,
+      },
+    });
+    sodRules.value = res?.list || [];
+    sodPagination.value.total = Number(res?.total || 0);
+  } catch (err) {
+    ElMessage.error(err?.message || '加载 SoD 规则失败');
+  } finally {
+    sodLoading.value = false;
+  }
+}
+
+async function saveSodRule() {
+  if (!canManageSod.value) {
+    ElMessage.error('当前身份无 SoD 规则编辑权限');
+    return;
+  }
+  if (!sodEditFormRef.value) return;
+  sodEditFormRef.value.validate(async valid => {
+    if (!valid) return;
+    sodSaving.value = true;
+    try {
+      await request.post('/sod-rules/save', {
+        ...sodEditForm.value,
+        enabled: sodEnabledSwitch.value ? 1 : 0,
+      });
+      ElMessage.success('SoD 规则保存成功');
+      showSodEdit.value = false;
+      sodPagination.value.current = 1;
+      fetchSodRules();
+    } catch (err) {
+      ElMessage.error(err?.message || 'SoD 规则保存失败');
+    } finally {
+      sodSaving.value = false;
+    }
+  });
+}
+
+async function deleteSodRule(id) {
+  if (!canManageSod.value) {
+    ElMessage.error('当前身份无 SoD 规则删除权限');
+    return;
+  }
+  try {
+    await ElMessageBox.confirm('确认删除该 SoD 规则吗？', '提示', { type: 'warning' });
+    const pwdPrompt = await ElMessageBox.prompt('请输入当前治理管理员密码确认删除', '敏感操作二次校验', {
+      inputType: 'password',
+      inputAttributes: { autocomplete: 'current-password', autofocus: 'autofocus' },
+      inputPlaceholder: '请输入密码',
+      inputValidator: value => (!!value && value.trim().length > 0) || '密码不能为空',
+      confirmButtonText: '确认删除',
+      cancelButtonText: '取消',
+    });
+    await request.post('/sod-rules/delete', {
+      id,
+      confirmPassword: pwdPrompt.value,
+    });
+    ElMessage.success('SoD 规则删除成功');
+    sodPagination.value.current = 1;
+    fetchSodRules();
+  } catch (err) {
+    if (err !== 'cancel') {
+      ElMessage.error(err?.message || 'SoD 规则删除失败');
+    }
+  }
 }
 
 function openAdd() {
@@ -549,4 +758,5 @@ fetchPermissions();
 fetchPermissionTree();
 fetchMatrix();
 fetchParentPermissionPool();
+fetchSodRules();
 </script>

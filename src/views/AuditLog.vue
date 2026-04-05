@@ -37,7 +37,7 @@
         <el-button @click="resetQuery">重置</el-button>
       </el-form-item>
     </el-form>
-    <el-table :data="logs" style="width: 100%; margin-top:12px" v-loading="loading">
+    <el-table :data="pagedLogs" style="width: 100%; margin-top:12px" v-loading="loading">
       <el-table-column prop="id" label="ID" width="250">
         <template #default="scope">
           <div class="cell nowrap">{{ scope.row.id }}</div>
@@ -56,11 +56,23 @@
         <template #default="scope">{{ scope.row.inputOverview || '—' }}</template>
       </el-table-column>
     </el-table>
+    <div style="display:flex;justify-content:flex-end;margin-top:16px;">
+      <el-pagination
+        background
+        layout="total, sizes, prev, pager, next"
+        :total="pagination.total"
+        v-model:current-page="pagination.current"
+        v-model:page-size="pagination.pageSize"
+        :page-sizes="[10, 20, 50]"
+        @current-change="onPageChange"
+        @size-change="onPageSizeChange"
+      />
+    </div>
   </el-card>
 </template>
 
 <script setup>
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import request from '../api/request';
@@ -71,6 +83,11 @@ const logs = ref([]);
 const loading = ref(false);
 const query = ref(buildQueryFromRoute(route.query));
 const canExport = hasPermission('audit:export');
+const pagination = ref({ current: 1, pageSize: 10, total: 0 });
+const pagedLogs = computed(() => {
+  const start = (pagination.value.current - 1) * pagination.value.pageSize;
+  return logs.value.slice(start, start + pagination.value.pageSize);
+});
 
 function buildQueryFromRoute(routeQuery = {}) {
   return {
@@ -98,12 +115,24 @@ async function fetchLogs() {
     // 后端使用 GET /api/audit-log/search，ES CriteriaQuery 按 userId/operation/时间段检索
     const res = await request.get('/audit-log/search', { params: buildParams() });
     logs.value = Array.isArray(res) ? res : [];
+    pagination.value.total = logs.value.length;
+    pagination.value.current = 1;
   } catch (err) {
     ElMessage.error(err?.message || '查询失败');
     logs.value = [];
+    pagination.value.total = 0;
   } finally {
     loading.value = false;
   }
+}
+
+function onPageChange(page) {
+  pagination.value.current = page;
+}
+
+function onPageSizeChange(size) {
+  pagination.value.pageSize = size;
+  pagination.value.current = 1;
 }
 
 function exportCsv() {
@@ -134,6 +163,7 @@ function exportCsv() {
 
 function resetQuery() {
   query.value = { userId: '', operation: '', permissionId: '', from: '', to: '' };
+  pagination.value.current = 1;
   fetchLogs();
 }
 
@@ -146,6 +176,7 @@ watch(
       operation: String(nextQuery.operation || '').trim(),
       permissionId: String(nextQuery.permissionId || '').trim(),
     };
+    pagination.value.current = 1;
     fetchLogs();
   }
 );

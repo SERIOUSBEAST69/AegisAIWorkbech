@@ -1,0 +1,292 @@
+# Page snapshot
+
+```yaml
+- banner:
+  - text: Aegis Workbench 守护数据与隐私合规平台
+  - button "Open navigation menu"
+  - button "搜索页面、功能、动作 Ctrl+K":
+    - img
+    - text: 搜索页面、功能、动作 Ctrl+K
+  - toolbar "快捷操作":
+    - button "进入风险编排":
+      - img
+      - text: 进入风险编排
+    - button "处理审批积压":
+      - img
+      - text: 处理审批积压
+    - button "打开威胁监测":
+      - img
+      - text: 打开威胁监测
+    - button "查看审计证据链":
+      - img
+      - text: 查看审计证据链
+  - button "治理管理员 治理管理员 · 治理中心 治理管理员":
+    - img
+    - text: 治理管理员 治理管理员 · 治理中心 治理管理员
+    - img
+- main:
+  - heading "安全指挥台" [level=2]
+  - text: 状态
+  - combobox "状态"
+  - text: Select
+  - img
+  - text: 等级
+  - combobox "等级"
+  - text: Select
+  - img
+  - button "查询"
+  - table:
+    - rowgroup:
+      - row "ID 事件类型 等级 状态 账号 设备主机 目标地址/IP 文件路径 操作":
+        - columnheader "ID"
+        - columnheader "事件类型"
+        - columnheader "等级"
+        - columnheader "状态"
+        - columnheader "账号"
+        - columnheader "设备主机"
+        - columnheader "目标地址/IP"
+        - columnheader "文件路径"
+        - columnheader "操作"
+  - table:
+    - rowgroup:
+      - row "40 EXFILTRATION high blocked employee duty-host 203.0.113.10 /tmp/duty.txt 阻断 忽略":
+        - cell "40"
+        - cell "EXFILTRATION"
+        - cell "high"
+        - cell "blocked"
+        - cell "employee"
+        - cell "duty-host"
+        - cell "203.0.113.10"
+        - cell "/tmp/duty.txt"
+        - cell "阻断 忽略":
+          - button "阻断" [disabled]
+          - button "忽略" [disabled]
+      - row "39 EXFILTRATION high ignored employee duty-host 203.0.113.10 /tmp/duty.txt 阻断 忽略":
+        - cell "39"
+        - cell "EXFILTRATION"
+        - cell "high"
+        - cell "ignored"
+        - cell "employee"
+        - cell "duty-host"
+        - cell "203.0.113.10"
+        - cell "/tmp/duty.txt"
+        - cell "阻断 忽略":
+          - button "阻断" [disabled]
+          - button "忽略" [disabled]
+      - row "38 EXFILTRATION high blocked employee duty-host 203.0.113.10 /tmp/duty.txt 阻断 忽略":
+        - cell "38"
+        - cell "EXFILTRATION"
+        - cell "high"
+        - cell "blocked"
+        - cell "employee"
+        - cell "duty-host"
+        - cell "203.0.113.10"
+        - cell "/tmp/duty.txt"
+        - cell "阻断 忽略":
+          - button "阻断" [disabled]
+          - button "忽略" [disabled]
+      - row "37 EXFILTRATION high ignored employee duty-host 203.0.113.10 /tmp/duty.txt 阻断 忽略":
+        - cell "37"
+        - cell "EXFILTRATION"
+        - cell "high"
+        - cell "ignored"
+        - cell "employee"
+        - cell "duty-host"
+        - cell "203.0.113.10"
+        - cell "/tmp/duty.txt"
+        - cell "阻断 忽略":
+          - button "阻断" [disabled]
+          - button "忽略" [disabled]
+      - row "36 EXFILTRATION high blocked employee duty-host 203.0.113.10 /tmp/duty.txt 阻断 忽略":
+        - cell "36"
+        - cell "EXFILTRATION"
+        - cell "high"
+        - cell "blocked"
+        - cell "employee"
+        - cell "duty-host"
+        - cell "203.0.113.10"
+        - cell "/tmp/duty.txt"
+        - cell "阻断 忽略":
+          - button "阻断" [disabled]
+          - button "忽略" [disabled]
+      - row "35 EXFILTRATION high ignored employee duty-host 203.0.113.10 /tmp/duty.txt 阻断 忽略":
+        - cell "35"
+        - cell "EXFILTRATION"
+        - cell "high"
+        - cell "ignored"
+        - cell "employee"
+        - cell "duty-host"
+        - cell "203.0.113.10"
+        - cell "/tmp/duty.txt"
+        - cell "阻断 忽略":
+          - button "阻断" [disabled]
+          - button "忽略" [disabled]
+      - row "34 EXFILTRATION high blocked employee duty-host 203.0.113.10 /tmp/duty.txt 阻断 忽略":
+        - cell "34"
+        - cell "EXFILTRATION"
+        - cell "high"
+        - cell "blocked"
+        - cell "employee"
+        - cell "duty-host"
+        - cell "203.0.113.10"
+        - cell "/tmp/duty.txt"
+        - cell "阻断 忽略":
+          - button "阻断" [disabled]
+          - button "忽略" [disabled]
+      - row "33 EXFILTRATION high ignored employee duty-host 203.0.113.10 /tmp/duty.txt 阻断 忽略":
+        - cell "33"
+        - cell "EXFILTRATION"
+        - cell "high"
+        - cell "ignored"
+        - cell "employee"
+        - cell "duty-host"
+        - cell "203.0.113.10"
+        - cell "/tmp/duty.txt"
+        - cell "阻断 忽略":
+          - button "阻断" [disabled]
+          - button "忽略" [disabled]
+      - row "31 EXFILTRATION high ignored employee duty-host 203.0.113.10 /tmp/duty.txt 阻断 忽略":
+        - cell "31"
+        - cell "EXFILTRATION"
+        - cell "high"
+        - cell "ignored"
+        - cell "employee"
+        - cell "duty-host"
+        - cell "203.0.113.10"
+        - cell "/tmp/duty.txt"
+        - cell "阻断 忽略":
+          - button "阻断" [disabled]
+          - button "忽略" [disabled]
+      - row "32 EXFILTRATION high blocked employee duty-host 203.0.113.10 /tmp/duty.txt 阻断 忽略":
+        - cell "32"
+        - cell "EXFILTRATION"
+        - cell "high"
+        - cell "blocked"
+        - cell "employee"
+        - cell "duty-host"
+        - cell "203.0.113.10"
+        - cell "/tmp/duty.txt"
+        - cell "阻断 忽略":
+          - button "阻断" [disabled]
+          - button "忽略" [disabled]
+      - row "30 EXFILTRATION high blocked employee duty-host 203.0.113.10 /tmp/duty.txt 阻断 忽略":
+        - cell "30"
+        - cell "EXFILTRATION"
+        - cell "high"
+        - cell "blocked"
+        - cell "employee"
+        - cell "duty-host"
+        - cell "203.0.113.10"
+        - cell "/tmp/duty.txt"
+        - cell "阻断 忽略":
+          - button "阻断" [disabled]
+          - button "忽略" [disabled]
+      - row "29 EXFILTRATION high ignored employee duty-host 203.0.113.10 /tmp/duty.txt 阻断 忽略":
+        - cell "29"
+        - cell "EXFILTRATION"
+        - cell "high"
+        - cell "ignored"
+        - cell "employee"
+        - cell "duty-host"
+        - cell "203.0.113.10"
+        - cell "/tmp/duty.txt"
+        - cell "阻断 忽略":
+          - button "阻断" [disabled]
+          - button "忽略" [disabled]
+      - row "27 EXFILTRATION high ignored employee duty-host 203.0.113.10 /tmp/duty.txt 阻断 忽略":
+        - cell "27"
+        - cell "EXFILTRATION"
+        - cell "high"
+        - cell "ignored"
+        - cell "employee"
+        - cell "duty-host"
+        - cell "203.0.113.10"
+        - cell "/tmp/duty.txt"
+        - cell "阻断 忽略":
+          - button "阻断" [disabled]
+          - button "忽略" [disabled]
+      - row "28 EXFILTRATION high blocked employee duty-host 203.0.113.10 /tmp/duty.txt 阻断 忽略":
+        - cell "28"
+        - cell "EXFILTRATION"
+        - cell "high"
+        - cell "blocked"
+        - cell "employee"
+        - cell "duty-host"
+        - cell "203.0.113.10"
+        - cell "/tmp/duty.txt"
+        - cell "阻断 忽略":
+          - button "阻断" [disabled]
+          - button "忽略" [disabled]
+      - row "26 EXFILTRATION high blocked employee duty-host 203.0.113.10 /tmp/duty.txt 阻断 忽略":
+        - cell "26"
+        - cell "EXFILTRATION"
+        - cell "high"
+        - cell "blocked"
+        - cell "employee"
+        - cell "duty-host"
+        - cell "203.0.113.10"
+        - cell "/tmp/duty.txt"
+        - cell "阻断 忽略":
+          - button "阻断" [disabled]
+          - button "忽略" [disabled]
+      - row "25 EXFILTRATION high ignored employee duty-host 203.0.113.10 /tmp/duty.txt 阻断 忽略":
+        - cell "25"
+        - cell "EXFILTRATION"
+        - cell "high"
+        - cell "ignored"
+        - cell "employee"
+        - cell "duty-host"
+        - cell "203.0.113.10"
+        - cell "/tmp/duty.txt"
+        - cell "阻断 忽略":
+          - button "阻断" [disabled]
+          - button "忽略" [disabled]
+      - row "24 EXFILTRATION high blocked employee duty-host 203.0.113.10 /tmp/duty.txt 阻断 忽略":
+        - cell "24"
+        - cell "EXFILTRATION"
+        - cell "high"
+        - cell "blocked"
+        - cell "employee"
+        - cell "duty-host"
+        - cell "203.0.113.10"
+        - cell "/tmp/duty.txt"
+        - cell "阻断 忽略":
+          - button "阻断" [disabled]
+          - button "忽略" [disabled]
+      - row "23 EXFILTRATION high ignored employee duty-host 203.0.113.10 /tmp/duty.txt 阻断 忽略":
+        - cell "23"
+        - cell "EXFILTRATION"
+        - cell "high"
+        - cell "ignored"
+        - cell "employee"
+        - cell "duty-host"
+        - cell "203.0.113.10"
+        - cell "/tmp/duty.txt"
+        - cell "阻断 忽略":
+          - button "阻断" [disabled]
+          - button "忽略" [disabled]
+      - row "21 EXFILTRATION high ignored employee duty-host 203.0.113.10 /tmp/duty.txt 阻断 忽略":
+        - cell "21"
+        - cell "EXFILTRATION"
+        - cell "high"
+        - cell "ignored"
+        - cell "employee"
+        - cell "duty-host"
+        - cell "203.0.113.10"
+        - cell "/tmp/duty.txt"
+        - cell "阻断 忽略":
+          - button "阻断" [disabled]
+          - button "忽略" [disabled]
+      - row "22 EXFILTRATION high blocked employee duty-host 203.0.113.10 /tmp/duty.txt 阻断 忽略":
+        - cell "22"
+        - cell "EXFILTRATION"
+        - cell "high"
+        - cell "blocked"
+        - cell "employee"
+        - cell "duty-host"
+        - cell "203.0.113.10"
+        - cell "/tmp/duty.txt"
+        - cell "阻断 忽略":
+          - button "阻断" [disabled]
+          - button "忽略" [disabled]
+```

@@ -2,8 +2,9 @@
   <el-card>
     <div class="policy-head">
       <h2>合规策略列表</h2>
-      <div class="policy-count">共 {{ pagination.total }} 条，当前显示 {{ normalizedPolicies.length }} 条</div>
+      <div class="policy-count">共 {{ pagination.total }} 条，当前显示 {{ displayPolicies.length }} 条</div>
     </div>
+    <div class="engine-tip">平台所有安全能力由策略引擎驱动，修改/启用策略将直接影响其他模块的行为</div>
 
     <el-form :inline="true" @submit.prevent>
       <el-form-item label="业务策略名称">
@@ -60,8 +61,9 @@
 
     <el-table
       ref="tableRef"
-      :data="normalizedPolicies"
+      :data="displayPolicies"
       style="width: 100%"
+      table-layout="auto"
       v-loading="loading"
       row-key="id"
       @selection-change="handleSelectionChange">
@@ -73,6 +75,20 @@
       </el-table-column>
       <el-table-column prop="id" label="ID" width="130" show-overflow-tooltip />
       <el-table-column prop="businessName" label="业务策略名称" min-width="210" show-overflow-tooltip />
+      <el-table-column label="关联模块" min-width="260" show-overflow-tooltip>
+        <template #default="scope">
+          <el-space wrap>
+            <el-tag
+              v-for="module in scope.row.relatedModules"
+              :key="`${scope.row.id}-${module}`"
+              size="small"
+              type="info"
+              effect="plain"
+            >{{ module }}</el-tag>
+          </el-space>
+        </template>
+      </el-table-column>
+      <el-table-column prop="effectiveScenario" label="生效场景" min-width="250" show-overflow-tooltip />
       <el-table-column label="策略类型" width="120">
         <template #default="scope">
           <el-tag type="info">{{ formatPolicyType(scope.row.policyType) }}</el-tag>
@@ -121,7 +137,7 @@
           {{ scope.row.lastModifier }} / {{ formatTime(scope.row.lastModifiedAt) }}
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="380" :fixed="isNarrowScreen ? false : 'right'">
+      <el-table-column label="操作" min-width="420">
         <template #default="scope">
           <el-space wrap>
             <el-button
@@ -151,6 +167,7 @@
               @click="deletePolicy(scope.row.id)">
               删除
             </el-button>
+            <el-button size="small" type="primary" plain @click="viewPolicyImpact(scope.row)">查看影响</el-button>
             <el-button size="small" @click="openAuditDrawer(scope.row)">日志</el-button>
           </el-space>
         </template>
@@ -301,6 +318,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
+import { useRouter } from 'vue-router';
 import { useUserStore } from '../store/user';
 import { canManagePolicyStructure, canTogglePolicyStatus, canReviewGovernanceChange } from '../utils/roleBoundary';
 import { getSession } from '../utils/auth';
@@ -323,6 +341,7 @@ async function promptOperatorConfirm(actionText) {
 }
 
 const userStore = useUserStore();
+const router = useRouter();
 const canManageStructure = computed(() => canManagePolicyStructure(userStore.userInfo) && canSubmitPolicyChange);
 const canToggleStatus = computed(() => canTogglePolicyStatus(userStore.userInfo) && canSubmitPolicyChange);
 const canViewAudit = computed(() => canReviewGovernanceChange(userStore.userInfo) || canManageStructure.value || canToggleStatus.value);
@@ -374,6 +393,22 @@ const rules = {
 
 const normalizedPolicies = computed(() => {
   return (Array.isArray(policies.value) ? policies.value : []).map(item => enrichPolicy(item));
+});
+
+const displayPolicies = computed(() => {
+  const seen = new Set();
+  return normalizedPolicies.value.filter(item => {
+    const key = [
+      String(item.businessName || '').trim(),
+      String(item.policyType || '').trim(),
+      String(item.effectiveScenario || '').trim(),
+    ].join('|');
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
 });
 
 function syncViewport() {
@@ -522,6 +557,10 @@ function inferScopeLabel(scope, scopeDetail) {
 }
 
 function deriveBusinessName(policy, ruleObj, policyType, scopeDetail) {
+  const profile = deriveEngineProfile(policy, ruleObj, policyType, scopeDetail);
+  if (profile?.businessName) {
+    return profile.businessName;
+  }
   const original = normalizeBusinessName(policy?.name);
   if (!isGenericPolicyName(original)) {
     return original;
@@ -541,6 +580,57 @@ function deriveBusinessName(policy, ruleObj, policyType, scopeDetail) {
     return `${target}导出次数限制策略`;
   }
   return original || `策略-${policy?.id || 'N/A'}`;
+}
+
+function deriveEngineProfile(policy, ruleObj, policyType, scopeDetail) {
+  const nameText = String(policy?.name || '').toLowerCase();
+  const ruleText = String(policy?.ruleContent || '').toLowerCase();
+  const text = `${nameText} ${ruleText}`;
+  const action = String(ruleObj?.action || '').trim().toLowerCase();
+  const scope = String(policy?.scope || '').trim();
+  const hasAiPromptSignal = scope === 'ai_prompt' || /(prompt|对话|指令|ai|模型)/.test(text);
+  const hasExportSignal = /(导出|外发|下载|文件)/.test(text);
+  const hasApprovalSignal = /(权限|角色|审批|变更|governance)/.test(text);
+  const hasBehaviorSignal = /(行为|异常|审计|anomaly)/.test(text);
+
+  if (hasApprovalSignal) {
+    return {
+      businessName: '权限变更审批策略',
+      relatedModules: ['流程审批', '变更审计'],
+      effectiveScenario: '发生权限/角色变更申请时触发治理审批与审计记录。',
+      impact: { path: '/approval-center', query: { module: 'POLICY' } },
+    };
+  }
+  if (policyType === 'EXPORT_LIMIT' || (hasExportSignal && action === 'block')) {
+    return {
+      businessName: '高危文件外发阻断策略',
+      relatedModules: ['安全指挥台', '风险告警'],
+      effectiveScenario: '文件外发命中高危规则时自动阻断并生成风险事件。',
+      impact: { path: '/risk-event-manage', query: { type: '外发' } },
+    };
+  }
+  if (hasAiPromptSignal && (action === 'block' || policyType === 'ACCESS_CONTROL')) {
+    return {
+      businessName: '敏感内容拦截策略',
+      relatedModules: ['AI对话', '行为审计', '安全事件'],
+      effectiveScenario: 'AI对话命中违规指令后立即拦截，并记录行为审计与安全事件。',
+      impact: { path: '/audit-log', query: { operation: 'ai' } },
+    };
+  }
+  if (hasBehaviorSignal) {
+    return {
+      businessName: '员工AI行为审计策略',
+      relatedModules: ['AI行为分析', '审计日志'],
+      effectiveScenario: '识别员工AI使用行为并持续沉淀审计证据链。',
+      impact: { path: '/ai/anomaly', query: {} },
+    };
+  }
+  return {
+    businessName: '数据外发脱敏策略',
+    relatedModules: ['脱敏预览', '数据导出', '审计日志'],
+    effectiveScenario: '文件外发时自动检测敏感字段并执行脱敏后再输出。',
+    impact: { path: '/desense-preview', query: {} },
+  };
 }
 
 function buildRuleHighlights(policy, ruleObj, policyType) {
@@ -624,6 +714,7 @@ function enrichPolicy(policy) {
   };
   const statusNormalized = normalizeStatus(policy?.status);
   const businessName = deriveBusinessName(policy, ruleObj, policyType, scopeDetail);
+  const profile = deriveEngineProfile(policy, ruleObj, policyType, scopeDetail);
   const ruleHighlights = buildRuleHighlights(policy, ruleObj, policyType);
   const audit = auditIndexMap.value.get(getAuditKey(policy?.id)) || null;
   return {
@@ -637,7 +728,19 @@ function enrichPolicy(policy) {
     ruleFriendlyText: buildRuleFriendlyText(policy, ruleObj, priority),
     lastModifier: audit?.operator || '系统',
     lastModifiedAt: audit?.time || policy?.updateTime || policy?.createTime || null,
+    relatedModules: profile?.relatedModules || [],
+    effectiveScenario: profile?.effectiveScenario || '按策略规则执行',
+    impactTarget: profile?.impact || null,
   };
+}
+
+function viewPolicyImpact(row) {
+  const target = row?.impactTarget;
+  if (!target?.path) {
+    ElMessage.warning('未识别到该策略的关联模块入口');
+    return;
+  }
+  router.push({ path: target.path, query: target.query || {} });
 }
 
 function openAdd() {
@@ -1014,6 +1117,16 @@ onBeforeUnmount(() => {
   font-size: 13px;
 }
 
+.engine-tip {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border-light);
+  background: var(--color-fill-light);
+  color: var(--color-text-primary);
+  font-size: 13px;
+}
+
 .policy-toolbar {
   display: flex;
   align-items: center;
@@ -1059,8 +1172,8 @@ onBeforeUnmount(() => {
   text-overflow: ellipsis;
 }
 
-:deep(.el-table__fixed-right .cell) {
-  white-space: nowrap;
+:deep(.el-table .cell) {
+  word-break: break-word;
 }
 
 @media (max-width: 900px) {

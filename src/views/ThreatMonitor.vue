@@ -5,10 +5,10 @@
     <div class="page-header scene-block">
       <div class="page-header-copy">
         <div class="page-eyebrow">REAL-TIME THREAT MONITOR</div>
-        <h1 class="page-title">实时威胁监控</h1>
+        <h1 class="page-title">AI数据防泄漏</h1>
         <p class="page-subtitle">
-          检测并响应恶意AI模拟攻击与代理窃取行为。
-          实时告警、手动阻拦或忽略，并可配置敏感文件检测规则。
+          检测并响应AI相关敏感数据外泄、异常访问与代理窃取行为。
+          提供实时告警、人工阻断与规则配置能力。
         </p>
       </div>
       <div class="page-header-actions">
