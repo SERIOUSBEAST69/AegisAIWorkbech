@@ -1,4 +1,8 @@
 const EMPLOYEE_ROLE_CODE = 'EMPLOYEE';
+const EMPLOYEE_ROLE_SET = new Set([
+  'EMPLOYEE',
+  'EMPLOYEE_REQUESTER',
+]);
 const AGREEMENT_VERSION = '2026-03-employee-v1';
 
 function normalizeRoleCode(user) {
@@ -6,7 +10,7 @@ function normalizeRoleCode(user) {
 }
 
 export function isEmployeeUser(user) {
-  return normalizeRoleCode(user) === EMPLOYEE_ROLE_CODE;
+  return EMPLOYEE_ROLE_SET.has(normalizeRoleCode(user));
 }
 
 function buildAgreementKey(user) {

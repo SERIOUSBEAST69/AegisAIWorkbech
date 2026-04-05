@@ -38,9 +38,9 @@ public class RoleController {
     private SensitiveOperationGuardService sensitiveOperationGuardService;
 
     @GetMapping("/list")
-    @PreAuthorize("@currentUserService.hasPermission('role:manage')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER') || @currentUserService.hasPermission('role:manage')")
     public R<List<Role>> list(@RequestParam(required = false) String name) {
-        currentUserService.requirePermission("role:manage");
+        ensureRoleReadAccess();
         User currentUser = currentUserService.requireCurrentUser();
         QueryWrapper<Role> qw = new QueryWrapper<>();
         if (currentUser.getCompanyId() != null) {
@@ -54,12 +54,12 @@ public class RoleController {
     }
 
     @GetMapping("/page")
-    @PreAuthorize("@currentUserService.hasPermission('role:manage')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER') || @currentUserService.hasPermission('role:manage')")
     public R<Map<String, Object>> page(@RequestParam(defaultValue = "1") int page,
                                        @RequestParam(defaultValue = "10") int pageSize,
                                        @RequestParam(required = false) String name,
                                        @RequestParam(required = false) String code) {
-        currentUserService.requirePermission("role:manage");
+        ensureRoleReadAccess();
         User currentUser = currentUserService.requireCurrentUser();
         QueryWrapper<Role> qw = new QueryWrapper<>();
         if (currentUser.getCompanyId() != null) {
@@ -73,7 +73,9 @@ public class RoleController {
         }
         qw.orderByDesc("update_time");
 
-        Page<Role> result = roleService.page(new Page<>(Math.max(1, page), Math.max(1, pageSize)), qw);
+        int safePage = Math.max(1, page);
+        int safePageSize = Math.max(1, Math.min(100, pageSize));
+        Page<Role> result = roleService.page(new Page<>(safePage, safePageSize), qw);
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("current", result.getCurrent());
         payload.put("pages", result.getPages());
@@ -141,7 +143,16 @@ public class RoleController {
     @PostMapping("/delete")
     @PreAuthorize("@currentUserService.hasPermission('role:manage')")
     public R<?> delete(@jakarta.validation.Valid @RequestBody IdReq req) {
-        User currentUser = sensitiveOperationGuardService.requireConfirmedAdmin(req.getConfirmPassword(), "role_delete", "roleId=" + req.getId());
+        currentUserService.requireAdmin();
+        User currentUser = currentUserService.requireCurrentUser();
+        sensitiveOperationGuardService.requireDualReviewedOperator(
+            currentUser,
+            req.getConfirmPassword(),
+            req.getReviewerUsername(),
+            req.getReviewerPassword(),
+            "role_delete",
+            "roleId=" + req.getId()
+        );
         currentUserService.requireAdmin();
         Role existing = roleService.getById(req.getId());
         if (existing == null || !java.util.Objects.equals(existing.getCompanyId(), currentUser.getCompanyId())) {
@@ -176,14 +187,29 @@ public class RoleController {
         }
     }
 
+    private void ensureRoleReadAccess() {
+        if (currentUserService.hasPermission("role:manage") || currentUserService.hasAnyRole("ADMIN", "ADMIN_REVIEWER")) {
+            return;
+        }
+        throw new BizException(40300, "无权限");
+    }
+
     public static class IdReq {
         @NotNull(message = "角色ID不能为空")
         private Long id;
         @NotBlank(message = "敏感操作需要二次密码")
         private String confirmPassword;
+        @NotBlank(message = "敏感操作需要第二复核人账号")
+        private String reviewerUsername;
+        @NotBlank(message = "敏感操作需要第二复核人密码")
+        private String reviewerPassword;
         public Long getId() { return id; }
         public void setId(Long id) { this.id = id; }
         public String getConfirmPassword() { return confirmPassword; }
         public void setConfirmPassword(String confirmPassword) { this.confirmPassword = confirmPassword; }
+        public String getReviewerUsername() { return reviewerUsername; }
+        public void setReviewerUsername(String reviewerUsername) { this.reviewerUsername = reviewerUsername; }
+        public String getReviewerPassword() { return reviewerPassword; }
+        public void setReviewerPassword(String reviewerPassword) { this.reviewerPassword = reviewerPassword; }
     }
 }

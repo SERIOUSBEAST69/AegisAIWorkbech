@@ -218,6 +218,38 @@ WHERE r.related_log_id IS NULL
 
 ### Frontend evidence display
 - Home trend panel now shows: window days + sample counts + source flag (`real_db`/degraded).
+
+## 8) Composite AI Attack-Chain Defense Validation
+
+### Scope
+- Defensive simulation only. No exploit payloads are stored or executed.
+- Validate chain-aware detection for:
+- prompt injection + exfil chain
+- session lateral misuse chain
+- low-and-slow chunked exfil chain
+- social engineering automation chain
+
+### Simulator execution
+```bash
+# 1) Composite adversarial battle with deterministic seed
+python python-service/openclaw_adversarial.py --scenario composite_ai_chain --rounds 24 --seed 20260404 --report docs/composite-ai-chain-report.json
+
+# 2) Correlated campaign events for workbench visualization
+python python-service/openclaw_simulator.py --count 600 --batch 50 --delay 0.05
+```
+
+### KPI acceptance criteria
+- `composite_chain_detection_rate >= 95%`
+- `high_risk_chain_block_rate >= 90%`
+- `mean_detection_latency_seconds <= 2.0` for low-slow exfil chain
+- `false_positive_rate <= 3%` on curated benign business prompts
+- `cross_tenant_leakage_count == 0` under forged header/query and replay-intent requests
+
+### Evidence checklist
+1. Save adversarial report JSON with seed and scenario metadata.
+2. Save event timeline screenshot showing campaignId/campaignStage progression.
+3. Save blocked action logs with masked content only (no raw secrets).
+4. Re-run tenant consistency integration tests and keep pass output in release evidence bundle.
 - Ops observability page subtitle now shows: window days + sample counts.
 
 ### Acceptance intent

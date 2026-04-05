@@ -8,6 +8,7 @@ import com.trustai.entity.AiModel;
 import com.trustai.entity.AuditLog;
 import com.trustai.entity.ApprovalRequest;
 import com.trustai.entity.DataAsset;
+import com.trustai.entity.GovernanceEvent;
 import com.trustai.entity.ModelCallStat;
 import com.trustai.entity.Role;
 import com.trustai.entity.RiskEvent;
@@ -54,6 +55,7 @@ public class DashboardController {
     @Autowired private CompanyScopeService companyScopeService;
     @Autowired private RiskForecastScheduler riskForecastScheduler;
     @Autowired private AiCallAuditService aiCallAuditService;
+    @Autowired private GovernanceEventService governanceEventService;
 
     @GetMapping("/stats")
     public R<Map<String, Object>> stats() {
@@ -96,6 +98,8 @@ public class DashboardController {
                 .orderByDesc("create_time")
                 .last("LIMIT 5000")
         );
+            List<GovernanceEvent> recentGovernanceEvents = loadRecentGovernanceEvents(companyId, previous7Date);
+            Map<String, Object> monitorCaliber = buildGovernanceMonitorCaliber(recentGovernanceEvents, last7Start, previous7Start);
         QueryWrapper<AuditLog> auditQuery = new QueryWrapper<AuditLog>()
             .select("id", "user_id", "operation_time")
             .ge("operation_time", previous7Date)
@@ -144,17 +148,9 @@ public class DashboardController {
                 .in("sensitivity_level", Arrays.asList("high", "critical", "HIGH", "CRITICAL", "高", "高敏"))
                 .between("create_time", previous7Date, last7Date)
         );
-        long openAlerts = recentRiskEvents.stream()
-            .filter(item -> Arrays.asList("open", "processing").contains(normalizeLower(item.getStatus())))
-            .count();
-        long recentOpenAlerts = recentRiskEvents.stream()
-            .filter(item -> Arrays.asList("open", "processing").contains(normalizeLower(item.getStatus())))
-            .filter(item -> item.getCreateTime() != null && !item.getCreateTime().before(last7Date))
-            .count();
-        long previousOpenAlerts = recentRiskEvents.stream()
-            .filter(item -> Arrays.asList("open", "processing").contains(normalizeLower(item.getStatus())))
-            .filter(item -> item.getCreateTime() != null && !item.getCreateTime().before(previous7Date) && item.getCreateTime().before(last7Date))
-            .count();
+        long openAlerts = asLong(monitorCaliber.get("pendingTotal"));
+        long recentOpenAlerts = asLong(monitorCaliber.get("pendingLast7"));
+        long previousOpenAlerts = asLong(monitorCaliber.get("pendingPrevious7"));
         long aiCallsLast7 = recentModelStats.stream()
             .filter(item -> !toLocalDate(item.getDate()).isBefore(last7Start))
             .mapToLong(item -> item.getCallCount() == null ? 0L : item.getCallCount())
@@ -209,6 +205,15 @@ public class DashboardController {
         User currentUser = currentUserService.requireCurrentUser();
         Long companyId = companyScopeService.requireCompanyId();
         List<Long> companyUserIds = companyScopeService.companyUserIds();
+        LocalDate today = LocalDate.now();
+        LocalDate last7Start = today.minusDays(6);
+        LocalDate previous7Start = today.minusDays(13);
+        Date previous7Date = Date.from(previous7Start.atStartOfDay(ZoneId.systemDefault()).toInstant());
+        Map<String, Object> monitorCaliber = buildGovernanceMonitorCaliber(
+            loadRecentGovernanceEvents(companyId, previous7Date),
+            last7Start,
+            previous7Start
+        );
         Map<String, Object> bundle = new LinkedHashMap<>();
         bundle.put("workbench", workbench().getData());
         bundle.put("insights", insights().getData());
@@ -222,6 +227,19 @@ public class DashboardController {
         traceContext.put("generatedAt", LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
         traceContext.put("windowDays", 7);
         traceContext.put("traceabilityStatement", "首页指标按公司与账号范围聚合，支持下钻到账号与上传数据记录");
+        traceContext.put("monitorCaliber", monitorCaliber.get("caliber"));
+        traceContext.put("monitorAnomaly", asLong(monitorCaliber.get("anomaly")));
+        traceContext.put("monitorPrivacy", asLong(monitorCaliber.get("privacy")));
+        traceContext.put("monitorPending", asLong(monitorCaliber.get("pendingTotal")));
+        traceContext.put("monitorDuplicateCollapsed", asLong(monitorCaliber.get("duplicateCollapsed")));
+        traceContext.put("monitorCaliberNote",
+            String.format("统一口径：治理事件去重后统计（异常 %d、隐私 %d、待处置 %d，去重压缩 %d）。与员工AI行为监控页口径一致。",
+                asLong(monitorCaliber.get("anomaly")),
+                asLong(monitorCaliber.get("privacy")),
+                asLong(monitorCaliber.get("pendingTotal")),
+                asLong(monitorCaliber.get("duplicateCollapsed"))
+            )
+        );
         bundle.put("traceContext", traceContext);
         bundle.put("traceModules", buildTraceModules(companyId, companyUserIds));
         return R.ok(bundle);
@@ -330,6 +348,137 @@ public class DashboardController {
         payload.put("records", records);
         payload.put("traceRule", "按 company_id + handler_id + related_log_id 回溯风险闭环");
         return R.ok(payload);
+    }
+
+    private List<GovernanceEvent> loadRecentGovernanceEvents(Long companyId, Date sinceDate) {
+        return governanceEventService.list(
+            new QueryWrapper<GovernanceEvent>()
+                .select("id", "event_type", "source_module", "source_event_id", "status", "severity", "user_id", "title", "event_time", "create_time")
+                .eq("company_id", companyId)
+                .ge("create_time", sinceDate)
+                .orderByDesc("event_time")
+                .last("LIMIT 10000")
+        );
+    }
+
+    private Map<String, Object> buildGovernanceMonitorCaliber(List<GovernanceEvent> events,
+                                                               LocalDate last7Start,
+                                                               LocalDate previous7Start) {
+        List<GovernanceEvent> alertEvents = events.stream()
+            .filter(this::isAlertEvent)
+            .collect(Collectors.toList());
+
+        Map<String, GovernanceEvent> deduped = new LinkedHashMap<>();
+        for (GovernanceEvent item : alertEvents) {
+            String key = governanceChainKey(item);
+            GovernanceEvent current = deduped.get(key);
+            if (current == null || isGovernanceEventNewer(item, current)) {
+                deduped.put(key, item);
+            }
+        }
+
+        long pendingTotal = 0L;
+        long pendingLast7 = 0L;
+        long pendingPrevious7 = 0L;
+        long anomaly = 0L;
+        long privacy = 0L;
+
+        for (GovernanceEvent item : deduped.values()) {
+            String eventType = normalizeLower(item.getEventType());
+            if ("anomaly_alert".equals(eventType)) {
+                anomaly++;
+            } else if ("privacy_alert".equals(eventType)) {
+                privacy++;
+            }
+
+            String status = normalizeLower(item.getStatus());
+            if ("pending".equals(status) || "reviewing".equals(status)) {
+                pendingTotal++;
+                LocalDate date = toLocalDate(resolveGovernanceAnchor(item));
+                if (!date.isBefore(last7Start)) {
+                    pendingLast7++;
+                } else if (!date.isBefore(previous7Start) && date.isBefore(last7Start)) {
+                    pendingPrevious7++;
+                }
+            }
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("caliber", "governance_event_dedup_chain_v1");
+        result.put("anomaly", anomaly);
+        result.put("privacy", privacy);
+        result.put("pendingTotal", pendingTotal);
+        result.put("pendingLast7", pendingLast7);
+        result.put("pendingPrevious7", pendingPrevious7);
+        result.put("rawTotal", (long) alertEvents.size());
+        result.put("uniqueTotal", (long) deduped.size());
+        result.put("duplicateCollapsed", Math.max(0L, (long) alertEvents.size() - deduped.size()));
+        return result;
+    }
+
+    private boolean isAlertEvent(GovernanceEvent event) {
+        String type = normalizeLower(event.getEventType());
+        return "privacy_alert".equals(type)
+            || "anomaly_alert".equals(type)
+            || "shadow_ai_alert".equals(type)
+            || "security_alert".equals(type);
+    }
+
+    private String governanceChainKey(GovernanceEvent event) {
+        String sourceModule = normalizeLower(event.getSourceModule());
+        String sourceEventId = event.getSourceEventId() == null ? "" : event.getSourceEventId().trim();
+        if (!sourceModule.isBlank() && !sourceEventId.isBlank()) {
+            return sourceModule + "::" + sourceEventId;
+        }
+        LocalDateTime time = resolveGovernanceAnchor(event).toInstant().atZone(ZoneId.systemDefault()).toLocalDateTime();
+        return String.join("::",
+            normalizeLower(event.getEventType()),
+            String.valueOf(event.getUserId() == null ? 0L : event.getUserId()),
+            defaultText(event.getTitle(), "-"),
+            String.valueOf(time.getYear()),
+            String.valueOf(time.getMonthValue()),
+            String.valueOf(time.getDayOfMonth()),
+            String.valueOf(time.getHour()),
+            String.valueOf(time.getMinute())
+        );
+    }
+
+    private boolean isGovernanceEventNewer(GovernanceEvent left, GovernanceEvent right) {
+        Date l = resolveGovernanceAnchor(left);
+        Date r = resolveGovernanceAnchor(right);
+        if (l.after(r)) {
+            return true;
+        }
+        if (l.before(r)) {
+            return false;
+        }
+        long leftId = left.getId() == null ? 0L : left.getId();
+        long rightId = right.getId() == null ? 0L : right.getId();
+        return leftId > rightId;
+    }
+
+    private Date resolveGovernanceAnchor(GovernanceEvent item) {
+        if (item.getEventTime() != null) {
+            return item.getEventTime();
+        }
+        if (item.getCreateTime() != null) {
+            return item.getCreateTime();
+        }
+        return new Date(0L);
+    }
+
+    private long asLong(Object value) {
+        if (value instanceof Number n) {
+            return n.longValue();
+        }
+        if (value == null) {
+            return 0L;
+        }
+        try {
+            return Long.parseLong(String.valueOf(value));
+        } catch (NumberFormatException ignored) {
+            return 0L;
+        }
     }
 
     private Map<String, Object> buildTraceModules(Long companyId, List<Long> companyUserIds) {

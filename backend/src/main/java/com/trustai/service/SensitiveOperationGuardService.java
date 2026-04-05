@@ -19,6 +19,7 @@ public class SensitiveOperationGuardService {
     private final CurrentUserService currentUserService;
     private final PasswordEncoder passwordEncoder;
     private final AuditLogService auditLogService;
+    private final UserService userService;
 
     private final Map<String, Deque<Long>> opWindows = new ConcurrentHashMap<>();
 
@@ -27,10 +28,12 @@ public class SensitiveOperationGuardService {
 
     public SensitiveOperationGuardService(CurrentUserService currentUserService,
                                          PasswordEncoder passwordEncoder,
-                                         AuditLogService auditLogService) {
+                                         AuditLogService auditLogService,
+                                         UserService userService) {
         this.currentUserService = currentUserService;
         this.passwordEncoder = passwordEncoder;
         this.auditLogService = auditLogService;
+        this.userService = userService;
     }
 
     public User requireConfirmedAdmin(String confirmPassword, String operation, String target) {
@@ -43,12 +46,47 @@ public class SensitiveOperationGuardService {
         if (operator == null) {
             throw new BizException(40100, "未登录");
         }
-        if (!StringUtils.hasText(confirmPassword) || !passwordEncoder.matches(confirmPassword, operator.getPassword())) {
+        if (!StringUtils.hasText(confirmPassword)) {
+            writeDeniedAudit(operator, operation, target, "password_empty");
+            throw new BizException(40000, "敏感操作需要二次密码");
+        }
+        if (!passwordEncoder.matches(confirmPassword, operator.getPassword())) {
             writeDeniedAudit(operator, operation, target, "password_check_failed");
-            throw new BizException(40000, "敏感操作需要二次密码确认");
+            throw new BizException(40000, "二次密码错误，请重新输入");
         }
         enforceRateLimit(operator, operation, target);
         return operator;
+    }
+
+    public User requireDualReviewedOperator(User operator,
+                                            String confirmPassword,
+                                            String reviewerUsername,
+                                            String reviewerPassword,
+                                            String operation,
+                                            String target) {
+        User confirmed = requireConfirmedOperator(operator, confirmPassword, operation, target);
+        if (!StringUtils.hasText(reviewerUsername) || !StringUtils.hasText(reviewerPassword)) {
+            writeDeniedAudit(confirmed, operation, target, "dual_review_missing");
+            throw new BizException(40000, "敏感操作需要双人复核");
+        }
+        User reviewer = userService.lambdaQuery().eq(User::getUsername, reviewerUsername.trim()).one();
+        if (reviewer == null) {
+            writeDeniedAudit(confirmed, operation, target, "dual_review_user_not_found");
+            throw new BizException(40000, "复核人不存在");
+        }
+        if (confirmed.getCompanyId() != null && !confirmed.getCompanyId().equals(reviewer.getCompanyId())) {
+            writeDeniedAudit(confirmed, operation, target, "dual_review_cross_company");
+            throw new BizException(40000, "复核人不在当前公司");
+        }
+        if (confirmed.getId() != null && confirmed.getId().equals(reviewer.getId())) {
+            writeDeniedAudit(confirmed, operation, target, "dual_review_same_operator");
+            throw new BizException(40000, "操作人与复核人不能为同一账号");
+        }
+        if (!passwordEncoder.matches(reviewerPassword, reviewer.getPassword())) {
+            writeDeniedAudit(confirmed, operation, target, "dual_review_password_invalid");
+            throw new BizException(40000, "复核人密码校验失败");
+        }
+        return confirmed;
     }
 
     private void enforceRateLimit(User operator, String operation, String target) {

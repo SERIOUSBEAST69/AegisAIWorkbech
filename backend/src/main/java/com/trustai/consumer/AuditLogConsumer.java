@@ -32,6 +32,8 @@ public class AuditLogConsumer {
             doc.setLogId(log.getId());
             doc.setUserId(log.getUserId());
             doc.setAssetId(log.getAssetId());
+            doc.setPermissionId(log.getPermissionId());
+            doc.setPermissionName(log.getPermissionName());
             doc.setOperation(log.getOperation());
             doc.setOperationTime(log.getOperationTime());
             doc.setIp(log.getIp());

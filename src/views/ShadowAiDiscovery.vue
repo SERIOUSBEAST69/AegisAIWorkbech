@@ -200,25 +200,6 @@
               <el-icon><Download /></el-icon>
               Windows 安装包
             </el-button>
-            <el-button
-              type="primary"
-              plain
-              size="small"
-              :loading="downloading === 'macos'"
-              @click="downloadClient('macos')"
-            >
-              <el-icon><Download /></el-icon>
-              macOS DMG
-            </el-button>
-            <el-button
-              plain
-              size="small"
-              :loading="downloading === 'linux'"
-              @click="downloadClient('linux')"
-            >
-              <el-icon><Download /></el-icon>
-              Linux DEB/RPM
-            </el-button>
           </div>
           <div class="deploy-tip">
             下载后双击安装，客户端将自动连接到本平台并开始扫描。
@@ -813,7 +794,7 @@ async function refreshQueue() {
 // ── 辅助标签函数 ──────────────────────────────────────────────────────────────
 
 function platformLabel(platform) {
-  const map = { windows: '🪟 Windows', macos: '🍎 macOS', linux: '🐧 Linux' };
+  const map = { windows: '🪟 Windows' };
   return map[platform] || platform || '未知平台';
 }
 

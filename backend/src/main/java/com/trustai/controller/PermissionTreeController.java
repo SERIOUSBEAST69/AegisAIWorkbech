@@ -28,7 +28,7 @@ public class PermissionTreeController {
 
     @GetMapping("/tree")
     public R<List<Map<String, Object>>> tree() {
-        currentUserService.requireAnyPermission("permission:manage", "role:manage");
+        currentUserService.requireAnyPermission("permission:manage", "role:manage", "role:permission:assign");
         User currentUser = currentUserService.requireCurrentUser();
         List<Permission> permissions = permissionService.lambdaQuery()
             .eq(Permission::getCompanyId, currentUser.getCompanyId())
@@ -44,6 +44,7 @@ public class PermissionTreeController {
             node.put("name", permission.getName());
             node.put("code", permission.getCode());
             node.put("type", permission.getType());
+            node.put("status", permission.getStatus());
             node.put("children", new ArrayList<Map<String, Object>>());
             idToNode.put(permission.getId(), node);
         }

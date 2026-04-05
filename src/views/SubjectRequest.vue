@@ -39,13 +39,13 @@
           <template #default="scope">{{ departmentById(scope.row.userId) }}</template>
         </el-table-column>
         <el-table-column label="申请岗位" min-width="120">
-          <template #default="scope">{{ traceValue(scope.row.comment, 'position') || positionById(scope.row.userId) }}</template>
+          <template #default="scope">{{ traceValue(scope.row.traceRawComment, 'position') || positionById(scope.row.userId) }}</template>
         </el-table-column>
         <el-table-column label="申请公司" min-width="120">
-          <template #default="scope">{{ traceValue(scope.row.comment, 'companyId') || companyById(scope.row.userId) }}</template>
+          <template #default="scope">{{ traceValue(scope.row.traceRawComment, 'companyId') || companyById(scope.row.userId) }}</template>
         </el-table-column>
         <el-table-column label="申请设备" min-width="160" show-overflow-tooltip>
-          <template #default="scope">{{ traceValue(scope.row.comment, 'device') || deviceById(scope.row.userId) }}</template>
+          <template #default="scope">{{ traceValue(scope.row.traceRawComment, 'device') || deviceById(scope.row.userId) }}</template>
         </el-table-column>
         <el-table-column prop="type" label="类型" />
         <el-table-column prop="status" label="状态" />
@@ -166,6 +166,7 @@ async function load() {
     const data = await request.get('/subject-request/list');
     list.value = (Array.isArray(data) ? data : []).map(item => ({
       ...item,
+      traceRawComment: String(item?.comment || ''),
       comment: getSafeComment(item?.comment),
     }));
   } catch (err) {

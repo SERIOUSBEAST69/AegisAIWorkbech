@@ -13,6 +13,15 @@
       </div>
     </div>
 
+    <div class="caliber-strip card-glass scene-block">
+      <strong>统一口径对齐</strong>
+      <span>异常 {{ governanceSnapshot.anomaly }}</span>
+      <span>隐私 {{ governanceSnapshot.privacy }}</span>
+      <span>待处置 {{ governanceSnapshot.pending }}</span>
+      <span>去重压缩 {{ governanceSnapshot.collapsed }}</span>
+      <span class="caliber-text">{{ governanceSnapshot.note }}</span>
+    </div>
+
     <el-tabs v-model="activeTab" class="scene-block" @tab-change="handleTabChange">
       <el-tab-pane label="异常行为检测" name="anomaly">
         <div class="stats-grid">
@@ -62,6 +71,19 @@
               </div>
               <div v-if="ev.description" class="masked-text">{{ sanitizeText(ev.description) }}</div>
             </div>
+          </div>
+
+          <div class="pager" v-if="!anomalySummaryOnly && !isExecutive">
+            <el-pagination
+              background
+              layout="total, sizes, prev, pager, next"
+              v-model:current-page="anomalyQuery.page"
+              v-model:page-size="anomalyQuery.pageSize"
+              :page-sizes="[10, 20, 50]"
+              :total="anomalyTotal"
+              @current-change="handleAnomalyPageChange"
+              @size-change="handleAnomalySizeChange"
+            />
           </div>
         </div>
       </el-tab-pane>
@@ -123,11 +145,13 @@
           <div class="pager" v-if="!privacySummary.summaryOnly">
             <el-pagination
               background
-              layout="prev, pager, next"
-              :current-page="privacyQuery.page"
-              :page-size="privacyQuery.pageSize"
+              layout="total, sizes, prev, pager, next"
+              v-model:current-page="privacyQuery.page"
+              v-model:page-size="privacyQuery.pageSize"
+              :page-sizes="[10, 20, 50]"
               :total="privacyTotal"
               @current-change="handlePrivacyPageChange"
+              @size-change="handlePrivacySizeChange"
             />
           </div>
         </div>
@@ -220,6 +244,8 @@ const anomalyLoading = ref(false);
 const anomalyEvents = ref([]);
 const anomalySummaryOnly = ref(false);
 const anomalySummary = ref({ total: 0, anomalyCount: 0, normalCount: 0, anomalyRate: 0 });
+const anomalyQuery = ref({ page: 1, pageSize: 10 });
+const anomalyTotalRecords = ref(0);
 const modelReady = ref(false);
 
 const privacyLoading = ref(false);
@@ -237,10 +263,17 @@ const profileData = ref({
   events: [],
   adversarialRecords: [],
 });
+const governanceSnapshot = ref({
+  anomaly: 0,
+  privacy: 0,
+  pending: 0,
+  collapsed: 0,
+  note: '口径：governance_event_dedup_chain_v1（与首页一致）',
+});
 
 const anomalyTotal = computed(() => {
   if (anomalySummaryOnly.value) return Number(anomalySummary.value.total || 0);
-  return anomalyEvents.value.length;
+  return Number(anomalyTotalRecords.value || 0);
 });
 const anomalyCount = computed(() => {
   if (anomalySummaryOnly.value) return Number(anomalySummary.value.anomalyCount || 0);
@@ -404,7 +437,12 @@ async function loadAnomalyStatus() {
 async function loadAnomaly() {
   anomalyLoading.value = true;
   try {
-    const data = await request.get('/anomaly/events');
+    const data = await request.get('/anomaly/events', {
+      params: {
+        page: anomalyQuery.value.page,
+        pageSize: anomalyQuery.value.pageSize,
+      },
+    });
     anomalySummaryOnly.value = !!data?.summaryOnly;
     if (anomalySummaryOnly.value) {
       anomalySummary.value = {
@@ -413,18 +451,32 @@ async function loadAnomaly() {
         normalCount: data.normalCount || 0,
         anomalyRate: data.anomalyRate || 0,
       };
+      anomalyTotalRecords.value = Number(data.total || 0);
       anomalyEvents.value = [];
       return;
     }
+    anomalyTotalRecords.value = Number(data?.total || data?.count || 0);
     anomalyEvents.value = Array.isArray(data?.events)
       ? data.events.map((item) => normalizeAnomalyEvent(item))
       : [];
   } catch (error) {
+    anomalyTotalRecords.value = 0;
     anomalyEvents.value = [];
     ElMessage.error(error?.message || '加载异常行为失败');
   } finally {
     anomalyLoading.value = false;
   }
+}
+
+function handleAnomalyPageChange(page) {
+  anomalyQuery.value.page = page;
+  loadAnomaly();
+}
+
+function handleAnomalySizeChange(size) {
+  anomalyQuery.value.pageSize = size;
+  anomalyQuery.value.page = 1;
+  loadAnomaly();
 }
 
 async function loadPrivacyEvents() {
@@ -453,6 +505,12 @@ async function loadPrivacyEvents() {
 
 function handlePrivacyPageChange(page) {
   privacyQuery.value.page = page;
+  loadPrivacyEvents();
+}
+
+function handlePrivacySizeChange(size) {
+  privacyQuery.value.pageSize = size;
+  privacyQuery.value.page = 1;
   loadPrivacyEvents();
 }
 
@@ -514,9 +572,30 @@ async function loadProfile() {
   }
 }
 
+async function loadGovernanceSnapshot() {
+  try {
+    const data = await alertCenterApi.threatOverview({ windowHours: 168 });
+    const byType = data?.byType || {};
+    const summary = data?.summary || {};
+    const dedupe = data?.dedupe || {};
+    governanceSnapshot.value = {
+      anomaly: Number(byType.anomaly || 0),
+      privacy: Number(byType.privacy || 0),
+      pending: Number(summary.pending || 0),
+      collapsed: Number(dedupe.collapsed || 0),
+      note: `口径：${dedupe.caliber || 'governance_event_dedup_chain_v1'}（与首页一致）`,
+    };
+  } catch (error) {
+    governanceSnapshot.value = {
+      ...governanceSnapshot.value,
+      note: '口径快照拉取失败，已保留当前页原始统计',
+    };
+  }
+}
+
 onMounted(async () => {
   await ensureUserDirectory();
-  await Promise.all([loadAnomalyStatus(), loadAnomaly(), loadProfile()]);
+  await Promise.all([loadAnomalyStatus(), loadAnomaly(), loadProfile(), loadGovernanceSnapshot()]);
 });
 </script>
 
@@ -557,6 +636,26 @@ onMounted(async () => {
 .header-actions {
   display: flex;
   gap: 8px;
+}
+
+.caliber-strip {
+  margin-bottom: 14px;
+  padding: 10px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.caliber-strip strong {
+  color: var(--color-text);
+}
+
+.caliber-text {
+  color: var(--color-text-soft);
 }
 
 .stats-grid {

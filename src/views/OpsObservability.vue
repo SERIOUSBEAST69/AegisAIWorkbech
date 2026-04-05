@@ -61,14 +61,6 @@
         </el-card>
       </el-col>
     </el-row>
-    <el-alert
-      type="info"
-      :closable="false"
-      show-icon
-      style="margin-top:16px"
-      title="隐私盾告警明细已归并至“员工AI行为监控-隐私盾告警”模块，运维观测仅保留趋势与统计。"
-    />
-
     <el-card class="health-card" shadow="never">
       <template #header>
         <div class="health-header">
@@ -124,8 +116,13 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { ElMessage } from 'element-plus';
-import * as echarts from 'echarts';
+import * as echarts from 'echarts/core';
+import { LineChart, BarChart, PieChart } from 'echarts/charts';
+import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components';
+import { CanvasRenderer } from 'echarts/renderers';
 import request from '../api/request';
+
+echarts.use([LineChart, BarChart, PieChart, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer]);
 
 const loading = ref(false);
 const healthLoading = ref(false);

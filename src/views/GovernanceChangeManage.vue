@@ -13,6 +13,8 @@
         <el-select v-model="query.module" placeholder="全部" clearable style="width: 150px">
           <el-option label="角色" value="ROLE" />
           <el-option label="权限" value="PERMISSION" />
+          <el-option label="策略" value="POLICY" />
+          <el-option label="用户" value="USER" />
         </el-select>
       </el-form-item>
       <el-form-item>
@@ -21,11 +23,22 @@
       </el-form-item>
     </el-form>
 
+    <el-alert
+      v-if="reviewerGuideText"
+      :title="reviewerGuideText"
+      type="info"
+      :closable="false"
+      style="margin-bottom: 12px"
+    />
+
     <el-table :data="requests" v-loading="loading" style="width: 100%" empty-text="暂无记录">
       <el-table-column prop="id" label="申请ID" width="120" />
       <el-table-column prop="module" label="模块" width="120" />
       <el-table-column prop="action" label="动作" width="120" />
       <el-table-column prop="riskLevel" label="风险等级" width="120" />
+      <el-table-column label="变更内容" min-width="260" show-overflow-tooltip>
+        <template #default="scope">{{ summarizePayload(scope.row.payloadJson) }}</template>
+      </el-table-column>
       <el-table-column prop="requesterId" label="申请人ID" width="120" />
       <el-table-column label="申请账号" min-width="130">
         <template #default="scope">{{ userNameById(scope.row.requesterId) }}</template>
@@ -62,7 +75,13 @@
       </el-table-column>
       <el-table-column prop="status" label="状态" width="120" />
       <el-table-column prop="approveNote" label="复核备注" min-width="200" />
-      <el-table-column label="操作" width="220" fixed="right">
+      <el-table-column label="申请时间" min-width="170">
+        <template #default="scope">{{ formatTime(scope.row.createTime) }}</template>
+      </el-table-column>
+      <el-table-column label="复核时间" min-width="170">
+        <template #default="scope">{{ formatTime(scope.row.approvedAt) }}</template>
+      </el-table-column>
+      <el-table-column label="操作" width="220" :fixed="isNarrowScreen ? false : 'right'">
         <template #default="scope">
           <el-button
             size="small"
@@ -85,8 +104,8 @@
         background
         layout="total, sizes, prev, pager, next"
         :total="pagination.total"
-        :current-page="pagination.current"
-        :page-size="pagination.pageSize"
+        v-model:current-page="pagination.current"
+        v-model:page-size="pagination.pageSize"
         :page-sizes="[10, 20, 50]"
         @current-change="onPageChange"
         @size-change="onPageSizeChange"
@@ -99,6 +118,8 @@
           <el-select v-model="submitForm.module" placeholder="请选择模块" style="width: 100%">
             <el-option label="角色" value="ROLE" />
             <el-option label="权限" value="PERMISSION" />
+            <el-option label="策略" value="POLICY" />
+            <el-option label="用户" value="USER" />
           </el-select>
         </el-form-item>
         <el-form-item label="动作" prop="action">
@@ -129,7 +150,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import request from '../api/request';
 import { getSession } from '../utils/auth';
@@ -144,16 +165,25 @@ const query = ref({ status: '', module: '' });
 const pagination = ref({ current: 1, pageSize: 10, total: 0 });
 const submitFormRef = ref();
 const submitForm = ref({ module: 'ROLE', action: 'ADD', targetId: null, payloadJson: '' });
+const isNarrowScreen = ref(false);
 
 const canSubmit = computed(() => canSubmitGovernanceChange(getSession()?.user));
 const canReview = computed(() => canReviewGovernanceChange(getSession()?.user));
 const currentUserId = computed(() => getSession()?.user?.id);
+const reviewerGuideText = computed(() => {
+  if (!canReview.value) return '';
+  return '当前账号为复核员，请在本页直接查看“待复核”治理变更并执行通过/拒绝。';
+});
 
 const rules = {
   module: [{ required: true, message: '模块不能为空', trigger: 'change' }],
   action: [{ required: true, message: '动作不能为空', trigger: 'change' }],
   payloadJson: [{ required: true, message: '变更载荷不能为空', trigger: 'blur' }],
 };
+
+function syncViewport() {
+  isNarrowScreen.value = typeof window !== 'undefined' ? window.innerWidth < 992 : false;
+}
 
 function onPageChange(page) {
   pagination.value.current = page;
@@ -354,5 +384,39 @@ function traceValue(raw, key) {
   return match?.[1] || '';
 }
 
-fetchRequests();
+function summarizePayload(payloadJson) {
+  const text = String(payloadJson || '').trim();
+  if (!text) return '-';
+  try {
+    const data = JSON.parse(text);
+    const clone = { ...data };
+    delete clone.trace;
+    const compact = JSON.stringify(clone);
+    return compact.length > 120 ? `${compact.slice(0, 120)}...` : compact;
+  } catch {
+    return text.length > 120 ? `${text.slice(0, 120)}...` : text;
+  }
+}
+
+function formatTime(value) {
+  if (!value) return '-';
+  const date = new Date(String(value).replace(' ', 'T'));
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString('zh-CN', { hour12: false });
+}
+
+if (canReview.value && !canSubmit.value) {
+  query.value.status = 'pending';
+  pagination.value.current = 1;
+}
+
+onMounted(() => {
+  syncViewport();
+  window.addEventListener('resize', syncViewport, { passive: true });
+  fetchRequests();
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', syncViewport);
+});
 </script>

@@ -1,0 +1,122 @@
+﻿[
+    {
+        "code":  "ADMIN",
+        "permissionCount":  27,
+        "permissions":  "approval:operate,approval:view,audit:log:view,audit:report:generate,audit:report:view,data_asset:delete,data_asset:upload,govern:change:create,govern:change:review,govern:change:view,menu:data_asset,menu:permission_manage,menu:role_manage,menu:user_manage,ops:metrics:view,permission:manage,permission:matrix:view,policy:status:toggle,policy:structure:manage,policy:view,risk:event:handle,risk:event:view,role:manage,security:event:view,sod:rule:edit,sod:rule:view,user:manage"
+    },
+    {
+        "code":  "ADMIN_OPS",
+        "permissionCount":  9,
+        "permissions":  "approval:view,audit:log:view,govern:change:view,ops:metrics:view,policy:view,risk:event:handle,risk:event:view,security:event:handle,security:event:view"
+    },
+    {
+        "code":  "ADMIN_REVIEWER",
+        "permissionCount":  9,
+        "permissions":  "approval:view,audit:log:view,audit:report:view,govern:change:review,govern:change:view,ops:metrics:view,policy:view,risk:event:view,security:event:view"
+    },
+    {
+        "code":  "AI_BUILDER",
+        "permissionCount":  6,
+        "permissions":  "approval:view,govern:change:view,menu:data_asset,policy:view,risk:event:view,security:event:view"
+    },
+    {
+        "code":  "AI_BUILDER_AUDITOR",
+        "permissionCount":  6,
+        "permissions":  "approval:view,govern:change:view,menu:data_asset,policy:view,risk:event:view,security:event:view"
+    },
+    {
+        "code":  "AI_BUILDER_PROMPT",
+        "permissionCount":  6,
+        "permissions":  "approval:view,govern:change:view,menu:data_asset,policy:view,risk:event:view,security:event:view"
+    },
+    {
+        "code":  "AUDIT",
+        "permissionCount":  0,
+        "permissions":  ""
+    },
+    {
+        "code":  "BUSINESS_OWNER",
+        "permissionCount":  7,
+        "permissions":  "approval:operate,approval:view,govern:change:view,menu:data_asset,policy:view,risk:event:view,security:event:view"
+    },
+    {
+        "code":  "BUSINESS_OWNER_APPROVER",
+        "permissionCount":  7,
+        "permissions":  "approval:operate,approval:view,govern:change:view,menu:data_asset,policy:view,risk:event:view,security:event:view"
+    },
+    {
+        "code":  "BUSINESS_OWNER_REVIEWER",
+        "permissionCount":  7,
+        "permissions":  "approval:operate,approval:view,govern:change:view,menu:data_asset,policy:view,risk:event:view,security:event:view"
+    },
+    {
+        "code":  "DATA_ADMIN",
+        "permissionCount":  11,
+        "permissions":  "approval:operate,approval:view,audit:log:view,data_asset:delete,data_asset:upload,menu:data_asset,ops:metrics:view,policy:structure:manage,policy:view,risk:event:view,security:event:view"
+    },
+    {
+        "code":  "DATA_ADMIN_APPROVER",
+        "permissionCount":  7,
+        "permissions":  "approval:operate,approval:view,audit:log:view,ops:metrics:view,policy:view,risk:event:view,security:event:view"
+    },
+    {
+        "code":  "DATA_ADMIN_MAINTAINER",
+        "permissionCount":  8,
+        "permissions":  "approval:view,audit:log:view,data_asset:upload,menu:data_asset,ops:metrics:view,policy:view,risk:event:view,security:event:view"
+    },
+    {
+        "code":  "EMPLOYEE",
+        "permissionCount":  3,
+        "permissions":  "approval:view,risk:event:view,security:event:view"
+    },
+    {
+        "code":  "EMPLOYEE_OBSERVER",
+        "permissionCount":  2,
+        "permissions":  "risk:event:view,security:event:view"
+    },
+    {
+        "code":  "EMPLOYEE_REQUESTER_FULL",
+        "permissionCount":  3,
+        "permissions":  "approval:view,risk:event:view,security:event:view"
+    },
+    {
+        "code":  "EMPLOYEE_REQUESTER_LIMITED",
+        "permissionCount":  3,
+        "permissions":  "approval:view,risk:event:view,security:event:view"
+    },
+    {
+        "code":  "EXECUTIVE",
+        "permissionCount":  9,
+        "permissions":  "approval:view,audit:log:view,audit:report:view,govern:change:view,ops:metrics:view,permission:matrix:view,policy:view,risk:event:view,security:event:view"
+    },
+    {
+        "code":  "EXECUTIVE_COMPLIANCE",
+        "permissionCount":  7,
+        "permissions":  "audit:log:view,audit:report:view,govern:change:view,permission:matrix:view,policy:view,risk:event:view,security:event:view"
+    },
+    {
+        "code":  "EXECUTIVE_OVERVIEW",
+        "permissionCount":  6,
+        "permissions":  "approval:view,govern:change:view,ops:metrics:view,policy:view,risk:event:view,security:event:view"
+    },
+    {
+        "code":  "SEC",
+        "permissionCount":  0,
+        "permissions":  ""
+    },
+    {
+        "code":  "SECOPS",
+        "permissionCount":  14,
+        "permissions":  "approval:view,audit:log:view,audit:report:generate,audit:report:view,govern:change:review,govern:change:view,ops:metrics:view,policy:status:toggle,policy:view,risk:event:handle,risk:event:view,security:event:handle,security:event:view,security:rule:manage"
+    },
+    {
+        "code":  "SECOPS_RESPONDER",
+        "permissionCount":  11,
+        "permissions":  "audit:log:view,audit:report:view,govern:change:review,govern:change:view,ops:metrics:view,policy:status:toggle,policy:view,risk:event:handle,risk:event:view,security:event:handle,security:event:view"
+    },
+    {
+        "code":  "SECOPS_TRIAGE",
+        "permissionCount":  11,
+        "permissions":  "audit:log:view,audit:report:view,govern:change:review,govern:change:view,ops:metrics:view,policy:status:toggle,policy:view,risk:event:handle,risk:event:view,security:event:handle,security:event:view"
+    }
+]

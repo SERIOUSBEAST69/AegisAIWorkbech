@@ -1,6 +1,7 @@
 package com.trustai.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.trustai.dto.SensitiveScanReport;
 import com.trustai.entity.SensitiveScanTask;
@@ -45,7 +46,7 @@ public class SensitiveScanController {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     @PostMapping("/create")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','SECOPS_RESPONDER','DATA_ADMIN')")
     public R<SensitiveScanTask> create(@RequestBody @Validated CreateReq req) {
         User currentUser = currentUserService.requireCurrentUser();
         Long companyId = companyScopeService.requireCompanyId();
@@ -63,25 +64,41 @@ public class SensitiveScanController {
     }
 
     @GetMapping("/list")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','DATA_ADMIN')")
-    public R<List<SensitiveScanTask>> list(@RequestParam(required = false) String status) {
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','SECOPS_RESPONDER','DATA_ADMIN','DATA_ADMIN_MAINTAINER')")
+    public R<Map<String, Object>> list(@RequestParam(defaultValue = "1") int page,
+                                       @RequestParam(defaultValue = "10") int pageSize,
+                                       @RequestParam(required = false) String status) {
         User currentUser = currentUserService.requireCurrentUser();
         Long companyId = companyScopeService.requireCompanyId();
-        boolean dataAdminScope = "DATA_ADMIN".equalsIgnoreCase(currentUserService.currentRoleCode());
+        boolean dataAdminScope = currentUserService.hasAnyRole("DATA_ADMIN", "DATA_ADMIN_MAINTAINER");
         QueryWrapper<SensitiveScanTask> qw = new QueryWrapper<SensitiveScanTask>()
             .eq("company_id", companyId)
             .eq(dataAdminScope, "user_id", currentUser.getId());
         if (status != null && !status.isEmpty()) qw.eq("status", status);
+        qw.orderByDesc("update_time");
         try {
-            return R.ok(taskService.list(qw));
+            int safePage = Math.max(1, page);
+            int safePageSize = Math.max(1, Math.min(100, pageSize));
+            Page<SensitiveScanTask> result = taskService.page(new Page<>(safePage, safePageSize), qw);
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("current", result.getCurrent());
+            payload.put("pages", result.getPages());
+            payload.put("total", result.getTotal());
+            payload.put("list", result.getRecords());
+            return R.ok(payload);
         } catch (Exception ex) {
             log.warn("SensitiveScan list degraded due to schema mismatch: {}", ex.getMessage());
-            return R.ok(List.of());
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("current", Math.max(1, page));
+            payload.put("pages", 0);
+            payload.put("total", 0);
+            payload.put("list", List.of());
+            return R.ok(payload);
         }
     }
 
     @PostMapping("/run")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','SECOPS_RESPONDER','DATA_ADMIN')")
     public R<SensitiveScanTask> run(@RequestBody @Validated IdReq req) {
         SensitiveScanTask task = requireScopedTask(req.getId());
         if (task == null) return R.error(40000, "任务不存在");
@@ -126,7 +143,7 @@ public class SensitiveScanController {
     }
 
     @GetMapping("/{id}/report")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','SECOPS_RESPONDER','DATA_ADMIN','DATA_ADMIN_MAINTAINER')")
     public R<?> report(@PathVariable Long id) {
         SensitiveScanTask task = requireScopedTask(id);
         if (task == null) return R.error(40000, "任务不存在");
@@ -135,7 +152,7 @@ public class SensitiveScanController {
     }
 
     @PostMapping("/delete")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','SECOPS_RESPONDER','DATA_ADMIN')")
     public R<?> delete(@RequestBody @Validated IdReq req) {
         SensitiveScanTask task = requireScopedTask(req.getId());
         if (task == null) return R.error(40000, "任务不存在");
@@ -146,7 +163,7 @@ public class SensitiveScanController {
     private SensitiveScanTask requireScopedTask(Long id) {
         User currentUser = currentUserService.requireCurrentUser();
         Long companyId = companyScopeService.requireCompanyId();
-        boolean dataAdminScope = "DATA_ADMIN".equalsIgnoreCase(currentUserService.currentRoleCode());
+        boolean dataAdminScope = currentUserService.hasAnyRole("DATA_ADMIN", "DATA_ADMIN_MAINTAINER");
         QueryWrapper<SensitiveScanTask> qw = new QueryWrapper<SensitiveScanTask>()
             .eq("id", id)
             .eq("company_id", companyId)

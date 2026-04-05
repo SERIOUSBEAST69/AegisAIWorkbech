@@ -48,6 +48,12 @@
             </span>
           </template>
         </el-table-column>
+        <el-table-column label="创建时间" min-width="170">
+          <template #default="scope">{{ formatTime(scope.row.createTime) }}</template>
+        </el-table-column>
+        <el-table-column label="更新时间" min-width="170">
+          <template #default="scope">{{ formatTime(scope.row.updateTime) }}</template>
+        </el-table-column>
         <el-table-column label="操作" width="220">
           <template #default="scope">
             <el-button size="small" type="primary" @click="run(scope.row.id)">执行</el-button>
@@ -61,6 +67,18 @@
           </template>
         </el-table-column>
       </el-table>
+      <div style="display:flex;justify-content:flex-end;margin-top:14px;">
+        <el-pagination
+          background
+          layout="total, sizes, prev, pager, next"
+          :total="pagination.total"
+          v-model:current-page="pagination.page"
+          v-model:page-size="pagination.pageSize"
+          :page-sizes="[10, 20, 50]"
+          @current-change="onPageChange"
+          @size-change="onPageSizeChange"
+        />
+      </div>
     </el-card>
 
     <!-- BERT 扫描报告详情对话框 -->
@@ -144,6 +162,7 @@ const list = ref([]);
 const loading = ref(false);
 const saving = ref(false);
 const formRef = ref();
+const pagination = ref({ page: 1, pageSize: 10, total: 0 });
 const rules = {
   sourceType: [{ required: true, message: '请选择来源类型', trigger: 'change' }],
   sourcePath: [{ required: true, message: '请输入路径/表', trigger: 'blur' }]
@@ -176,12 +195,37 @@ function traceValue(raw, key) {
 async function fetchList() {
   loading.value = true;
   try {
-    list.value = await request.get('/sensitive-scan/list');
+    const data = await request.get('/sensitive-scan/list', {
+      params: {
+        page: pagination.value.page,
+        pageSize: pagination.value.pageSize,
+      },
+    });
+    list.value = Array.isArray(data?.list) ? data.list : [];
+    pagination.value.total = Number(data?.total || 0);
   } catch (err) {
     ElMessage.error(err?.message || '加载扫描任务失败');
   } finally {
     loading.value = false;
   }
+}
+
+function onPageChange(page) {
+  pagination.value.page = page;
+  fetchList();
+}
+
+function onPageSizeChange(size) {
+  pagination.value.pageSize = size;
+  pagination.value.page = 1;
+  fetchList();
+}
+
+function formatTime(value) {
+  if (!value) return '-';
+  const date = new Date(String(value).replace(' ', 'T'));
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString('zh-CN', { hour12: false });
 }
 
 async function create() {

@@ -14,6 +14,7 @@ public class Permission {
     private String name;
     private String code;
     private String type;
+    private String status;
     private Long parentId;
     private Date createTime;
     private Date updateTime;

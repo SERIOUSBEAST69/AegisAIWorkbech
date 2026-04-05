@@ -7,7 +7,79 @@ const STATE = {
   debounceTimer: null,
   lastIgnoredHash: null,
   lastIgnoredAt: 0,
+  fragments: [],
+  mutationSignals: [],
+  mutationObserver: null,
+  lastChainId: null,
 };
+
+const FRAGMENT_WINDOW_MS = 30000;
+const MUTATION_WINDOW_MS = 20000;
+
+const INJECTION_PATTERNS = [
+  /ignore\s+(all|previous|prior)\s+instructions?/i,
+  /system\s+prompt/i,
+  /developer\s+mode/i,
+  /bypass\s+(policy|guard|safety|filter)/i,
+  /do\s+not\s+follow\s+safety/i,
+];
+
+function nowMs() {
+  return Date.now();
+}
+
+function trimWindow(list, maxAgeMs) {
+  const ts = nowMs();
+  return list.filter((item) => ts - item.ts <= maxAgeMs);
+}
+
+function recordFragment(text) {
+  const normalized = String(text || '').trim();
+  if (!normalized) return;
+  STATE.fragments.push({ text: normalized.slice(-180), ts: nowMs() });
+  STATE.fragments = trimWindow(STATE.fragments, FRAGMENT_WINDOW_MS).slice(-12);
+}
+
+function getFragmentSignals(currentText) {
+  const fragments = trimWindow(STATE.fragments, FRAGMENT_WINDOW_MS);
+  const joined = fragments.map((item) => item.text).join(' ');
+  const signals = [];
+  if (fragments.length >= 4 && INJECTION_PATTERNS.some((pattern) => pattern.test(joined))) {
+    signals.push('fragmented_prompt_chain');
+  }
+  if (joined.length > 300 && /[A-Za-z0-9+/=]{180,}/.test(joined)) {
+    signals.push('fragmented_encoded_payload');
+  }
+  if (String(currentText || '').length > 600 && fragments.length >= 3) {
+    signals.push('staged_long_composition');
+  }
+  return signals;
+}
+
+function addMutationSignal(signal) {
+  STATE.mutationSignals.push({ signal, ts: nowMs() });
+  STATE.mutationSignals = trimWindow(STATE.mutationSignals, MUTATION_WINDOW_MS).slice(-20);
+}
+
+function getMutationSignals() {
+  return trimWindow(STATE.mutationSignals, MUTATION_WINDOW_MS).map((item) => item.signal);
+}
+
+function inspectMutation(nodes) {
+  for (const node of nodes || []) {
+    if (!(node instanceof HTMLElement)) continue;
+    const text = String(node.textContent || '').slice(0, 1200);
+    const hidden = node.hidden || node.getAttribute('aria-hidden') === 'true' || node.style?.display === 'none';
+    if (hidden && text && INJECTION_PATTERNS.some((pattern) => pattern.test(text))) {
+      addMutationSignal('hidden_prompt_injection_dom');
+      continue;
+    }
+    const role = String(node.getAttribute('role') || '').toLowerCase();
+    if ((role.includes('tooltip') || role.includes('note')) && text && INJECTION_PATTERNS.some((pattern) => pattern.test(text))) {
+      addMutationSignal('ui_overlay_prompt_injection');
+    }
+  }
+}
 
 function hashText(text) {
   let hash = 0;
@@ -83,6 +155,11 @@ function ensureBanner() {
           content: text,
           action: 'desensitize',
           matchedTypes: detection.detected || [],
+          riskCategory: detection.riskCategory,
+          confidence: detection.confidence,
+          reasons: detection.reasons || [],
+          chainId: detection?.chain?.chainId,
+          chainLevel: detection?.chain?.level,
         },
       });
     }
@@ -101,6 +178,8 @@ function ensureBanner() {
         eventType: 'EXTENSION_SENSITIVE',
         content: text,
         action: 'ignore',
+        reasons: ['user_override'],
+        chainId: STATE.lastChainId || null,
       },
     });
   });
@@ -145,12 +224,21 @@ function bindInput(el) {
     }
     STATE.debounceTimer = setTimeout(async () => {
       const text = getInputText(el).trim();
+      recordFragment(text);
       if (!text) {
         hideBanner();
         return;
       }
 
-      const detection = await sendRuntimeMessage({ type: 'detect-content', text });
+      const detection = await sendRuntimeMessage({
+        type: 'detect-content',
+        text,
+        context: {
+          fragmentSignals: getFragmentSignals(text),
+          mutationSignals: getMutationSignals(),
+        },
+      });
+      STATE.lastChainId = detection?.chain?.chainId || null;
       const currentHash = hashText(text);
       if (STATE.lastIgnoredHash === currentHash && Date.now() - STATE.lastIgnoredAt < 45 * 1000) {
         return;
@@ -180,8 +268,14 @@ async function init() {
   if (!STATE.siteRule) return;
 
   bindAllInputs();
-  const observer = new MutationObserver(() => bindAllInputs());
+  const observer = new MutationObserver((mutations) => {
+    bindAllInputs();
+    for (const mutation of mutations || []) {
+      inspectMutation(mutation.addedNodes);
+    }
+  });
   observer.observe(document.documentElement, { childList: true, subtree: true });
+  STATE.mutationObserver = observer;
 }
 
 init().catch(() => {});

@@ -7,6 +7,7 @@ import com.trustai.entity.RolePermission;
 import com.trustai.entity.User;
 import com.trustai.entity.UserRole;
 import com.trustai.exception.BizException;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -25,6 +26,23 @@ public class CurrentUserService {
 
     private static final String ADMIN_ROLE_CODE = "ADMIN";
     private static final String EMPLOYEE_ROLE_CODE = "EMPLOYEE";
+    private static final Map<String, Set<String>> ROLE_FAMILY = Map.of();
+    private static final Map<String, Set<String>> ROLE_DEFAULT_PERMISSIONS = Map.ofEntries(
+        Map.entry("ADMIN", Set.of("audit:log:view", "audit:export", "audit:report:view", "audit:report:generate", "govern:change:create", "govern:change:review")),
+        Map.entry("ADMIN_REVIEWER", Set.of("audit:log:view", "audit:report:view", "govern:change:review")),
+        Map.entry("ADMIN_OPS", Set.of("govern:change:create")),
+        Map.entry("SECOPS", Set.of("audit:log:view", "audit:export", "audit:report:view")),
+        Map.entry("SECOPS_RESPONDER", Set.of("audit:log:view")),
+        Map.entry("EXECUTIVE", Set.of("audit:report:view")),
+        Map.entry("EXECUTIVE_COMPLIANCE", Set.of("audit:report:view")),
+        Map.entry("DATA_ADMIN", Set.of("audit:log:view")),
+        Map.entry("DATA_ADMIN_MAINTAINER", Set.of("audit:log:view")),
+        Map.entry("BUSINESS_OWNER", Set.of("audit:log:view")),
+        Map.entry("BUSINESS_OWNER_APPROVER", Set.of("audit:log:view")),
+        Map.entry("EMPLOYEE", Set.of("audit:log:view")),
+        Map.entry("EMPLOYEE_REQUESTER", Set.of("audit:log:view")),
+        Map.entry("AI_BUILDER", Set.of("model:call:log:view"))
+    );
 
     private final UserService userService;
     private final RoleService roleService;
@@ -81,7 +99,7 @@ public class CurrentUserService {
 
         boolean allowed = Arrays.stream(roleCodes)
             .filter(StringUtils::hasText)
-            .anyMatch(code -> code.equalsIgnoreCase(currentRoleCode));
+            .anyMatch(code -> roleMatches(code, currentRoleCode));
         if (!allowed) {
             throw new AccessDeniedException("当前身份无权执行该操作");
         }
@@ -119,7 +137,7 @@ public class CurrentUserService {
             return false;
         }
         String current = safeCurrentRoleCode();
-        return StringUtils.hasText(current) && roleCode.equalsIgnoreCase(current);
+        return StringUtils.hasText(current) && roleMatches(roleCode, current);
     }
 
     public boolean hasAnyRole(String... roleCodes) {
@@ -129,7 +147,7 @@ public class CurrentUserService {
         }
         return Arrays.stream(roleCodes)
             .filter(StringUtils::hasText)
-            .anyMatch(code -> code.equalsIgnoreCase(current));
+            .anyMatch(code -> roleMatches(code, current));
     }
 
     public boolean hasAuthority(String permissionCode) {
@@ -190,7 +208,7 @@ public class CurrentUserService {
     }
 
     public boolean isEmployeeUser() {
-        return EMPLOYEE_ROLE_CODE.equalsIgnoreCase(currentRoleCode());
+        return hasRole(EMPLOYEE_ROLE_CODE);
     }
 
     public Set<String> permissionCodesOfCurrentUser() {
@@ -202,13 +220,11 @@ public class CurrentUserService {
             return Set.of();
         }
         Set<Long> roleIds = currentRoleIds(user);
-        if (roleIds.isEmpty()) {
-            return Set.of();
-        }
         Set<String> codes = new HashSet<>();
         for (Long roleId : roleIds) {
             codes.addAll(currentPermissionCodes(roleId, user.getCompanyId()));
         }
+        codes.addAll(defaultPermissionCodes(user));
         return codes;
     }
 
@@ -234,6 +250,33 @@ public class CurrentUserService {
         return roleIds;
     }
 
+    private Set<String> defaultPermissionCodes(User user) {
+        Set<String> codes = new HashSet<>();
+        for (String roleCode : effectiveRoleCodes(user)) {
+            codes.addAll(ROLE_DEFAULT_PERMISSIONS.getOrDefault(roleCode, Set.of()));
+        }
+        return codes.stream().map(item -> item.trim().toLowerCase()).collect(Collectors.toSet());
+    }
+
+    private Set<String> effectiveRoleCodes(User user) {
+        Set<String> roleCodes = new HashSet<>();
+        if (user == null) {
+            return roleCodes;
+        }
+        Role currentRole = getCurrentRole(user);
+        if (currentRole != null && StringUtils.hasText(currentRole.getCode())) {
+            roleCodes.add(currentRole.getCode().trim().toUpperCase());
+        }
+        for (Long roleId : currentRoleIds(user)) {
+            Role role = roleService.getById(roleId);
+            if (role == null || !StringUtils.hasText(role.getCode())) {
+                continue;
+            }
+            roleCodes.add(role.getCode().trim().toUpperCase());
+        }
+        return roleCodes;
+    }
+
     private Set<String> currentPermissionCodes(Long roleId, Long companyId) {
         if (roleId == null) {
             return Set.of();
@@ -253,6 +296,7 @@ public class CurrentUserService {
         for (Permission permission : permissionService.lambdaQuery()
             .in(Permission::getId, permissionIds)
             .eq(companyId != null, Permission::getCompanyId, companyId)
+            .and(wrapper -> wrapper.eq(Permission::getStatus, "active").or().isNull(Permission::getStatus))
             .list()) {
             if (StringUtils.hasText(permission.getCode())) {
                 codes.add(permission.getCode().trim().toLowerCase());
@@ -278,5 +322,18 @@ public class CurrentUserService {
             return ADMIN_ROLE_CODE;
         }
         return null;
+    }
+
+    private boolean roleMatches(String expectedRole, String currentRole) {
+        if (!StringUtils.hasText(expectedRole) || !StringUtils.hasText(currentRole)) {
+            return false;
+        }
+        String expected = expectedRole.trim().toUpperCase();
+        String current = currentRole.trim().toUpperCase();
+        if (expected.equals(current)) {
+            return true;
+        }
+        Set<String> children = ROLE_FAMILY.get(expected);
+        return children != null && children.contains(current);
     }
 }

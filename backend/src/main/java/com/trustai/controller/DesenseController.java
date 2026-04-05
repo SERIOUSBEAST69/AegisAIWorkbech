@@ -26,34 +26,34 @@ public class DesenseController {
     private RecommendationService recommendationService;
 
     @GetMapping("/rules")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','DATA_ADMIN','DATA_ADMIN_MAINTAINER')")
     public R<List<DesensitizeRule>> rules() {
         return R.ok(ruleService.list());
     }
 
     @PostMapping("/save")
-    @PreAuthorize("@currentUserService.hasRole('ADMIN')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN')")
     public R<?> save(@RequestBody DesensitizeRule rule) {
         if (rule.getId() == null) ruleService.save(rule); else ruleService.updateById(rule);
         return R.ok(rule);
     }
 
     @PostMapping("/recommend")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','DATA_ADMIN','DATA_ADMIN_MAINTAINER')")
     public R<List<DesenseRecommendationDto>> recommend(@RequestBody RecommendReq req) {
         List<DesenseRecommendationDto> data = recommendationService.recommend(req.getDataCategory(), req.getUserRole(), req.getSensitivityLevel());
         return R.ok(data);
     }
 
     @PostMapping("/delete")
-    @PreAuthorize("@currentUserService.hasRole('ADMIN')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN')")
     public R<?> delete(@RequestBody @Validated IdReq req) {
         ruleService.removeById(req.getId());
         return R.okMsg("删除成功");
     }
 
     @PostMapping("/preview")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','DATA_ADMIN','DATA_ADMIN_MAINTAINER')")
     public R<Map<String, String>> preview(@RequestBody PreviewReq req) {
         String source = req.getSample();
         if (source == null) {
@@ -67,7 +67,7 @@ public class DesenseController {
     }
 
     @PostMapping("/execute")
-    @PreAuthorize("@currentUserService.hasRole('ADMIN')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN')")
     public R<Map<String, Object>> execute(@RequestBody ExecuteReq req) {
         String source = req.getSample();
         if (source == null) {
@@ -85,13 +85,24 @@ public class DesenseController {
     private String applyMask(String sample, String mask) {
         if (sample == null) return "";
         if (mask == null || mask.isEmpty()) return sample;
-        // 简单脱敏：保留前2后2，其他用掩码字符
-        int keep = 2;
-        if (sample.length() <= keep * 2) return mask.repeat(sample.length());
+        String trimmed = sample.trim();
+        int leftKeep = 2;
+        int rightKeep = 2;
+        if (trimmed.matches("^\\d{17}[\\dXx]$")) {
+            leftKeep = 6;
+            rightKeep = 4;
+        } else if (trimmed.matches("^1\\d{10}$")) {
+            leftKeep = 3;
+            rightKeep = 4;
+        } else if (trimmed.matches("^[^@\\s]{3,}@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$")) {
+            leftKeep = 2;
+            rightKeep = 2;
+        }
+        if (sample.length() <= leftKeep + rightKeep) return mask.repeat(sample.length());
         StringBuilder sb = new StringBuilder();
-        sb.append(sample, 0, keep);
-        for (int i = keep; i < sample.length() - keep; i++) sb.append(mask.charAt(0));
-        sb.append(sample, sample.length() - keep, sample.length());
+        sb.append(sample, 0, leftKeep);
+        for (int i = leftKeep; i < sample.length() - rightKeep; i++) sb.append(mask.charAt(0));
+        sb.append(sample, sample.length() - rightKeep, sample.length());
         return sb.toString();
     }
 

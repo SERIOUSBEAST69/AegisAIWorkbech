@@ -14,14 +14,10 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import java.util.Date;
 import java.util.List;
-import java.util.Locale;
-import java.util.Set;
 
 @RestController
 @RequestMapping("/api/risk-event")
 public class RiskEventController {
-    private static final Set<String> FINAL_STATUSES = Set.of("closed", "done", "resolved", "rejected");
-
     @Autowired private RiskEventService riskEventService;
     @Autowired private CurrentUserService currentUserService;
     @Autowired private CompanyScopeService companyScopeService;
@@ -108,38 +104,7 @@ public class RiskEventController {
         if (currentUser == null || !currentUserService.hasRole("SECOPS")) {
             return;
         }
-        String username = String.valueOf(currentUser.getUsername() == null ? "" : currentUser.getUsername()).trim().toLowerCase(Locale.ROOT);
-        String normalizedAction = String.valueOf(action == null ? "" : action).trim().toLowerCase(Locale.ROOT);
-
-        if ("secops".equals(username)) {
-            return;
-        }
-        if ("secops_2".equals(username)) {
-            if ("delete".equals(normalizedAction)) {
-                throw new BizException(40300, "当前账号职责不允许删除风险事件");
-            }
-            if ("update".equals(normalizedAction) && isFinalStatus(target == null ? null : target.getStatus())) {
-                throw new BizException(40300, "当前账号职责不允许执行最终闭环");
-            }
-            return;
-        }
-        if ("secops_3".equals(username)) {
-            if ("create".equals(normalizedAction) || "delete".equals(normalizedAction)) {
-                throw new BizException(40300, "当前账号职责仅允许复核闭环");
-            }
-            if ("update".equals(normalizedAction) && !isFinalStatus(target == null ? null : target.getStatus())) {
-                throw new BizException(40300, "当前账号职责仅允许更新为闭环状态");
-            }
-            return;
-        }
-        throw new BizException(40300, "未知安全运维账号职责，禁止执行风险处置操作");
-    }
-
-    private boolean isFinalStatus(String status) {
-        if (status == null) {
-            return false;
-        }
-        return FINAL_STATUSES.contains(status.trim().toLowerCase(Locale.ROOT));
+        // Canonical role model no longer differentiates secops sub-roles.
     }
 
     private String appendTrace(String processLog, User operator, String roleCode, Long companyId, String action) {

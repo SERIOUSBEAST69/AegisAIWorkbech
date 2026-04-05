@@ -1,13 +1,24 @@
+import { hasPermissionByUser } from './permission';
+
 const ALL = 'all';
 
 const ROLE_TO_PERSONA = {
   ADMIN: 'governanceAdmin',
+  ADMIN_REVIEWER: 'governanceReviewer',
+  ADMIN_OPS: 'governanceAdmin',
   EXECUTIVE: 'executive',
+  EXECUTIVE_COMPLIANCE: 'executive',
   SECOPS: 'secops',
+  SECOPS_RESPONDER: 'secops',
   DATA_ADMIN: 'dataAdmin',
+  DATA_ADMIN_MAINTAINER: 'dataAdmin',
   AI_BUILDER: 'aiBuilder',
   BUSINESS_OWNER: 'businessOwner',
+  BUSINESS_OWNER_APPROVER: 'businessOwner',
   EMPLOYEE: 'employee',
+  EMPLOYEE_REQUESTER: 'employee',
+  AUDIT: 'governanceReviewer',
+  SEC: 'secops',
 };
 
 const PERSONAS = {
@@ -189,6 +200,31 @@ const PERSONAS = {
     ],
     roleHints: ['admin', 'governance', 'compliance', '管理员', '合规'],
   },
+  governanceReviewer: {
+    id: 'governanceReviewer',
+    label: '治理复核员',
+    kicker: 'TRUST GOVERNANCE REVIEW VIEW',
+    signature: '聚焦治理复核、审计与风险可视，不开放高危配置入口。',
+    introSubtitle: 'Governance Review Deck',
+    headline: 'Aegis Workbench 治理复核视图',
+    subheadline: '用于复核治理申请、追踪审计证据链和观察平台态势。',
+    sceneTags: ['复核闭环', '审计追踪', '风险可视', '只读优先'],
+    benefits: [
+      { title: '复核链路集中', metric: '审批效率', description: '待复核申请、审批链和审计证据可集中查看。' },
+      { title: '证据链可回溯', metric: '审计一致性', description: '关键治理动作可追溯到日志、申请和审批节点。' },
+      { title: '风险态势可见', metric: '态势洞察', description: '快速查看风险与合规态势，但不暴露高危配置入口。' },
+    ],
+    journey: [
+      { step: '01', title: '查看待复核事项', description: '确认治理变更、审批状态和待处理请求。' },
+      { step: '02', title: '核验审计证据', description: '交叉核验操作日志、申请载荷和处理意见。' },
+      { step: '03', title: '输出复核结论', description: '形成可追溯结论并推动闭环。' },
+    ],
+    quickActions: [
+      { title: '治理变更复核', description: '查看待复核治理变更', route: '/governance-change-manage' },
+      { title: '审计日志', description: '按条件追踪证据链', route: '/audit-log' },
+    ],
+    roleHints: ['review', 'reviewer', '复核', '审计员'],
+  },
 };
 
 const MENU_SECTIONS = [
@@ -217,8 +253,8 @@ const MENU_SECTIONS = [
       { path: '/threat-monitor', label: '实时威胁监控', icon: 'AlarmClock', audiences: ['governanceAdmin', 'secops'] },
       { path: '/ai/risk-rating', label: 'AI风险评级', icon: 'Histogram', audiences: ['governanceAdmin', 'secops', 'executive', 'dataAdmin', 'aiBuilder', 'businessOwner', 'employee'] },
       { path: '/ai/anomaly', label: '员工AI行为监控', icon: 'AlarmClock', audiences: ['governanceAdmin', 'secops', 'executive', 'dataAdmin', 'aiBuilder', 'businessOwner', 'employee'] },
-      { path: '/audit-log', label: '审计日志', icon: 'Timer', audiences: ['secops'] },
-      { path: '/audit-report', label: '审计报告', icon: 'Document', audiences: ['secops', 'executive'] },
+      { path: '/audit-log', label: '审计日志', icon: 'Timer', audiences: ['governanceAdmin', 'secops'] },
+      { path: '/audit-report', label: '审计报告', icon: 'Document', audiences: ['governanceAdmin', 'secops', 'executive'] },
       { path: '/sensitive-scan', label: '敏感扫描', icon: 'Search', audiences: ['governanceAdmin', 'secops'] },
     ],
   },
@@ -227,6 +263,7 @@ const MENU_SECTIONS = [
     title: '流转与履约',
     items: [
       { path: '/approval-manage', label: '审批管理', icon: 'Finished', audiences: ['governanceAdmin', 'dataAdmin', 'businessOwner'] },
+      { path: '/approval-center', label: '审批中心', icon: 'Files', audiences: ['governanceAdmin', 'secops', 'dataAdmin', 'businessOwner'] },
       { path: '/governance-change-manage', label: '治理变更复核', icon: 'Stamp', audiences: ['governanceAdmin', 'secops'] },
       { path: '/risk-event-manage', label: '风险事件', icon: 'Warning', audiences: ['governanceAdmin', 'secops'] },
       { path: '/subject-request', label: '主体权利', icon: 'UserFilled', audiences: ['governanceAdmin'] },
@@ -251,6 +288,7 @@ const EXTRA_ROUTE_AUDIENCES = {
   '/operations-command': ['secops', 'executive'],
   '/ops-observability': ['secops', 'executive', 'governanceAdmin'],
   '/approval-manage': ['governanceAdmin', 'dataAdmin', 'businessOwner'],
+  '/approval-center': ['governanceAdmin', 'secops', 'dataAdmin', 'businessOwner'],
   '/governance-change-manage': ['governanceAdmin', 'secops'],
   '/sod-rule-manage': ['governanceAdmin', 'secops'],
   '/risk-event-manage': ['governanceAdmin', 'secops'],
@@ -261,6 +299,87 @@ const EXTRA_ROUTE_AUDIENCES = {
 };
 
 const EMPLOYEE_ALLOWED_PATHS = new Set(['/shadow-ai', '/profile', '/settings', '/login', '/']);
+
+const ROLE_PATH_ALLOWLIST = {
+  ADMIN: [
+    '/', '/operations-command', '/ops-observability', '/data-asset', '/desense-preview', '/shadow-ai', '/threat-monitor',
+    '/ai/risk-rating', '/ai/anomaly', '/audit-log', '/audit-report', '/sensitive-scan', '/approval-manage', '/approval-center',
+    '/governance-change-manage', '/risk-event-manage', '/subject-request', '/policy-manage', '/user-manage', '/role-manage',
+    '/permission-manage', '/sod-rule-manage', '/profile', '/settings',
+  ],
+  ADMIN_REVIEWER: [
+    '/', '/operations-command', '/ops-observability', '/data-asset', '/desense-preview', '/shadow-ai', '/ai/risk-rating',
+    '/audit-log', '/audit-report', '/sensitive-scan', '/approval-manage', '/approval-center', '/governance-change-manage',
+    '/risk-event-manage', '/subject-request', '/policy-manage', '/user-manage', '/role-manage', '/permission-manage',
+    '/sod-rule-manage', '/profile', '/settings',
+  ],
+  SECOPS: [
+    '/', '/operations-command', '/ops-observability', '/data-asset', '/desense-preview', '/shadow-ai', '/threat-monitor',
+    '/ai/risk-rating', '/ai/anomaly', '/audit-log', '/audit-report', '/sensitive-scan', '/approval-manage', '/approval-center',
+    '/governance-change-manage', '/risk-event-manage', '/policy-manage', '/sod-rule-manage', '/profile', '/settings',
+  ],
+  SECOPS_RESPONDER: [
+    '/', '/operations-command', '/ops-observability', '/data-asset', '/shadow-ai', '/threat-monitor', '/ai/risk-rating',
+    '/ai/anomaly', '/audit-log', '/audit-report', '/sensitive-scan', '/approval-manage', '/approval-center',
+    '/governance-change-manage', '/risk-event-manage', '/policy-manage', '/sod-rule-manage', '/profile', '/settings',
+  ],
+  EXECUTIVE: [
+    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/ai/risk-rating', '/ai/anomaly', '/approval-manage',
+    '/governance-change-manage', '/policy-manage', '/audit-report', '/profile', '/settings',
+  ],
+  EXECUTIVE_COMPLIANCE: [
+    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/ai/risk-rating', '/ai/anomaly', '/approval-manage',
+    '/governance-change-manage', '/policy-manage', '/audit-report', '/profile', '/settings',
+  ],
+  DATA_ADMIN: [
+    '/', '/data-asset', '/desense-preview', '/shadow-ai', '/ai/risk-rating', '/ai/anomaly', '/audit-log', '/sensitive-scan',
+    '/approval-manage', '/approval-center', '/governance-change-manage', '/subject-request', '/policy-manage',
+    '/ops-observability', '/profile', '/settings',
+  ],
+  DATA_ADMIN_MAINTAINER: [
+    '/', '/data-asset', '/desense-preview', '/shadow-ai', '/ai/risk-rating', '/audit-log', '/sensitive-scan',
+    '/approval-manage', '/governance-change-manage', '/policy-manage', '/ops-observability', '/profile', '/settings',
+  ],
+  BUSINESS_OWNER: [
+    '/', '/data-asset', '/shadow-ai', '/ai/risk-rating', '/ai/anomaly', '/audit-log', '/approval-manage', '/approval-center',
+    '/governance-change-manage', '/policy-manage', '/ops-observability', '/profile', '/settings',
+  ],
+  BUSINESS_OWNER_APPROVER: [
+    '/', '/data-asset', '/shadow-ai', '/ai/risk-rating', '/ai/anomaly', '/audit-log', '/approval-manage', '/approval-center',
+    '/governance-change-manage', '/policy-manage', '/ops-observability', '/profile', '/settings',
+  ],
+  AI_BUILDER: [
+    '/', '/data-asset', '/shadow-ai', '/ai/risk-rating', '/ai/anomaly', '/approval-manage', '/policy-manage',
+    '/ops-observability', '/profile', '/settings',
+  ],
+  EMPLOYEE: ['/', '/shadow-ai', '/audit-log', '/subject-request', '/profile', '/settings'],
+  EMPLOYEE_REQUESTER: ['/', '/shadow-ai', '/audit-log', '/subject-request', '/profile', '/settings'],
+  AUDIT: ['/', '/audit-log', '/audit-report', '/profile', '/settings'],
+  SEC: ['/', '/operations-command', '/shadow-ai', '/threat-monitor', '/audit-log', '/risk-event-manage', '/profile', '/settings'],
+};
+
+const PATH_PERMISSION_REQUIREMENTS = {
+  '/audit-log': ['audit:log:view'],
+  '/audit-report': ['audit:report:view'],
+  '/user-manage': ['user:manage'],
+  '/role-manage': ['role:manage'],
+  '/permission-manage': ['permission:manage'],
+  '/approval-manage': [
+    'approval:view',
+    'approval:operate',
+    'approval:operate:data',
+    'approval:operate:business',
+    'approval:operate:governance',
+  ],
+  '/approval-center': [
+    'govern:change:create',
+    'govern:change:review',
+    'approval:operate',
+    'approval:operate:data',
+    'approval:operate:business',
+    'approval:operate:governance',
+  ],
+};
 
 function normalizeText(user) {
   return [user?.roleCode, user?.roleName, user?.department, user?.username]
@@ -293,12 +412,51 @@ function allows(audiences, personaId) {
   return audiences.includes(ALL) || audiences.includes(personaId);
 }
 
+function isPlatformAdmin(user) {
+  return String(user?.roleCode || '').trim().toUpperCase() === 'ADMIN';
+}
+
+function isGovernanceReviewer(user) {
+  return String(user?.roleCode || '').trim().toUpperCase() === 'ADMIN_REVIEWER';
+}
+
+function hasAnyPermission(user, permissionCodes = []) {
+  return permissionCodes.some(code => hasPermissionByUser(user, code));
+}
+
+function isPathPermissionAllowed(path, user) {
+  const requiredAny = PATH_PERMISSION_REQUIREMENTS[path];
+  if (!Array.isArray(requiredAny) || requiredAny.length === 0) {
+    return true;
+  }
+  if (isPlatformAdmin(user)) {
+    return true;
+  }
+  if (isGovernanceReviewer(user) && (path === '/user-manage' || path === '/role-manage' || path === '/permission-manage')) {
+    return true;
+  }
+  return hasAnyPermission(user, requiredAny);
+}
+
+function rolePathAllowlist(user) {
+  const roleCode = String(user?.roleCode || '').trim().toUpperCase();
+  const allowedPaths = ROLE_PATH_ALLOWLIST[roleCode];
+  if (!Array.isArray(allowedPaths) || allowedPaths.length === 0) {
+    return null;
+  }
+  return new Set(allowedPaths);
+}
+
 export function getVisibleMenuSections(user) {
+  const roleAllowlist = rolePathAllowlist(user);
   const personaId = inferPersona(user);
   return MENU_SECTIONS
     .map(section => ({
       ...section,
-      items: section.items.filter(item => allows(item.audiences, personaId)),
+      items: section.items.filter(item => (
+        (roleAllowlist ? roleAllowlist.has(item.path) : allows(item.audiences, personaId))
+        && isPathPermissionAllowed(item.path, user)
+      )),
     }))
     .filter(section => section.items.length > 0);
 }
@@ -307,19 +465,31 @@ export function canAccessPath(path, user) {
   if (!path || path === '/login') {
     return true;
   }
+  const roleAllowlist = rolePathAllowlist(user);
   const personaId = inferPersona(user);
   const menuItem = MENU_SECTIONS.flatMap(section => section.items).find(item => item.path === path);
   if (menuItem) {
-    return allows(menuItem.audiences, personaId);
+    return (roleAllowlist ? roleAllowlist.has(path) : allows(menuItem.audiences, personaId)) && isPathPermissionAllowed(path, user);
   }
   const explicit = EXTRA_ROUTE_AUDIENCES[path];
   if (explicit) {
-    return allows(explicit, personaId);
+    return (roleAllowlist ? roleAllowlist.has(path) : allows(explicit, personaId)) && isPathPermissionAllowed(path, user);
   }
   if (personaId === 'employee') {
     return EMPLOYEE_ALLOWED_PATHS.has(path);
   }
   return true;
+}
+
+export function resolveDefaultLandingPath(user) {
+  const roleCode = String(user?.roleCode || '').trim().toUpperCase();
+  if (roleCode === 'ADMIN_REVIEWER' && canAccessPath('/approval-center', user)) {
+    return '/approval-center';
+  }
+  if ((roleCode === 'EMPLOYEE' || roleCode === 'EMPLOYEE_REQUESTER') && canAccessPath('/shadow-ai', user)) {
+    return '/shadow-ai';
+  }
+  return '/';
 }
 
 export function personalizeWorkbench(overview, user) {

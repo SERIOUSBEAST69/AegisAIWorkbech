@@ -67,8 +67,7 @@ public class AuthController {
     private static final Map<String, List<Map<String, String>>> DEMO_ACCOUNTS = Map.of(
         "ADMIN", List.of(
             demoAccount("主治理管理员", "admin", "admin"),
-            demoAccount("治理复核员A", "admin_reviewer", "admin"),
-            demoAccount("治理复核员B", "admin_ops", "admin")
+            demoAccount("治理复核员", "admin_reviewer", "admin")
         ),
         "EXECUTIVE", List.of(
             demoAccount("管理层账号A", "executive", "Passw0rd!"),
@@ -436,20 +435,11 @@ public class AuthController {
     }
 
     private User createUser(RegisterReq req, String loginType) {
-        if (!StringUtils.hasText(req.getRoleCode())) {
-            if (req.getRoleId() == null) {
-                throw new BizException(40000, "请选择身份");
-            }
-        }
-
         String accountType = resolveAccountType(req);
         boolean realAccount = ACCOUNT_TYPE_REAL.equals(accountType);
         Long companyId = resolveCompanyId(req, accountType);
         Role role = resolveRegisterRole(req, companyId);
-        if (role == null) {
-            throw new BizException(40000, "身份不存在，请联系管理员");
-        }
-        if (!Boolean.TRUE.equals(role.getAllowSelfRegister())) {
+        if (role != null && !Boolean.TRUE.equals(role.getAllowSelfRegister())) {
             throw new BizException(40000, "该身份不允许自助注册");
         }
 
@@ -475,7 +465,7 @@ public class AuthController {
         user.setPassword(passwordEncoder.encode(resolvePassword(req, loginType)));
         user.setRealName(StringUtils.hasText(req.getRealName()) ? req.getRealName() : req.getNickname());
         user.setNickname(StringUtils.hasText(req.getNickname()) ? req.getNickname() : req.getRealName());
-        user.setRoleId(role.getId());
+        user.setRoleId(role == null ? null : role.getId());
         user.setCompanyId(companyId);
         user.setDeviceId(username + "-device");
         user.setDepartment(req.getDepartment());
@@ -504,6 +494,9 @@ public class AuthController {
             }
             return null;
         }
+        if (!StringUtils.hasText(req.getRoleCode())) {
+            return null;
+        }
         return resolveOrCreateRoleForCompany(req.getRoleCode(), companyId);
     }
 
@@ -517,6 +510,7 @@ public class AuthController {
             .orderByAsc(Role::getId)
             .list()
             .stream()
+            .filter(role -> isDefaultSelfRegisterRole(role.getCode()))
             .map(this::roleOption)
             .toList();
         if (!dynamic.isEmpty()) {
@@ -741,7 +735,7 @@ public class AuthController {
         Role role = currentUserService.getCurrentRole(user);
         String resolvedRoleCode = role == null ? null : role.getCode();
         String resolvedRoleName = role == null ? null : role.getName();
-        if (!StringUtils.hasText(resolvedRoleCode) && "admin".equalsIgnoreCase(user.getUsername())) {
+        if ("admin".equalsIgnoreCase(user.getUsername())) {
             resolvedRoleCode = "ADMIN";
             resolvedRoleName = ROLE_LABELS.get("ADMIN");
         }

@@ -1,0 +1,442 @@
+﻿[
+    {
+        "id":  2028091268882526210,
+        "code":  "ADMIN",
+        "name":  "ç®¡çå",
+        "isSystem":  true,
+        "allowSelfRegister":  false,
+        "permissionCount":  38,
+        "permissions":  [
+                            "APPROVAL_OPERATE",
+                            "APPROVAL_VIEW",
+                            "AUDIT_EXPORT",
+                            "AUDIT_VIEW",
+                            "MODEL_RISK_VIEW",
+                            "PERMISSION_MANAGE",
+                            "POLICY_MANAGE",
+                            "RISK_EVENT_HANDLE",
+                            "ROLE_MANAGE",
+                            "SUBJECT_REQUEST_HANDLE",
+                            "USER_MANAGE",
+                            "USER_VIEW",
+                            "approval:operate",
+                            "approval:view",
+                            "audit:log:view",
+                            "audit:report:generate",
+                            "audit:report:view",
+                            "data_asset:delete",
+                            "data_asset:upload",
+                            "govern:change:create",
+                            "govern:change:review",
+                            "govern:change:view",
+                            "menu:data_asset",
+                            "menu:permission_manage",
+                            "menu:role_manage",
+                            "menu:user_manage",
+                            "ops:metrics:view",
+                            "permission:manage",
+                            "permission:matrix:view",
+                            "policy:status:toggle",
+                            "policy:structure:manage",
+                            "policy:view",
+                            "risk:event:view",
+                            "role:manage",
+                            "security:event:view",
+                            "sod:rule:edit",
+                            "sod:rule:view",
+                            "user:manage"
+                        ]
+    },
+    {
+        "id":  2028091268882526221,
+        "code":  "ADMIN_OPS",
+        "name":  "æ²»çè¿ç»´å",
+        "isSystem":  true,
+        "allowSelfRegister":  false,
+        "permissionCount":  9,
+        "permissions":  [
+                            "approval:view",
+                            "audit:log:view",
+                            "govern:change:view",
+                            "ops:metrics:view",
+                            "policy:view",
+                            "risk:event:handle",
+                            "risk:event:view",
+                            "security:event:handle",
+                            "security:event:view"
+                        ]
+    },
+    {
+        "id":  2028091268882526220,
+        "code":  "ADMIN_REVIEWER",
+        "name":  "æ²»çå¤æ ¸å",
+        "isSystem":  true,
+        "allowSelfRegister":  false,
+        "permissionCount":  9,
+        "permissions":  [
+                            "approval:view",
+                            "audit:log:view",
+                            "audit:report:view",
+                            "govern:change:review",
+                            "govern:change:view",
+                            "ops:metrics:view",
+                            "policy:view",
+                            "risk:event:view",
+                            "security:event:view"
+                        ]
+    },
+    {
+        "id":  2028091268882526217,
+        "code":  "AI_BUILDER",
+        "name":  "AIåºç¨å¼åè\u0085",
+        "isSystem":  true,
+        "allowSelfRegister":  true,
+        "permissionCount":  6,
+        "permissions":  [
+                            "approval:view",
+                            "govern:change:view",
+                            "menu:data_asset",
+                            "policy:view",
+                            "risk:event:view",
+                            "security:event:view"
+                        ]
+    },
+    {
+        "id":  2028091268882526229,
+        "code":  "AI_BUILDER_AUDITOR",
+        "name":  "AIå¼åå®¡è®¡å²",
+        "isSystem":  true,
+        "allowSelfRegister":  false,
+        "permissionCount":  6,
+        "permissions":  [
+                            "approval:view",
+                            "govern:change:view",
+                            "menu:data_asset",
+                            "policy:view",
+                            "risk:event:view",
+                            "security:event:view"
+                        ]
+    },
+    {
+        "id":  2028091268882526228,
+        "code":  "AI_BUILDER_PROMPT",
+        "name":  "AIå¼åæç¤ºå²",
+        "isSystem":  true,
+        "allowSelfRegister":  false,
+        "permissionCount":  6,
+        "permissions":  [
+                            "approval:view",
+                            "govern:change:view",
+                            "menu:data_asset",
+                            "policy:view",
+                            "risk:event:view",
+                            "security:event:view"
+                        ]
+    },
+    {
+        "id":  2028091268882526218,
+        "code":  "BUSINESS_OWNER",
+        "name":  "ä¸å¡è´è´£äºº",
+        "isSystem":  true,
+        "allowSelfRegister":  true,
+        "permissionCount":  10,
+        "permissions":  [
+                            "APPROVAL_OPERATE",
+                            "APPROVAL_VIEW",
+                            "MODEL_RISK_VIEW",
+                            "approval:operate",
+                            "approval:view",
+                            "govern:change:view",
+                            "menu:data_asset",
+                            "policy:view",
+                            "risk:event:view",
+                            "security:event:view"
+                        ]
+    },
+    {
+        "id":  2028091268882526230,
+        "code":  "BUSINESS_OWNER_APPROVER",
+        "name":  "ä¸å¡è´è´£äººæ¾è¡å²",
+        "isSystem":  true,
+        "allowSelfRegister":  false,
+        "permissionCount":  7,
+        "permissions":  [
+                            "approval:operate",
+                            "approval:view",
+                            "govern:change:view",
+                            "menu:data_asset",
+                            "policy:view",
+                            "risk:event:view",
+                            "security:event:view"
+                        ]
+    },
+    {
+        "id":  2028091268882526231,
+        "code":  "BUSINESS_OWNER_REVIEWER",
+        "name":  "ä¸å¡è´è´£äººå¤æ ¸å²",
+        "isSystem":  true,
+        "allowSelfRegister":  false,
+        "permissionCount":  7,
+        "permissions":  [
+                            "approval:operate",
+                            "approval:view",
+                            "govern:change:view",
+                            "menu:data_asset",
+                            "policy:view",
+                            "risk:event:view",
+                            "security:event:view"
+                        ]
+    },
+    {
+        "id":  2028091268882526213,
+        "code":  "DATA_ADMIN",
+        "name":  "æ°æ®ç®¡çå",
+        "isSystem":  true,
+        "allowSelfRegister":  false,
+        "permissionCount":  13,
+        "permissions":  [
+                            "APPROVAL_OPERATE",
+                            "APPROVAL_VIEW",
+                            "POLICY_MANAGE",
+                            "approval:operate",
+                            "approval:view",
+                            "audit:log:view",
+                            "data_asset:delete",
+                            "data_asset:upload",
+                            "menu:data_asset",
+                            "ops:metrics:view",
+                            "policy:view",
+                            "risk:event:view",
+                            "security:event:view"
+                        ]
+    },
+    {
+        "id":  2028091268882526227,
+        "code":  "DATA_ADMIN_APPROVER",
+        "name":  "æ°æ®ç®¡çåå®¡æ¹å²",
+        "isSystem":  true,
+        "allowSelfRegister":  false,
+        "permissionCount":  7,
+        "permissions":  [
+                            "approval:operate",
+                            "approval:view",
+                            "audit:log:view",
+                            "ops:metrics:view",
+                            "policy:view",
+                            "risk:event:view",
+                            "security:event:view"
+                        ]
+    },
+    {
+        "id":  2028091268882526226,
+        "code":  "DATA_ADMIN_MAINTAINER",
+        "name":  "æ°æ®ç®¡çåç»´æ¤å²",
+        "isSystem":  true,
+        "allowSelfRegister":  false,
+        "permissionCount":  8,
+        "permissions":  [
+                            "approval:view",
+                            "audit:log:view",
+                            "data_asset:upload",
+                            "menu:data_asset",
+                            "ops:metrics:view",
+                            "policy:view",
+                            "risk:event:view",
+                            "security:event:view"
+                        ]
+    },
+    {
+        "id":  2028091268882526219,
+        "code":  "EMPLOYEE",
+        "name":  "æ®éåå·¥",
+        "isSystem":  true,
+        "allowSelfRegister":  true,
+        "permissionCount":  3,
+        "permissions":  [
+                            "approval:view",
+                            "risk:event:view",
+                            "security:event:view"
+                        ]
+    },
+    {
+        "id":  2028091268882526234,
+        "code":  "EMPLOYEE_OBSERVER",
+        "name":  "æ®éåå·¥è§å¯å²",
+        "isSystem":  true,
+        "allowSelfRegister":  false,
+        "permissionCount":  2,
+        "permissions":  [
+                            "risk:event:view",
+                            "security:event:view"
+                        ]
+    },
+    {
+        "id":  2028091268882526232,
+        "code":  "EMPLOYEE_REQUESTER_FULL",
+        "name":  "æ®éåå·¥ç³è¯·å²",
+        "isSystem":  true,
+        "allowSelfRegister":  false,
+        "permissionCount":  3,
+        "permissions":  [
+                            "approval:view",
+                            "risk:event:view",
+                            "security:event:view"
+                        ]
+    },
+    {
+        "id":  2028091268882526233,
+        "code":  "EMPLOYEE_REQUESTER_LIMITED",
+        "name":  "æ®éåå·¥åéç³è¯·å²",
+        "isSystem":  true,
+        "allowSelfRegister":  false,
+        "permissionCount":  3,
+        "permissions":  [
+                            "approval:view",
+                            "risk:event:view",
+                            "security:event:view"
+                        ]
+    },
+    {
+        "id":  2028091268882526215,
+        "code":  "EXECUTIVE",
+        "name":  "ç®¡çå±",
+        "isSystem":  true,
+        "allowSelfRegister":  false,
+        "permissionCount":  9,
+        "permissions":  [
+                            "approval:view",
+                            "audit:log:view",
+                            "audit:report:view",
+                            "govern:change:view",
+                            "ops:metrics:view",
+                            "permission:matrix:view",
+                            "policy:view",
+                            "risk:event:view",
+                            "security:event:view"
+                        ]
+    },
+    {
+        "id":  2028091268882526223,
+        "code":  "EXECUTIVE_COMPLIANCE",
+        "name":  "ç®¡çå±åè§å²",
+        "isSystem":  true,
+        "allowSelfRegister":  false,
+        "permissionCount":  7,
+        "permissions":  [
+                            "audit:log:view",
+                            "audit:report:view",
+                            "govern:change:view",
+                            "permission:matrix:view",
+                            "policy:view",
+                            "risk:event:view",
+                            "security:event:view"
+                        ]
+    },
+    {
+        "id":  2028091268882526222,
+        "code":  "EXECUTIVE_OVERVIEW",
+        "name":  "ç®¡çå±æ»è§å²",
+        "isSystem":  true,
+        "allowSelfRegister":  false,
+        "permissionCount":  6,
+        "permissions":  [
+                            "approval:view",
+                            "govern:change:view",
+                            "ops:metrics:view",
+                            "policy:view",
+                            "risk:event:view",
+                            "security:event:view"
+                        ]
+    },
+    {
+        "id":  2028091268882526216,
+        "code":  "SECOPS",
+        "name":  "å®å\u0085¨è¿ç»´",
+        "isSystem":  true,
+        "allowSelfRegister":  false,
+        "permissionCount":  17,
+        "permissions":  [
+                            "APPROVAL_VIEW",
+                            "AUDIT_EXPORT",
+                            "AUDIT_VIEW",
+                            "MODEL_RISK_VIEW",
+                            "RISK_EVENT_HANDLE",
+                            "audit:log:view",
+                            "audit:report:view",
+                            "govern:change:review",
+                            "govern:change:view",
+                            "ops:metrics:view",
+                            "policy:status:toggle",
+                            "policy:view",
+                            "risk:event:handle",
+                            "risk:event:view",
+                            "security:event:handle",
+                            "security:event:view",
+                            "security:rule:manage"
+                        ]
+    },
+    {
+        "id":  2028091268882526225,
+        "code":  "SECOPS_RESPONDER",
+        "name":  "å®å\u0085¨è¿ç»´é»æ­å²",
+        "isSystem":  true,
+        "allowSelfRegister":  false,
+        "permissionCount":  11,
+        "permissions":  [
+                            "audit:log:view",
+                            "audit:report:view",
+                            "govern:change:review",
+                            "govern:change:view",
+                            "ops:metrics:view",
+                            "policy:status:toggle",
+                            "policy:view",
+                            "risk:event:handle",
+                            "risk:event:view",
+                            "security:event:handle",
+                            "security:event:view"
+                        ]
+    },
+    {
+        "id":  2028091268882526224,
+        "code":  "SECOPS_TRIAGE",
+        "name":  "å®å\u0085¨è¿ç»´å¤æ ¸å²",
+        "isSystem":  true,
+        "allowSelfRegister":  false,
+        "permissionCount":  11,
+        "permissions":  [
+                            "audit:log:view",
+                            "audit:report:view",
+                            "govern:change:review",
+                            "govern:change:view",
+                            "ops:metrics:view",
+                            "policy:status:toggle",
+                            "policy:view",
+                            "risk:event:handle",
+                            "risk:event:view",
+                            "security:event:handle",
+                            "security:event:view"
+                        ]
+    },
+    {
+        "id":  2028091268882526214,
+        "code":  "AUDIT",
+        "name":  "å®¡è®¡å",
+        "isSystem":  false,
+        "allowSelfRegister":  false,
+        "permissionCount":  0,
+        "permissions":  [
+
+                        ]
+    },
+    {
+        "id":  2028091268882526212,
+        "code":  "SEC",
+        "name":  "å®å\u0085¨å®",
+        "isSystem":  false,
+        "allowSelfRegister":  false,
+        "permissionCount":  0,
+        "permissions":  [
+
+                        ]
+    }
+]

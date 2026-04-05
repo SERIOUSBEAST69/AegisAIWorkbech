@@ -1,27 +1,60 @@
+import { hasPermissionByUser } from './permission';
+
 const ROLE = {
   ADMIN: 'ADMIN',
-  SECOPS: 'SECOPS',
   EXECUTIVE: 'EXECUTIVE',
+  SECOPS: 'SECOPS',
   DATA_ADMIN: 'DATA_ADMIN',
+  AI_BUILDER: 'AI_BUILDER',
   BUSINESS_OWNER: 'BUSINESS_OWNER',
   EMPLOYEE: 'EMPLOYEE',
 };
+
+const ROLE_FAMILY = {
+  ADMIN: ['ADMIN_REVIEWER', 'ADMIN_OPS'],
+  EXECUTIVE: ['EXECUTIVE_COMPLIANCE'],
+  SECOPS: ['SECOPS_RESPONDER'],
+  DATA_ADMIN: ['DATA_ADMIN_MAINTAINER'],
+  AI_BUILDER: [],
+  BUSINESS_OWNER: ['BUSINESS_OWNER_APPROVER'],
+  EMPLOYEE: ['EMPLOYEE_REQUESTER'],
+};
+
+function hasAnyPermissionByUser(user, codes = []) {
+  return codes.some(code => hasPermissionByUser(user, code));
+}
 
 export function normalizeRoleCode(user) {
   return String(user?.roleCode || '').trim().toUpperCase();
 }
 
 export function hasRole(user, roleCode) {
-  return normalizeRoleCode(user) === String(roleCode || '').trim().toUpperCase();
+  const current = normalizeRoleCode(user);
+  const expected = String(roleCode || '').trim().toUpperCase();
+  if (!current || !expected) return false;
+  if (current === expected) return true;
+  const children = ROLE_FAMILY[expected] || [];
+  return children.includes(current);
 }
 
 export function hasAnyRole(user, roleCodes = []) {
-  const currentRole = normalizeRoleCode(user);
-  return roleCodes.some(code => currentRole === String(code || '').trim().toUpperCase());
+  return roleCodes.some(code => hasRole(user, code));
 }
 
 export function isGovernanceAdmin(user) {
   return hasRole(user, ROLE.ADMIN);
+}
+
+export function isGovernanceOperatorAccount(user) {
+  return hasRole(user, ROLE.ADMIN) || hasPermissionByUser(user, 'govern:change:create');
+}
+
+export function isGovernanceReviewerAccount(user) {
+  return hasRole(user, ROLE.ADMIN) || hasAnyPermissionByUser(user, ['govern:change:review', 'approval:operate', 'approval:operate:governance']);
+}
+
+export function isGovernanceOpsAccount(user) {
+  return hasRole(user, ROLE.ADMIN) || hasPermissionByUser(user, 'user:manage');
 }
 
 export function isSecOps(user) {
@@ -33,15 +66,15 @@ export function normalizeUsername(user) {
 }
 
 export function isSecOpsCommander(user) {
-  return isSecOps(user) && normalizeUsername(user) === 'secops';
+  return hasRole(user, ROLE.SECOPS);
 }
 
 export function isSecOpsTriage(user) {
-  return isSecOps(user) && normalizeUsername(user) === 'secops_2';
+  return hasRole(user, ROLE.SECOPS);
 }
 
 export function isSecOpsResponder(user) {
-  return isSecOps(user) && normalizeUsername(user) === 'secops_3';
+  return hasRole(user, ROLE.SECOPS);
 }
 
 export function isExecutive(user) {
@@ -49,23 +82,23 @@ export function isExecutive(user) {
 }
 
 export function canSubmitGovernanceChange(user) {
-  return isGovernanceAdmin(user);
+  return isGovernanceOperatorAccount(user);
 }
 
 export function canReviewGovernanceChange(user) {
-  return isSecOps(user);
+  return isGovernanceReviewerAccount(user);
 }
 
 export function canManageSodRule(user) {
-  return isGovernanceAdmin(user);
+  return isGovernanceOperatorAccount(user);
 }
 
 export function canManagePolicyStructure(user) {
-  return isGovernanceAdmin(user);
+  return isGovernanceOperatorAccount(user);
 }
 
 export function canTogglePolicyStatus(user) {
-  return isGovernanceAdmin(user);
+  return isGovernanceOperatorAccount(user);
 }
 
 export function canUsePrivacyOps(user) {
@@ -101,31 +134,16 @@ export function canManageRiskEvent(user) {
 }
 
 export function canApproveApprovalFlow(user) {
-  if (isGovernanceAdmin(user)) {
-    return true;
-  }
-  const username = normalizeUsername(user);
-  if (hasRole(user, ROLE.DATA_ADMIN)) {
-    return username !== 'dataadmin_2';
-  }
-  if (hasRole(user, ROLE.BUSINESS_OWNER)) {
-    return username !== 'bizowner_3';
-  }
-  return false;
+  return isGovernanceAdmin(user) || hasAnyPermissionByUser(user, [
+    'approval:operate',
+    'approval:operate:data',
+    'approval:operate:governance',
+    'approval:operate:business',
+  ]);
 }
 
 export function canRejectApprovalFlow(user) {
-  if (isGovernanceAdmin(user)) {
-    return true;
-  }
-  const username = normalizeUsername(user);
-  if (hasRole(user, ROLE.DATA_ADMIN)) {
-    return username !== 'dataadmin_2';
-  }
-  if (hasRole(user, ROLE.BUSINESS_OWNER)) {
-    return username !== 'bizowner_2';
-  }
-  return false;
+  return canApproveApprovalFlow(user);
 }
 
 export function canApproveShareFlow(user) {
@@ -137,17 +155,11 @@ export function canRunAdversarialSimulation(user) {
 }
 
 export function canRunAnomalyCheck(user) {
-  if (!hasRole(user, 'AI_BUILDER')) {
-    return true;
-  }
-  return normalizeUsername(user) !== 'aibuilder_3';
+  return true;
 }
 
 export function canViewAnomalyEvents(user) {
-  if (!hasRole(user, 'AI_BUILDER')) {
-    return true;
-  }
-  return normalizeUsername(user) !== 'aibuilder_2';
+  return true;
 }
 
 export function isEmployee(user) {
@@ -155,15 +167,15 @@ export function isEmployee(user) {
 }
 
 export function isEmployeeRequesterFull(user) {
-  return isEmployee(user) && normalizeUsername(user) === 'employee1';
+  return hasRole(user, ROLE.EMPLOYEE);
 }
 
 export function isEmployeeRequesterLimited(user) {
-  return isEmployee(user) && normalizeUsername(user) === 'employee2';
+  return false;
 }
 
 export function isEmployeeObserver(user) {
-  return isEmployee(user) && normalizeUsername(user) === 'employee3';
+  return false;
 }
 
 export function canCreateSubjectRequest(user) {

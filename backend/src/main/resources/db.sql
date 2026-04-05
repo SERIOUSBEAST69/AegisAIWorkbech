@@ -106,6 +106,7 @@ CREATE TABLE `permission` (
   `name` VARCHAR(50) NOT NULL COMMENT '权限名称',
   `code` VARCHAR(50) NOT NULL COMMENT '权限编码',
   `type` VARCHAR(20) COMMENT '类型（菜单/按钮/数据）',
+  `status` VARCHAR(20) DEFAULT 'active' COMMENT '状态（active/disabled）',
   `parent_id` BIGINT DEFAULT NULL COMMENT '父权限ID',
   `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `update_time` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',

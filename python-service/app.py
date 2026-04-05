@@ -2084,25 +2084,32 @@ def anomaly_events():
       ?anomaly_only=true        只返回异常记录
       ?limit=50                 最多返回条数（默认50）
     """
-    employee_id  = request.args.get("employee_id")
+    employee_id = request.args.get("employee_id")
     anomaly_only = request.args.get("anomaly_only", "false").lower() == "true"
-    limit        = min(int(request.args.get("limit", 50)), 200)
+    page = max(int(request.args.get("page", 1)), 1)
+    page_size = min(max(int(request.args.get("pageSize", request.args.get("limit", 10))), 1), 50)
+    offset = (page - 1) * page_size
 
     try:
         conn = sqlite3.connect(str(_ANOMALY_DB_FILE))
         conn.row_factory = sqlite3.Row
 
-        sql    = "SELECT * FROM anomaly_events WHERE 1=1"
+        sql = "FROM anomaly_events WHERE 1=1"
         params: List = []
         if employee_id:
             sql += " AND employee_id = ?"
             params.append(employee_id)
         if anomaly_only:
             sql += " AND is_anomaly = 1"
-        sql += " ORDER BY created_at DESC LIMIT ?"
-        params.append(limit)
 
-        rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
+        total_sql = "SELECT COUNT(1) " + sql
+        total = int(conn.execute(total_sql, params).fetchone()[0])
+
+        list_sql = "SELECT * " + sql + " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+        list_params = list(params)
+        list_params.extend([page_size, offset])
+
+        rows = [dict(r) for r in conn.execute(list_sql, list_params).fetchall()]
         conn.close()
 
         # details 字段是 JSON 字符串，反序列化
@@ -2112,7 +2119,13 @@ def anomaly_events():
             except Exception:
                 row["details"] = {}
 
-        return jsonify({"events": rows, "count": len(rows)})
+        return jsonify({
+            "events": rows,
+            "count": len(rows),
+            "total": total,
+            "page": page,
+            "pageSize": page_size,
+        })
     except Exception as e:
         logger.error("[Anomaly] 查询事件日志失败: %s", e)
         return jsonify({"error": str(e)}), 500

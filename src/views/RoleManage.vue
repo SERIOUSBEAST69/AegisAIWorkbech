@@ -8,7 +8,7 @@
       </el-form-item>
       <el-form-item>
         <el-button type="primary" :loading="loading" @click="fetchRoles">查询</el-button>
-        <el-button @click="openCreate">新增角色</el-button>
+        <el-button v-if="canWriteRole()" @click="openCreate">新增角色</el-button>
       </el-form-item>
     </el-form>
 
@@ -25,20 +25,20 @@
       </el-table-column>
       <el-table-column label="系统预设" width="110">
         <template #default="scope">
-          <el-tag :type="scope.row.isSystem ? 'warning' : 'info'">
-            {{ scope.row.isSystem ? '是' : '否' }}
+          <el-tag :type="isSystemRole(scope.row) ? 'warning' : 'info'">
+            {{ isSystemRole(scope.row) ? '是' : '否' }}
           </el-tag>
         </template>
       </el-table-column>
       <el-table-column prop="description" label="描述" min-width="200" show-overflow-tooltip />
-      <el-table-column label="操作" width="260" fixed="right">
+      <el-table-column label="操作" width="260" :fixed="isNarrowScreen ? false : 'right'">
         <template #default="scope">
-          <el-button size="small" :disabled="scope.row.isSystem" @click="openEdit(scope.row)">编辑</el-button>
-          <el-button size="small" type="primary" plain :disabled="scope.row.isSystem" @click="openPermissions(scope.row)">权限</el-button>
+          <el-button size="small" :disabled="isSystemRole(scope.row) || !canWriteRole()" @click="openEdit(scope.row)">编辑</el-button>
+          <el-button size="small" type="primary" plain :disabled="!canOpenPermissionEditor(scope.row)" @click="openPermissions(scope.row)">权限</el-button>
           <el-button
             size="small"
             type="danger"
-            :disabled="scope.row.isSystem"
+            :disabled="isSystemRole(scope.row) || !canWriteRole()"
             @click="deleteRole(scope.row)"
           >
             删除
@@ -52,8 +52,8 @@
         background
         layout="total, sizes, prev, pager, next"
         :total="pagination.total"
-        :current-page="pagination.current"
-        :page-size="pagination.pageSize"
+        v-model:current-page="pagination.current"
+        v-model:page-size="pagination.pageSize"
         :page-sizes="[10, 20, 50]"
         @current-change="onPageChange"
         @size-change="onPageSizeChange"
@@ -122,9 +122,61 @@
 </template>
 
 <script setup>
-import { nextTick, onMounted, ref } from 'vue';
+import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import request from '../api/request';
+import { getSession } from '../utils/auth';
+import { hasPermissionByUser } from '../utils/permission';
+
+function currentUserSnapshot() {
+  return getSession()?.user || {};
+}
+
+function normalizeCompanyId(value) {
+  if (value == null || value === '') {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function roleCompanyId(role) {
+  return normalizeCompanyId(role?.companyId ?? role?.company_id);
+}
+
+function currentCompanyId() {
+  return normalizeCompanyId(currentUserSnapshot()?.companyId);
+}
+
+function isPlatformAdmin() {
+  const user = currentUserSnapshot();
+  const currentUsername = String(user?.username || '').trim().toLowerCase();
+  const currentRoleCode = String(user?.roleCode || '').trim().toUpperCase();
+  return currentRoleCode === 'ADMIN' || currentUsername === 'admin';
+}
+
+function canWriteRole() {
+  const user = currentUserSnapshot();
+  return isPlatformAdmin() || hasPermissionByUser(user, 'role:manage');
+}
+
+function canAssignRolePermission() {
+  const user = currentUserSnapshot();
+  return canWriteRole() || hasPermissionByUser(user, 'role:permission:assign');
+}
+
+async function promptOperatorConfirm(actionText) {
+  const operatorPrompt = await ElMessageBox.prompt(`请输入当前账号密码确认${actionText}`, '治理变更发起确认', {
+    inputType: 'password',
+    inputPlaceholder: '请输入当前账号密码',
+    inputValidator: value => (!!value && value.trim().length > 0) || '密码不能为空',
+    confirmButtonText: '确认',
+    cancelButtonText: '取消',
+  });
+  return {
+    confirmPassword: operatorPrompt.value,
+  };
+}
 
 const loading = ref(false);
 const saving = ref(false);
@@ -135,6 +187,7 @@ const showEditor = ref(false);
 const showPermissionOnly = ref(false);
 const editing = ref(false);
 const currentRole = ref(null);
+const isNarrowScreen = ref(false);
 
 const query = ref({ keyword: '' });
 const pagination = ref({ current: 1, pageSize: 10, total: 0 });
@@ -162,6 +215,36 @@ const rules = {
   code: [{ required: true, message: '角色编码不能为空', trigger: 'blur' }]
 };
 
+function syncViewport() {
+  isNarrowScreen.value = typeof window !== 'undefined' ? window.innerWidth < 992 : false;
+}
+
+function normalizeRoleDisplayName(role) {
+  const code = String(role?.code || '').trim().toUpperCase();
+  const displayNameMap = {
+    ADMIN: '治理管理员',
+    ADMIN_REVIEWER: '治理复核员',
+    ADMIN_OPS: '治理运维员',
+    EXECUTIVE_OVERVIEW: '管理层总览岗',
+    EXECUTIVE_COMPLIANCE: '管理层合规岗',
+    SECOPS_TRIAGE: '安全运维复核岗',
+    SECOPS_RESPONDER: '安全运维阻断岗',
+    DATA_ADMIN_MAINTAINER: '数据管理员维护岗',
+    DATA_ADMIN_APPROVER: '数据管理员审批岗',
+    AI_BUILDER_PROMPT: 'AI开发提示岗',
+    AI_BUILDER_AUDITOR: 'AI开发审计岗',
+    BUSINESS_OWNER_APPROVER: '业务负责人放行岗',
+    BUSINESS_OWNER_REVIEWER: '业务负责人复核岗',
+    EMPLOYEE_REQUESTER_FULL: '普通员工申请岗',
+    EMPLOYEE_REQUESTER_LIMITED: '普通员工受限申请岗',
+    EMPLOYEE_OBSERVER: '普通员工观察岗',
+  };
+  if (displayNameMap[code]) {
+    return { ...role, name: displayNameMap[code] };
+  }
+  return role;
+}
+
 function flattenTreeCodes(nodes, acc = []) {
   for (const node of nodes || []) {
     if (node?.code) {
@@ -170,6 +253,32 @@ function flattenTreeCodes(nodes, acc = []) {
     flattenTreeCodes(node?.children || [], acc);
   }
   return acc;
+}
+
+function isSystemRole(role) {
+  const flag = role?.isSystem;
+  if (flag === true || flag === 1) return true;
+  if (typeof flag === 'string') {
+    const normalized = flag.trim().toLowerCase();
+    return normalized === 'true' || normalized === '1' || normalized === 'y' || normalized === 'yes';
+  }
+  return false;
+}
+
+function isRoleInCurrentCompany(role) {
+  const boundCompanyId = currentCompanyId();
+  if (boundCompanyId == null) {
+    return true;
+  }
+  const boundRoleCompanyId = roleCompanyId(role);
+  if (boundRoleCompanyId == null) {
+    return true;
+  }
+  return boundRoleCompanyId === boundCompanyId;
+}
+
+function canOpenPermissionEditor(role) {
+  return canAssignRolePermission() && !isSystemRole(role) && isRoleInCurrentCompany(role);
 }
 
 async function fetchPermissionTree() {
@@ -188,6 +297,7 @@ async function fetchRoles() {
       },
     });
     roles.value = Array.isArray(data?.list) ? data.list : [];
+    roles.value = roles.value.map(normalizeRoleDisplayName);
     pagination.value.total = Number(data?.total || 0);
   } catch (err) {
     ElMessage.error(err?.message || '角色加载失败');
@@ -225,6 +335,10 @@ function getCheckedPermissionCodes(treeRef) {
 }
 
 async function openCreate() {
+  if (!canWriteRole()) {
+    ElMessage.error('仅主治理管理员(admin)可发起角色变更');
+    return;
+  }
   editing.value = false;
   currentRole.value = null;
   resetEditor();
@@ -235,25 +349,33 @@ async function openCreate() {
 }
 
 async function openEdit(role) {
-  if (role?.isSystem) {
+  if (!canWriteRole()) {
+    ElMessage.error('仅主治理管理员(admin)可发起角色变更');
+    return;
+  }
+  if (isSystemRole(role)) {
     ElMessage.warning('系统预设角色不允许编辑');
     return;
   }
-  editing.value = true;
-  currentRole.value = role;
-  editor.value = {
-    id: role.id,
-    name: role.name,
-    code: role.code,
-    description: role.description || '',
-    allowSelfRegister: Boolean(role.allowSelfRegister),
-    reviewNote: '',
-  };
-  await fetchPermissionTree();
-  const currentCodes = await request.get(`/roles/${role.id}/permissions`);
-  showEditor.value = true;
-  await nextTick();
-  permissionTreeRef.value?.setCheckedKeys(Array.isArray(currentCodes) ? currentCodes : []);
+  try {
+    editing.value = true;
+    currentRole.value = role;
+    editor.value = {
+      id: role.id,
+      name: role.name,
+      code: role.code,
+      description: role.description || '',
+      allowSelfRegister: Boolean(role.allowSelfRegister),
+      reviewNote: '',
+    };
+    await fetchPermissionTree();
+    const currentCodes = await request.get(`/roles/${role.id}/permissions`);
+    showEditor.value = true;
+    await nextTick();
+    permissionTreeRef.value?.setCheckedKeys(Array.isArray(currentCodes) ? currentCodes : []);
+  } catch (err) {
+    ElMessage.error(err?.message || '角色详情加载失败');
+  }
 }
 
 async function saveRole() {
@@ -263,27 +385,25 @@ async function saveRole() {
     }
     saving.value = true;
     try {
+      const reviewPayload = await promptOperatorConfirm(editing.value ? '更新角色' : '新增角色');
       const permissionCodes = getCheckedPermissionCodes(permissionTreeRef.value);
       const payload = {
         name: editor.value.name,
         code: String(editor.value.code || '').trim().toUpperCase(),
         description: editor.value.description,
         allowSelfRegister: Boolean(editor.value.allowSelfRegister),
-        reviewNote: editor.value.reviewNote || undefined,
         permissionCodes,
+        reviewNote: editor.value.reviewNote || undefined,
       };
 
-      let result = null;
-      if (editing.value && editor.value.id) {
-        result = await request.put(`/roles/${editor.value.id}`, payload);
-      } else {
-        result = await request.post('/roles', payload);
-      }
-      if (result?.pendingApproval) {
-        ElMessage.success(result?.message || '保存成功，已提交审批');
-      } else {
-        ElMessage.success('保存成功');
-      }
+      await request.post('/governance-change/submit', {
+        module: 'ROLE',
+        action: editing.value && editor.value.id ? 'UPDATE' : 'ADD',
+        targetId: editing.value && editor.value.id ? editor.value.id : null,
+        payloadJson: JSON.stringify(payload),
+        confirmPassword: reviewPayload.confirmPassword,
+      });
+      ElMessage.success('已提交待复核，治理复核通过后生效');
       showEditor.value = false;
       await fetchRoles();
     } catch (err) {
@@ -295,16 +415,28 @@ async function saveRole() {
 }
 
 async function openPermissions(role) {
-  if (role?.isSystem) {
+  if (!canAssignRolePermission()) {
+    ElMessage.error('当前账号无权限分配角色权限');
+    return;
+  }
+  if (isSystemRole(role)) {
     ElMessage.warning('系统预设角色不允许编辑');
     return;
   }
-  currentRole.value = role;
-  await fetchPermissionTree();
-  const currentCodes = await request.get(`/roles/${role.id}/permissions`);
-  showPermissionOnly.value = true;
-  await nextTick();
-  permissionOnlyTreeRef.value?.setCheckedKeys(Array.isArray(currentCodes) ? currentCodes : []);
+  if (!isRoleInCurrentCompany(role)) {
+    ElMessage.error('角色不属于当前公司');
+    return;
+  }
+  try {
+    currentRole.value = role;
+    await fetchPermissionTree();
+    const currentCodes = await request.get(`/roles/${role.id}/permissions`);
+    showPermissionOnly.value = true;
+    await nextTick();
+    permissionOnlyTreeRef.value?.setCheckedKeys(Array.isArray(currentCodes) ? currentCodes : []);
+  } catch (err) {
+    ElMessage.error(err?.message || '角色权限加载失败');
+  }
 }
 
 async function saveRolePermissions() {
@@ -313,12 +445,19 @@ async function saveRolePermissions() {
   }
   savingPermission.value = true;
   try {
+    const reviewPayload = await promptOperatorConfirm('更新角色权限');
     const allCodes = new Set(flattenTreeCodes(permissionTree.value).map(code => String(code).trim().toLowerCase()));
     const selectedCodes = getCheckedPermissionCodes(permissionOnlyTreeRef.value)
       .map(code => String(code).trim())
       .filter(code => allCodes.has(code.toLowerCase()));
-    await request.put(`/roles/${currentRole.value.id}/permissions`, { permissionCodes: selectedCodes });
-    ElMessage.success('权限更新成功');
+    await request.post('/governance-change/submit', {
+      module: 'ROLE',
+      action: 'UPDATE',
+      targetId: currentRole.value.id,
+      payloadJson: JSON.stringify({ permissionCodes: selectedCodes }),
+      confirmPassword: reviewPayload.confirmPassword,
+    });
+    ElMessage.success('权限变更已提交待复核');
     showPermissionOnly.value = false;
   } catch (err) {
     ElMessage.error(err?.message || '权限更新失败');
@@ -331,14 +470,21 @@ async function deleteRole(role) {
   if (!role?.id) {
     return;
   }
-  if (role.isSystem) {
+  if (isSystemRole(role)) {
     ElMessage.warning('系统预设角色不允许删除');
     return;
   }
   try {
     await ElMessageBox.confirm(`确认删除角色「${role.name}」吗？`, '提示', { type: 'warning' });
-    await request.delete(`/roles/${role.id}`);
-    ElMessage.success('删除成功');
+    const reviewPayload = await promptOperatorConfirm('删除角色');
+    await request.post('/governance-change/submit', {
+      module: 'ROLE',
+      action: 'DELETE',
+      targetId: role.id,
+      payloadJson: JSON.stringify({ roleId: role.id }),
+      confirmPassword: reviewPayload.confirmPassword,
+    });
+    ElMessage.success('删除申请已提交待复核');
     if (roles.value.length === 1 && pagination.value.current > 1) {
       pagination.value.current -= 1;
     }
@@ -351,6 +497,12 @@ async function deleteRole(role) {
 }
 
 onMounted(async () => {
+  syncViewport();
+  window.addEventListener('resize', syncViewport, { passive: true });
   await Promise.all([fetchPermissionTree(), fetchRoles()]);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', syncViewport);
 });
 </script>

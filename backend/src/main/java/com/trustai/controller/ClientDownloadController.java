@@ -31,10 +31,6 @@ public class ClientDownloadController {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("windows", buildInfo("windows", "AegisClient-Setup-1.0.0-x64.exe",
                 "Windows 10/11 (64位) NSIS 安装包", "/api/download/client/windows"));
-        result.put("macos", buildInfo("macos", "AegisClient-1.0.0.dmg",
-                "macOS 12+ (Intel & Apple Silicon) DMG 镜像", "/api/download/client/macos"));
-        result.put("linux", buildInfo("linux", "aegis-client_1.0.0_amd64.deb",
-                "Ubuntu/Debian 系列 DEB 安装包 (x64)", "/api/download/client/linux"));
         return R.ok(result);
     }
 

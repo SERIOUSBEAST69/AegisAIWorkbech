@@ -156,6 +156,12 @@ public class AiGatewayController {
         return R.ok(aiGatewayService.adversarialRun(req));
     }
 
+    @PostMapping("/adversarial/apply-hardening")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
+    public R<Map<String, Object>> adversarialApplyHardening(@RequestBody(required = false) Map<String, Object> payload) {
+        return R.ok(aiGatewayService.adversarialApplyHardening(payload));
+    }
+
     public static class ChatReq {
         @NotBlank
         private String provider; // qwen / qianfan / hunyuan / spark / doubao / yiyan

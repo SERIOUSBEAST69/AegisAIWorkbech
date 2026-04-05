@@ -56,9 +56,9 @@ public class DataAssetController {
     @Autowired private PrivacyEventService privacyEventService;
 
     @GetMapping("/list")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN','SECOPS')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','SECOPS_RESPONDER','DATA_ADMIN','DATA_ADMIN_MAINTAINER','BUSINESS_OWNER','BUSINESS_OWNER_APPROVER','AI_BUILDER')")
     public R<List<DataAsset>> list(@RequestParam(required = false) String name) {
-        currentUserService.requireAnyRole("ADMIN", "DATA_ADMIN", "SECOPS");
+        currentUserService.requireAnyRole("ADMIN", "ADMIN_REVIEWER", "SECOPS", "SECOPS_RESPONDER", "DATA_ADMIN", "DATA_ADMIN_MAINTAINER", "BUSINESS_OWNER", "BUSINESS_OWNER_APPROVER", "AI_BUILDER");
         QueryWrapper<DataAsset> qw = new QueryWrapper<>();
         companyScopeService.withCompany(qw);
         if (name != null && !name.isEmpty()) qw.like("name", name);
@@ -121,9 +121,9 @@ public class DataAssetController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN','SECOPS')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','SECOPS_RESPONDER','DATA_ADMIN','DATA_ADMIN_MAINTAINER','BUSINESS_OWNER','BUSINESS_OWNER_APPROVER','AI_BUILDER')")
     public R<DataAssetDetailDto> detail(@PathVariable Long id) {
-        currentUserService.requireAnyRole("ADMIN", "DATA_ADMIN", "SECOPS");
+        currentUserService.requireAnyRole("ADMIN", "ADMIN_REVIEWER", "SECOPS", "SECOPS_RESPONDER", "DATA_ADMIN", "DATA_ADMIN_MAINTAINER", "BUSINESS_OWNER", "BUSINESS_OWNER_APPROVER", "AI_BUILDER");
         DataAsset scoped = dataAssetService.getOne(companyScopeService.withCompany(new QueryWrapper<DataAsset>()).eq("id", id));
         if (scoped == null) {
             throw new BizException(40400, "数据资产不存在或不在当前公司");
@@ -242,17 +242,10 @@ public class DataAssetController {
     }
 
     private void enforceDataAdminDuty(String action) {
-        User current = currentUserService.requireCurrentUser();
         if (!currentUserService.hasRole("DATA_ADMIN")) {
             return;
         }
-        String username = current.getUsername() == null ? "" : current.getUsername().trim().toLowerCase();
-        if ("dataadmin_3".equals(username)) {
-            throw new BizException(40300, "数据管理员三号为审批岗，不可执行资产变更");
-        }
-        if ("dataadmin_2".equals(username) && "delete".equals(action)) {
-            throw new BizException(40300, "数据管理员二号不可删除资产，仅可维护与上传");
-        }
+        // Canonical role model no longer differentiates data admin sub-roles.
     }
 
     private String displayName(User user) {

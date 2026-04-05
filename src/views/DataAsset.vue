@@ -227,6 +227,7 @@ import { computed, onMounted, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import request from '../api/request';
 import { useUserStore } from '../store/user';
+import { hasRole } from '../utils/roleBoundary';
 
 const userStore = useUserStore();
 const assets = ref([]);
@@ -254,17 +255,14 @@ const editFormRef = ref();
 
 const operatorName = computed(() => userStore.displayName || userStore.userInfo?.username || '当前用户');
 const roleCode = computed(() => String(userStore.userInfo?.roleCode || '').toUpperCase());
-const username = computed(() => String(userStore.userInfo?.username || '').toLowerCase());
-const isDataAdmin = computed(() => roleCode.value === 'DATA_ADMIN');
+const isDataAdmin = computed(() => hasRole(userStore.userInfo, 'DATA_ADMIN'));
 const canWriteAsset = computed(() => {
-  if (roleCode.value === 'ADMIN') return true;
-  if (!isDataAdmin.value) return false;
-  return username.value !== 'dataadmin_3';
+  if (hasRole(userStore.userInfo, 'ADMIN')) return true;
+  return isDataAdmin.value;
 });
 const canDeleteAsset = computed(() => {
-  if (roleCode.value === 'ADMIN') return true;
-  if (!isDataAdmin.value) return false;
-  return username.value === 'dataadmin';
+  if (hasRole(userStore.userInfo, 'ADMIN')) return true;
+  return isDataAdmin.value;
 });
 const sensitivityOptions = ['low', 'medium', 'high', 'critical'];
 const rules = {

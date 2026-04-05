@@ -5,7 +5,6 @@ import com.trustai.client.AiInferenceClient;
 import com.trustai.entity.RiskEvent;
 import com.trustai.entity.SecurityEvent;
 import com.trustai.entity.User;
-import com.trustai.exception.BizException;
 import com.trustai.service.CompanyScopeService;
 import com.trustai.service.CurrentUserService;
 import com.trustai.service.EventHubService;
@@ -21,6 +20,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.ArrayList;
@@ -125,30 +125,33 @@ public class AnomalyController {
      * <p>GET /api/anomaly/events
      */
     @GetMapping("/events")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','EXECUTIVE','SECOPS','DATA_ADMIN','AI_BUILDER','BUSINESS_OWNER','EMPLOYEE')")
-    public R<Map<String, Object>> events() {
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','EXECUTIVE','EXECUTIVE_COMPLIANCE','SECOPS','SECOPS_RESPONDER','DATA_ADMIN','DATA_ADMIN_MAINTAINER','AI_BUILDER','BUSINESS_OWNER','BUSINESS_OWNER_APPROVER')")
+    public R<Map<String, Object>> events(@RequestParam(defaultValue = "1") int page,
+                                         @RequestParam(defaultValue = "10") int pageSize) {
         enforceAiBuilderDuty("events");
+        int safePage = Math.max(1, page);
+        int safePageSize = Math.max(1, Math.min(50, pageSize));
         Set<String> companyUsers = new HashSet<>(companyScopeService.companyUsernames());
         try {
-            Map<String, Object> result = aiInferenceClient.anomalyEvents();
+            Map<String, Object> result = aiInferenceClient.anomalyEvents(1, 200);
             result = filterEventsForCompany(result, companyUsers);
-            if (currentUserService.hasRole("EXECUTIVE")) {
+            if (currentUserService.hasAnyRole("EXECUTIVE", "EXECUTIVE_COMPLIANCE")) {
                 return R.ok(summaryForExecutive(result));
             }
-            if (!currentUserService.hasAnyRole("ADMIN", "SECOPS")) {
+            if (!currentUserService.hasAnyRole("ADMIN", "ADMIN_REVIEWER", "SECOPS", "SECOPS_RESPONDER", "DATA_ADMIN", "DATA_ADMIN_MAINTAINER", "AI_BUILDER", "BUSINESS_OWNER", "BUSINESS_OWNER_APPROVER")) {
                 result = filterEventsForEmployee(result, currentUserService.requireCurrentUser().getUsername());
             }
-            return R.ok(result);
+            return R.ok(ensurePagedPayload(result, safePage, safePageSize));
         } catch (Exception e) {
             log.warn("[Anomaly] Python 事件接口不可用，降级为本地真实数据: {}", e.getMessage());
             Map<String, Object> fallback = buildFallbackEvents(companyUsers);
-            if (currentUserService.hasRole("EXECUTIVE")) {
+            if (currentUserService.hasAnyRole("EXECUTIVE", "EXECUTIVE_COMPLIANCE")) {
                 return R.ok(summaryForExecutive(fallback));
             }
-            if (!currentUserService.hasAnyRole("ADMIN", "SECOPS")) {
+            if (!currentUserService.hasAnyRole("ADMIN", "ADMIN_REVIEWER", "SECOPS", "SECOPS_RESPONDER", "DATA_ADMIN", "DATA_ADMIN_MAINTAINER", "AI_BUILDER", "BUSINESS_OWNER", "BUSINESS_OWNER_APPROVER")) {
                 fallback = filterEventsForEmployee(fallback, currentUserService.requireCurrentUser().getUsername());
             }
-            return R.ok(fallback);
+            return R.ok(ensurePagedPayload(fallback, safePage, safePageSize));
         }
     }
 
@@ -158,7 +161,7 @@ public class AnomalyController {
      * <p>GET /api/anomaly/status
      */
     @GetMapping("/status")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','EXECUTIVE','SECOPS','DATA_ADMIN','AI_BUILDER','BUSINESS_OWNER','EMPLOYEE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','EXECUTIVE','EXECUTIVE_COMPLIANCE','SECOPS','SECOPS_RESPONDER','DATA_ADMIN','DATA_ADMIN_MAINTAINER','AI_BUILDER','BUSINESS_OWNER','BUSINESS_OWNER_APPROVER')")
     public R<Map<String, Object>> status() {
         enforceAiBuilderDuty("status");
         try {
@@ -202,7 +205,54 @@ public class AnomalyController {
         Map<String, Object> scoped = new LinkedHashMap<>(result);
         scoped.put("events", filtered);
         scoped.put("count", filtered.size());
+        scoped.put("total", filtered.size());
         return scoped;
+    }
+
+    private Map<String, Object> ensurePagedPayload(Map<String, Object> payload, int page, int pageSize) {
+        if (payload == null) {
+            Map<String, Object> empty = new LinkedHashMap<>();
+            empty.put("page", page);
+            empty.put("pageSize", pageSize);
+            empty.put("total", 0);
+            empty.put("count", 0);
+            empty.put("events", List.of());
+            return empty;
+        }
+        Object raw = payload.get("events");
+        if (!(raw instanceof List<?> events)) {
+            Map<String, Object> empty = new LinkedHashMap<>(payload);
+            empty.put("page", page);
+            empty.put("pageSize", pageSize);
+            empty.put("total", 0);
+            empty.put("count", 0);
+            empty.put("events", List.of());
+            return empty;
+        }
+        int total = events.size();
+        int from = Math.min((page - 1) * pageSize, total);
+        int to = Math.min(from + pageSize, total);
+        List<Map<String, Object>> sliced = new ArrayList<>();
+        for (int i = from; i < to; i++) {
+            Object item = events.get(i);
+            if (!(item instanceof Map<?, ?> rawMap)) {
+                continue;
+            }
+            Map<String, Object> event = new LinkedHashMap<>();
+            for (Map.Entry<?, ?> entry : rawMap.entrySet()) {
+                if (entry.getKey() != null) {
+                    event.put(String.valueOf(entry.getKey()), entry.getValue());
+                }
+            }
+            sliced.add(event);
+        }
+        Map<String, Object> paged = new LinkedHashMap<>(payload);
+        paged.put("page", page);
+        paged.put("pageSize", pageSize);
+        paged.put("total", total);
+        paged.put("count", sliced.size());
+        paged.put("events", sliced);
+        return paged;
     }
 
     private Map<String, Object> buildFallbackEvents(Set<String> companyUsers) {
@@ -283,14 +333,7 @@ public class AnomalyController {
         if (!currentUserService.hasRole("AI_BUILDER")) {
             return;
         }
-        User current = currentUserService.requireCurrentUser();
-        String username = current.getUsername() == null ? "" : current.getUsername().trim().toLowerCase();
-        if ("aibuilder_2".equals(username) && "events".equals(action)) {
-            throw new BizException(40300, "AI开发者二号为提示工程岗，不可访问异常事件复核视图");
-        }
-        if ("aibuilder_3".equals(username) && "check".equals(action)) {
-            throw new BizException(40300, "AI开发者三号为模型审计岗，不可执行实时检测提交");
-        }
+        // Canonical role model no longer differentiates AI builder sub-roles.
     }
 
     private String normalizeRisk(String value) {

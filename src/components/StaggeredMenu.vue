@@ -1,5 +1,10 @@
 <template>
-  <div class="staggered-menu-wrapper" :data-open="open || undefined" :data-position="position">
+  <div
+    class="staggered-menu-wrapper"
+    :data-open="open || undefined"
+    :data-position="position"
+    :data-lite="isLiteMode || undefined"
+  >
     <button
       ref="toggleBtnRef"
       type="button"
@@ -133,9 +138,19 @@ const textInnerRef = ref(null);
 const iconRef = ref(null);
 const plusHRef = ref(null);
 const plusVRef = ref(null);
+const reduceMotionPreferred = ref(false);
 let previousBodyOverflow = '';
 let previousBodyPaddingRight = '';
 let previousHtmlOverflow = '';
+
+const isLiteMode = computed(() => {
+  if (reduceMotionPreferred.value) {
+    return true;
+  }
+  const itemCount = Array.isArray(props.items) ? props.items.length : 0;
+  const lowSpecCpu = typeof navigator !== 'undefined' && Number(navigator.hardwareConcurrency || 0) > 0 && Number(navigator.hardwareConcurrency || 0) <= 4;
+  return itemCount >= 12 || lowSpecCpu;
+});
 
 const normalizedColors = computed(() => {
   const palette = props.colors.length ? props.colors.slice(0, 4) : ['#0a1120', '#16305c', '#77a8ff'];
@@ -154,6 +169,7 @@ function isItemActive(item) {
 function getItemRhythm(index) {
   const item = props.items[index];
   const isImportant = item.label === '首页' || item.label.endsWith('管理');
+  const isManagementEntry = String(item.path || '').includes('-manage') || item.label.endsWith('管理');
   const isActive = isItemActive(item);
 
   // 统一对齐，更符合逻辑审美的排版 (Unified alignment, logical aesthetics)
@@ -161,7 +177,9 @@ function getItemRhythm(index) {
   const offset = '0px'; 
   const desc = '100%';
   const padTop = isImportant ? '24px' : '14px';
-  const accent = isActive ? '#5f87ff' : (isImportant ? '#FFD700' : '#e0edff'); // Highlight active items with primary color
+  const accent = isActive
+    ? (isManagementEntry ? '#f6d472' : '#5f87ff')
+    : (isImportant ? '#FFD700' : '#e0edff');
 
   return {
     '--sm-item-size': size,
@@ -204,6 +222,43 @@ function playOpen() {
   const socialsTitle = panel.querySelector('.sm-socials-title');
   const socials = Array.from(panel.querySelectorAll('.sm-socials-link'));
   const offscreen = props.position === 'left' ? -100 : 100;
+
+  if (isLiteMode.value) {
+    gsap.set(panel, { xPercent: offscreen });
+    gsap.set(prelayers, { xPercent: offscreen });
+    if (iconRef.value) {
+      gsap.to(iconRef.value, { rotate: 225, duration: 0.2, ease: 'power2.out' });
+    }
+    if (textInnerRef.value) {
+      gsap.to(textInnerRef.value, { yPercent: -50, duration: 0.2, ease: 'power2.out' });
+    }
+    if (toggleBtnRef.value && props.changeMenuColorOnOpen) {
+      gsap.to(toggleBtnRef.value, { color: props.openMenuButtonColor, duration: 0.16, ease: 'power1.out' });
+    }
+    gsap.to(prelayers, {
+      xPercent: 0,
+      duration: 0.2,
+      ease: 'power2.out',
+      stagger: 0.03,
+      overwrite: 'auto',
+    });
+    gsap.to(panel, {
+      xPercent: 0,
+      duration: 0.24,
+      ease: 'power2.out',
+      overwrite: 'auto',
+    });
+    gsap.to([brief, socialsTitle, ...labels, ...metas, ...socials].filter(Boolean), {
+      opacity: 1,
+      y: 0,
+      yPercent: 0,
+      rotate: 0,
+      duration: 0.18,
+      ease: 'power1.out',
+      overwrite: 'auto',
+    });
+    return;
+  }
 
   gsap.set(panel, { xPercent: offscreen });
   gsap.set(prelayers, { xPercent: offscreen });
@@ -271,18 +326,18 @@ function playClose() {
   const offscreen = props.position === 'left' ? -100 : 100;
   gsap.to([panel, ...prelayers], {
     xPercent: offscreen,
-    duration: 0.34,
+    duration: isLiteMode.value ? 0.2 : 0.34,
     ease: 'power3.in',
     overwrite: 'auto',
   });
   if (iconRef.value) {
-    gsap.to(iconRef.value, { rotate: 0, duration: 0.34, ease: 'power3.out' });
+    gsap.to(iconRef.value, { rotate: 0, duration: isLiteMode.value ? 0.2 : 0.34, ease: 'power3.out' });
   }
   if (textInnerRef.value) {
-    gsap.to(textInnerRef.value, { yPercent: 0, duration: 0.32, ease: 'power3.out' });
+    gsap.to(textInnerRef.value, { yPercent: 0, duration: isLiteMode.value ? 0.18 : 0.32, ease: 'power3.out' });
   }
   if (toggleBtnRef.value) {
-    gsap.to(toggleBtnRef.value, { color: props.menuButtonColor, duration: 0.26, ease: 'power2.out' });
+    gsap.to(toggleBtnRef.value, { color: props.menuButtonColor, duration: isLiteMode.value ? 0.16 : 0.26, ease: 'power2.out' });
   }
 }
 
@@ -362,6 +417,18 @@ watch(open, async value => {
 });
 
 onMounted(() => {
+  if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    reduceMotionPreferred.value = mediaQuery.matches;
+    const listener = event => {
+      reduceMotionPreferred.value = event.matches;
+    };
+    if (typeof mediaQuery.addEventListener === 'function') {
+      mediaQuery.addEventListener('change', listener);
+    } else if (typeof mediaQuery.addListener === 'function') {
+      mediaQuery.addListener(listener);
+    }
+  }
   setClosedState();
   document.addEventListener('pointerdown', onDocumentPointer);
   document.addEventListener('keydown', onEscape);
@@ -674,7 +741,8 @@ onBeforeUnmount(() => {
   color: inherit;
   overflow: hidden;
   isolation: isolate;
-  transition: transform 0.34s ease, opacity 0.34s ease, filter 0.34s ease, background 0.34s ease, box-shadow 0.34s ease;
+  transition: transform 0.24s ease, opacity 0.24s ease, filter 0.24s ease, background 0.24s ease, box-shadow 0.24s ease;
+  will-change: transform, opacity;
 }
 
 .sm-panel-item::before {
@@ -772,14 +840,14 @@ onBeforeUnmount(() => {
 
 .sm-panel-list:hover .sm-panel-item {
   opacity: 0.4;
-  filter: blur(1.8px) saturate(0.72);
+  filter: blur(1.2px) saturate(0.8);
   transform: scale(0.985);
 }
 
 .sm-panel-list:hover .sm-panel-item:hover {
   opacity: 1;
   filter: none;
-  transform: translateX(18px) scale(1.01);
+  transform: translateX(12px) scale(1.005);
   background: rgba(255,255,255,0.03);
   box-shadow: inset 0 0 0 1px rgba(169, 196, 255, 0.12), 0 18px 36px rgba(2, 6, 12, 0.34);
 }
@@ -841,9 +909,34 @@ onBeforeUnmount(() => {
 .sm-panel-list:hover .sm-panel-item-active {
   opacity: 1;
   filter: none;
-  transform: translateX(18px) scale(1.01);
+  transform: translateX(12px) scale(1.005);
   background: rgba(95, 135, 255, 0.15);
   box-shadow: inset 0 0 0 1px rgba(169, 196, 255, 0.24), 0 18px 36px rgba(95, 135, 255, 0.25);
+}
+
+.staggered-menu-wrapper[data-lite='true'] .sm-backdrop-fog {
+  backdrop-filter: blur(10px) saturate(110%);
+}
+
+.staggered-menu-wrapper[data-lite='true'] .sm-panel-item,
+.staggered-menu-wrapper[data-lite='true'] .sm-panel-item::before,
+.staggered-menu-wrapper[data-lite='true'] .sm-panel-item-aura,
+.staggered-menu-wrapper[data-lite='true'] .sm-panel-item-label,
+.staggered-menu-wrapper[data-lite='true'] .sm-panel-item-description,
+.staggered-menu-wrapper[data-lite='true'] .sm-panel-item-arrow {
+  transition-duration: 0.16s;
+}
+
+.staggered-menu-wrapper[data-lite='true'] .sm-panel-list:hover .sm-panel-item {
+  opacity: 0.92;
+  filter: none;
+  transform: none;
+}
+
+.staggered-menu-wrapper[data-lite='true'] .sm-panel-list:hover .sm-panel-item:hover,
+.staggered-menu-wrapper[data-lite='true'] .sm-panel-list:hover .sm-panel-item-active {
+  transform: translateX(6px);
+  box-shadow: inset 0 0 0 1px rgba(169, 196, 255, 0.16), 0 10px 20px rgba(2, 6, 12, 0.22);
 }
 
 .sm-panel-item:focus-visible {

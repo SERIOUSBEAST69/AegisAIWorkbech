@@ -116,7 +116,7 @@ public class PrivacyShieldController {
     }
 
     @GetMapping("/events")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','EXECUTIVE','SECOPS','DATA_ADMIN','AI_BUILDER','BUSINESS_OWNER','EMPLOYEE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','EXECUTIVE','EXECUTIVE_COMPLIANCE','SECOPS','SECOPS_RESPONDER','DATA_ADMIN','DATA_ADMIN_MAINTAINER','AI_BUILDER','BUSINESS_OWNER','BUSINESS_OWNER_APPROVER')")
     public R<Map<String, Object>> listEvents(
             @RequestParam(defaultValue = "1") long page,
             @RequestParam(defaultValue = "20") long pageSize,
@@ -129,8 +129,8 @@ public class PrivacyShieldController {
     ) {
         User currentUser = currentUserService.requireCurrentUser();
         Long companyId = currentUser.getCompanyId();
-        boolean adminOrSecops = currentUserService.hasAnyRole("ADMIN", "SECOPS");
-        boolean executive = currentUserService.hasRole("EXECUTIVE");
+        boolean adminOrSecops = currentUserService.hasAnyRole("ADMIN", "ADMIN_REVIEWER", "SECOPS", "SECOPS_RESPONDER", "DATA_ADMIN", "DATA_ADMIN_MAINTAINER", "AI_BUILDER", "BUSINESS_OWNER", "BUSINESS_OWNER_APPROVER");
+        boolean executive = currentUserService.hasAnyRole("EXECUTIVE", "EXECUTIVE_COMPLIANCE");
         String scopedUserId;
         if (adminOrSecops) {
             scopedUserId = resolveRequestedUserId(userId);
@@ -153,7 +153,9 @@ public class PrivacyShieldController {
         QueryWrapper<PrivacyEvent> query = buildQuery(companyId, scopedUserId, eventType, source, action, startTime, endTime)
                 .orderByDesc("event_time");
 
-        Page<PrivacyEvent> result = privacyEventService.page(new Page<>(Math.max(1, page), Math.max(1, pageSize)), query);
+        long safePage = Math.max(1, page);
+        long safePageSize = Math.max(1, Math.min(100, pageSize));
+        Page<PrivacyEvent> result = privacyEventService.page(new Page<>(safePage, safePageSize), query);
 
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("summaryOnly", false);

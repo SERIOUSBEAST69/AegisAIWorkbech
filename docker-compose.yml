@@ -107,7 +107,10 @@ services:
 
   # 6. 数据库兼容性迁移
   aegisai-mysql-bootstrap:
-    image: mysql:8.0
+    build:
+      context: ./docker/mysql/bootstrap
+      dockerfile: Dockerfile
+    image: aegisaiworkbech-aegisai-mysql-bootstrap:latest
     container_name: aegisai-mysql-bootstrap
     restart: "no"
     environment:
@@ -116,9 +119,6 @@ services:
       MYSQL_USER: root
       MYSQL_PASSWORD: root
       MYSQL_DATABASE: aegisai
-    volumes:
-      - ./docker/mysql/bootstrap:/bootstrap
-    entrypoint: ["/bin/sh", "/bootstrap/bootstrap.sh"]
     depends_on:
       mysql:
         condition: service_healthy
@@ -165,6 +165,12 @@ services:
         condition: service_healthy
       ai-inference:
         condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/api/auth/registration-options >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
     networks:
       - aegisai-network
 
@@ -184,7 +190,7 @@ services:
       - /app/node_modules
     depends_on:
       aegisai-backend:
-        condition: service_started
+        condition: service_healthy
     networks:
       - aegisai-network
 

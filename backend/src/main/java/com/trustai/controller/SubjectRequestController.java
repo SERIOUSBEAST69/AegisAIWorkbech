@@ -41,10 +41,11 @@ public class SubjectRequestController {
     private static final Set<String> ALLOWED_STATUS = new HashSet<>(Arrays.asList("pending", "processing", "done", "rejected"));
     private static final Set<String> FINAL_STATUS = new HashSet<>(Arrays.asList("done", "rejected"));
     private static final Set<String> ALLOWED_TYPE = new HashSet<>(Arrays.asList("access", "export", "delete"));
-    private static final Set<String> OPERATOR_ROLES = new HashSet<>(Arrays.asList("ADMIN", "DATA_ADMIN", "BUSINESS_OWNER"));
-    private static final String EMPLOYEE_FULL = "employee1";
-    private static final String EMPLOYEE_LIMITED = "employee2";
-    private static final String EMPLOYEE_VIEW_ONLY = "employee3";
+    private static final Set<String> OPERATOR_ROLES = new HashSet<>(Arrays.asList(
+        "ADMIN",
+        "DATA_ADMIN",
+        "BUSINESS_OWNER"
+    ));
 
     @GetMapping("/list")
     @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN','BUSINESS_OWNER','EMPLOYEE')")
@@ -73,7 +74,7 @@ public class SubjectRequestController {
         Long companyId = companyScopeService.requireCompanyId();
         String roleCode = currentUserService.currentRoleCode();
 
-        if ("EMPLOYEE".equalsIgnoreCase(roleCode)) {
+        if (currentUserService.hasRole("EMPLOYEE")) {
             R<?> deny = validateEmployeeCreateDuty(currentUser, type);
             if (deny != null) {
                 return deny;
@@ -109,17 +110,8 @@ public class SubjectRequestController {
     }
 
     private R<?> validateEmployeeCreateDuty(User currentUser, String requestType) {
-        String username = currentUser == null || currentUser.getUsername() == null
-            ? ""
-            : currentUser.getUsername().trim().toLowerCase();
-        if (EMPLOYEE_VIEW_ONLY.equals(username)) {
-            return R.error(40300, "当前员工账号仅可查看工单");
-        }
-        if (EMPLOYEE_LIMITED.equals(username) && "delete".equals(requestType)) {
-            return R.error(40300, "当前员工账号不可提交删除类主体请求");
-        }
-        if (!EMPLOYEE_FULL.equals(username) && !EMPLOYEE_LIMITED.equals(username) && "delete".equals(requestType)) {
-            return R.error(40300, "当前员工账号不可提交删除类主体请求");
+        if (currentUser == null || !currentUserService.hasRole("EMPLOYEE")) {
+            return R.error(40300, "当前员工账号不可提交主体请求");
         }
         return null;
     }

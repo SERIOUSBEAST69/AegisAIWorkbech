@@ -480,6 +480,257 @@
 			"label": "api-home-fixes-final-smoke-retry",
 			"type": "shell",
 			"command": "$payload=@{ username='admin'; password='admin' } | ConvertTo-Json; $login=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body $payload; $token=$login.data.token; if (-not $token) { throw 'login failed' }; $h=@{ Authorization=('Bearer ' + $token) }; $bootstrap=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/ai/monitor/bootstrap-trace' -Headers $h -ContentType 'application/json' -Body (@{ sampleSize=24 } | ConvertTo-Json); $verify=Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/api/ai/monitor/logs/verify-chain' -Headers $h; $adver=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/ai/adversarial/run' -Headers $h -ContentType 'application/json' -Body (@{ scenario='real-threat-check'; rounds=10 } | ConvertTo-Json); $export=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/award/export' -Headers $h -ContentType 'application/json' -Body (@{ includePdf=$false; includeJson=$true } | ConvertTo-Json); [pscustomobject]@{ bootstrapCode=$bootstrap.code; inserted=$bootstrap.data.insertedAuditLogs; rebuilt=$bootstrap.data.rebuilt.rebuiltCount; verifyRows=$verify.data.checkedRows; verifyPassed=$verify.data.passed; verifyViolations=$verify.data.violationCount; adverCode=$adver.code; adverMode=$adver.data.mode; adverWinner=$adver.data.battle.winner; exportCode=$export.code; exportHasSig=[bool]$export.data.signature } | ConvertTo-Json -Depth 6"
+		},
+		{
+			"label": "api-governance-anomaly-smoke-new",
+			"type": "shell",
+			"command": "$ErrorActionPreference='Stop'; $adminLogin=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body (@{username='admin';password='admin'}|ConvertTo-Json); $reviewerLogin=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body (@{username='admin_reviewer';password='admin'}|ConvertTo-Json); $opsLogin=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body (@{username='admin_ops';password='admin'}|ConvertTo-Json); $adminToken=$adminLogin.data.token; $reviewerToken=$reviewerLogin.data.token; $opsToken=$opsLogin.data.token; $meReviewer=Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/api/auth/me' -Headers @{Authorization=('Bearer '+$reviewerToken)}; $meOps=Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/api/auth/me' -Headers @{Authorization=('Bearer '+$opsToken)}; $govPending=Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/api/governance-change/page?page=1&pageSize=10&status=pending' -Headers @{Authorization=('Bearer '+$reviewerToken)}; $anPage1=Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/api/anomaly/events?page=1&pageSize=10' -Headers @{Authorization=('Bearer '+$adminToken)}; $anPage2=Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/api/anomaly/events?page=2&pageSize=20' -Headers @{Authorization=('Bearer '+$adminToken)}; [pscustomobject]@{reviewerRoleCode=$meReviewer.data.user.roleCode; opsRoleCode=$meOps.data.user.roleCode; pendingTotal=$govPending.data.total; pendingListCount=($govPending.data.list|Measure-Object).Count; anomalyTotal=$anPage1.data.total; anomalyPage1Count=($anPage1.data.events|Measure-Object).Count; anomalyPage2Count=($anPage2.data.events|Measure-Object).Count; anomalyPage1Page=$anPage1.data.page; anomalyPage2Page=$anPage2.data.page; anomalyPage1Size=$anPage1.data.pageSize; anomalyPage2Size=$anPage2.data.pageSize } | ConvertTo-Json -Depth 8"
+		},
+		{
+			"label": "api-governance-reviewer-workflow-smoke",
+			"type": "shell",
+			"command": "$ErrorActionPreference='Stop'; $adminLogin=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body (@{username='admin';password='admin'}|ConvertTo-Json); $reviewerLogin=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body (@{username='admin_reviewer';password='admin'}|ConvertTo-Json); $adminToken=$adminLogin.data.token; $reviewerToken=$reviewerLogin.data.token; $code=('SMOKE_ROLE_' + [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()); $payload = @{ name='Smoke Role'; code=$code; description='reviewer flow smoke' } | ConvertTo-Json -Compress; $submitBody = @{ module='ROLE'; action='ADD'; payloadJson=$payload; confirmPassword='admin' } | ConvertTo-Json -Compress; $submit = Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/governance-change/submit' -Headers @{Authorization=('Bearer '+$adminToken)} -ContentType 'application/json' -Body $submitBody; $requestId=$submit.data.id; if(-not $requestId){ throw 'submit requestId missing' }; $pending = Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/api/governance-change/page?page=1&pageSize=20&status=pending' -Headers @{Authorization=('Bearer '+$reviewerToken)}; $target = $pending.data.list | Where-Object { $_.id -eq $requestId } | Select-Object -First 1; $approveBody = @{ requestId=$requestId; approve=$false; note='smoke reject'; confirmPassword='admin' } | ConvertTo-Json -Compress; $review = Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/governance-change/approve' -Headers @{Authorization=('Bearer '+$reviewerToken)} -ContentType 'application/json' -Body $approveBody; [pscustomobject]@{ submittedRequestId=$requestId; foundInReviewerPending=([bool]$target); reviewerPageCount=($pending.data.list|Measure-Object).Count; reviewResultStatus=$review.data.status; reviewApproverRoleCode=$review.data.approverRoleCode } | ConvertTo-Json -Depth 8"
+		},
+		{
+			"label": "api-anomaly-pagination-smoke-generated",
+			"type": "shell",
+			"command": "$ErrorActionPreference='Stop'; $adminLogin=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body (@{username='admin';password='admin'}|ConvertTo-Json); $token=$adminLogin.data.token; $headers=@{Authorization=('Bearer '+$token)}; for($i=1;$i -le 35;$i++){ $body=@{ employee_id='employee1'; department='研发'; ai_service='ChatGPT'; hour_of_day=($i % 24); day_of_week=($i % 7); message_length=(1200 + $i*30); topic_code=1; session_duration_min=(15 + ($i % 40)); is_new_service=0 } | ConvertTo-Json -Compress; Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/anomaly/check' -Headers $headers -ContentType 'application/json' -Body $body | Out-Null }; $p10_1=Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/api/anomaly/events?page=1&pageSize=10' -Headers $headers; $p10_2=Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/api/anomaly/events?page=2&pageSize=10' -Headers $headers; $p20_1=Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/api/anomaly/events?page=1&pageSize=20' -Headers $headers; $p50_1=Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/api/anomaly/events?page=1&pageSize=50' -Headers $headers; [pscustomobject]@{ total=$p10_1.data.total; p10_page1_count=($p10_1.data.events|Measure-Object).Count; p10_page2_count=($p10_2.data.events|Measure-Object).Count; p20_page1_count=($p20_1.data.events|Measure-Object).Count; p50_page1_count=($p50_1.data.events|Measure-Object).Count; p10_page1_page=$p10_1.data.page; p10_page2_page=$p10_2.data.page; p20_page1_size=$p20_1.data.pageSize; p50_page1_size=$p50_1.data.pageSize } | ConvertTo-Json -Depth 8"
+		},
+		{
+			"label": "debug-role-company-scope-check",
+			"type": "shell",
+			"command": "$login=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body (@{username='admin';password='admin'}|ConvertTo-Json); $t=$login.data.token; $roles=Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/api/roles?page=1&pageSize=200' -Headers @{Authorization=('Bearer '+$t)}; $items=@($roles.data.list); [pscustomobject]@{ total=$roles.data.total; listCount=$items.Count; companyIds=($items | ForEach-Object {$_.companyId} | Sort-Object -Unique) -join ','; sample=($items | Select-Object -First 5 | ForEach-Object {\"$($_.id):$($_.code):$($_.companyId)\"}) -join '; ' } | ConvertTo-Json -Depth 5"
+		},
+		{
+			"label": "debug-role-company-scope-check-2",
+			"type": "shell",
+			"command": "$login=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body (@{username='admin';password='admin'}|ConvertTo-Json); $t=$login.data.token; $roles=Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/api/roles?page=1&pageSize=200' -Headers @{Authorization=('Bearer '+$t)}; $items=@($roles.data.list); $sample=@(); foreach($r in ($items | Select-Object -First 8)) { $sample += ($r.id.ToString() + ':' + $r.code + ':' + $r.companyId.ToString()) }; [pscustomobject]@{ total=$roles.data.total; listCount=$items.Count; companyIds=($items | ForEach-Object {$_.companyId} | Sort-Object -Unique) -join ','; sample=($sample -join '; ') } | ConvertTo-Json -Depth 5"
+		},
+		{
+			"label": "debug-roles-response-dump",
+			"type": "shell",
+			"command": "$login=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body (@{username='admin';password='admin'}|ConvertTo-Json); $t=$login.data.token; $roles=Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/api/roles?page=1&pageSize=10' -Headers @{Authorization=('Bearer '+$t)}; $roles | ConvertTo-Json -Depth 8"
+		},
+		{
+			"label": "debug-roles-topkeys",
+			"type": "shell",
+			"command": "$login=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body (@{username='admin';password='admin'}|ConvertTo-Json); $t=$login.data.token; $roles=Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/api/roles?page=1&pageSize=10' -Headers @{Authorization=('Bearer '+$t)}; [pscustomobject]@{ topKeys=((($roles | Get-Member -MemberType NoteProperty).Name) -join ','); code=$roles.code; msg=$roles.msg; hasData=([bool]$roles.data); dataKeys=((($roles.data | Get-Member -MemberType NoteProperty).Name) -join ','); current=$roles.data.current; pages=$roles.data.pages; total=$roles.data.total; listCount=@($roles.data.list).Count } | ConvertTo-Json -Depth 5"
+		},
+		{
+			"label": "debug-mybatis-pagination-class",
+			"type": "shell",
+			"command": "$jarPath=\"$env:USERPROFILE\\.m2\\repository\\com\\baomidou\\mybatis-plus-extension\\3.5.9\\mybatis-plus-extension-3.5.9.jar\"; if (!(Test-Path $jarPath)) { Write-Output \"JAR_NOT_FOUND $jarPath\"; exit 0 }; jar tf $jarPath | Select-String 'Pagination|Interceptor' | Select-Object -First 80 | ForEach-Object { $_.Line }"
+		},
+		{
+			"label": "debug-mybatis-pagination-class-2",
+			"type": "shell",
+			"command": "$jarPath = Join-Path $env:USERPROFILE '.m2\\repository\\com\\baomidou\\mybatis-plus-extension\\3.5.9\\mybatis-plus-extension-3.5.9.jar'; if (!(Test-Path $jarPath)) { Write-Output ('JAR_NOT_FOUND ' + $jarPath); exit 0 }; & jar tf $jarPath | Select-String 'Pagination|Interceptor' | Select-Object -First 80 | ForEach-Object { $_.Line }"
+		},
+		{
+			"label": "debug-role-paging-after-fix",
+			"type": "shell",
+			"command": "$login=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body (@{username='admin';password='admin'}|ConvertTo-Json); $t=$login.data.token; $r1=Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/api/roles?page=1&pageSize=10' -Headers @{Authorization=('Bearer '+$t)}; $r2=Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/api/roles?page=2&pageSize=10' -Headers @{Authorization=('Bearer '+$t)}; [pscustomobject]@{ total=$r1.data.total; p1Count=@($r1.data.list).Count; p2Count=@($r2.data.list).Count; p1Current=$r1.data.current; p2Current=$r2.data.current; companyIds=(@($r1.data.list)+@($r2.data.list) | ForEach-Object {$_.companyId} | Sort-Object -Unique) -join ',' } | ConvertTo-Json -Depth 6"
+		},
+		{
+			"label": "debug-sensitive-scan-paging-after-fix",
+			"type": "shell",
+			"command": "$login=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body (@{username='admin';password='admin'}|ConvertTo-Json); $t=$login.data.token; $s1=Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/api/sensitive-scan/list?page=1&pageSize=10' -Headers @{Authorization=('Bearer '+$t)}; $s2=Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/api/sensitive-scan/list?page=2&pageSize=20' -Headers @{Authorization=('Bearer '+$t)}; [pscustomobject]@{ total=$s1.data.total; p1Count=@($s1.data.list).Count; p2Count=@($s2.data.list).Count; p1Current=$s1.data.current; p2Current=$s2.data.current; p1Pages=$s1.data.pages; p2Pages=$s2.data.pages } | ConvertTo-Json -Depth 6"
+		},
+		{
+			"label": "rbac-governance-test-check",
+			"type": "shell",
+			"command": "cd backend; mvn -Dtest=GovernanceAdminWorkflowIntegrationTest test",
+			"isBackground": false
+		},
+		{
+			"label": "rbac-governance-tests-targeted",
+			"type": "shell",
+			"command": "cd backend; mvn -Dtest=GovernanceAdminWorkflowIntegrationTest,GovernanceAdminDutySegregationIntegrationTest,GovernanceAdminSecurityHardeningIntegrationTest,RoleSelfRegisterApprovalIntegrationTest test",
+			"isBackground": false
+		},
+		{
+			"label": "rbac-governance-tests-targeted-quoted",
+			"type": "shell",
+			"command": "cd backend; mvn \"-Dtest=GovernanceAdminWorkflowIntegrationTest,GovernanceAdminDutySegregationIntegrationTest,GovernanceAdminSecurityHardeningIntegrationTest,RoleSelfRegisterApprovalIntegrationTest\" test",
+			"isBackground": false
+		},
+		{
+			"label": "rbac-test-1-workflow",
+			"type": "shell",
+			"command": "cd backend; mvn -Dtest=GovernanceAdminWorkflowIntegrationTest test",
+			"isBackground": false
+		},
+		{
+			"label": "rbac-test-2-duty",
+			"type": "shell",
+			"command": "cd backend; mvn -Dtest=GovernanceAdminDutySegregationIntegrationTest test",
+			"isBackground": false
+		},
+		{
+			"label": "rbac-test-3-hardening",
+			"type": "shell",
+			"command": "cd backend; mvn -Dtest=GovernanceAdminSecurityHardeningIntegrationTest test",
+			"isBackground": false
+		},
+		{
+			"label": "rbac-test-4-self-register",
+			"type": "shell",
+			"command": "cd backend; mvn -Dtest=RoleSelfRegisterApprovalIntegrationTest test",
+			"isBackground": false
+		},
+		{
+			"label": "rbac-test-workflow-after-fix",
+			"type": "shell",
+			"command": "cd backend; mvn -Dtest=GovernanceAdminWorkflowIntegrationTest test",
+			"isBackground": false
+		},
+		{
+			"label": "rbac-test-workflow-after-duty-fix",
+			"type": "shell",
+			"command": "cd backend; mvn -Dtest=GovernanceAdminWorkflowIntegrationTest test",
+			"isBackground": false
+		},
+		{
+			"label": "rbac-test-duty-after-fix",
+			"type": "shell",
+			"command": "cd backend; mvn -Dtest=GovernanceAdminDutySegregationIntegrationTest test",
+			"isBackground": false
+		},
+		{
+			"label": "rbac-test-hardening-after-fix",
+			"type": "shell",
+			"command": "cd backend; mvn -Dtest=GovernanceAdminSecurityHardeningIntegrationTest test",
+			"isBackground": false
+		},
+		{
+			"label": "rbac-test-self-register-after-fix",
+			"type": "shell",
+			"command": "cd backend; mvn -Dtest=RoleSelfRegisterApprovalIntegrationTest test",
+			"isBackground": false
+		},
+		{
+			"label": "rbac-retest-workflow-final",
+			"type": "shell",
+			"command": "cd backend; mvn -Dtest=GovernanceAdminWorkflowIntegrationTest test",
+			"isBackground": false
+		},
+		{
+			"label": "rbac-retest-duty-final",
+			"type": "shell",
+			"command": "cd backend; mvn -Dtest=GovernanceAdminDutySegregationIntegrationTest test",
+			"isBackground": false
+		},
+		{
+			"label": "rbac-retest-hardening-final",
+			"type": "shell",
+			"command": "cd backend; mvn -Dtest=GovernanceAdminSecurityHardeningIntegrationTest test",
+			"isBackground": false
+		},
+		{
+			"label": "rbac-retest-selfregister-final",
+			"type": "shell",
+			"command": "cd backend; mvn -Dtest=RoleSelfRegisterApprovalIntegrationTest test",
+			"isBackground": false
+		},
+		{
+			"label": "rbac-retest-hardening-final2",
+			"type": "shell",
+			"command": "cd backend; mvn -Dtest=GovernanceAdminSecurityHardeningIntegrationTest test",
+			"isBackground": false
+		},
+		{
+			"label": "rbac-retest-selfregister-final2",
+			"type": "shell",
+			"command": "cd backend; mvn -Dtest=RoleSelfRegisterApprovalIntegrationTest test",
+			"isBackground": false
+		},
+		{
+			"label": "rbac-retest-hardening-final3",
+			"type": "shell",
+			"command": "cd backend; mvn -Dtest=GovernanceAdminSecurityHardeningIntegrationTest test",
+			"isBackground": false
+		},
+		{
+			"label": "rbac-retest-selfregister-final3",
+			"type": "shell",
+			"command": "cd backend; mvn -Dtest=RoleSelfRegisterApprovalIntegrationTest test",
+			"isBackground": false
+		},
+		{
+			"label": "backend-compile-after-permission-fixes",
+			"type": "shell",
+			"command": "cd backend; mvn -DskipTests compile",
+			"isBackground": false
+		},
+		{
+			"label": "backend-compile-after-parent-backfill",
+			"type": "shell",
+			"command": "cd backend; mvn -DskipTests compile",
+			"isBackground": false
+		},
+		{
+			"label": "backend-compile-after-role-matrix-fixes",
+			"type": "shell",
+			"command": "cd backend; mvn -DskipTests compile",
+			"isBackground": false
+		},
+		{
+			"label": "backend-compile-after-company-scope-fix",
+			"type": "shell",
+			"command": "cd backend; mvn -DskipTests compile",
+			"isBackground": false
+		},
+		{
+			"label": "api-user-page-dump-now",
+			"type": "shell",
+			"command": "$payload=@{ username='admin'; password='admin' } | ConvertTo-Json; $login=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body $payload; $token=$login.data.token; $headers=@{ Authorization=('Bearer ' + $token) }; $res=Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/api/user/page?page=1&pageSize=50' -Headers $headers; $res | ConvertTo-Json -Depth 10"
+		},
+		{
+			"label": "api-user-quality-baseline",
+			"type": "shell",
+			"command": "$payload=@{ username='admin'; password='admin' } | ConvertTo-Json; $login=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body $payload; $token=$login.data.token; if(-not $token){ throw 'admin login failed' }; $h=@{ Authorization=('Bearer '+$token) }; $list=Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/api/user/list' -Headers $h; $users=@($list.data); $missing=@($users | Where-Object { -not $_.realName -or [string]::IsNullOrWhiteSpace([string]$_.realName) }); $dup=@($users | Group-Object realName | Where-Object { $_.Name -and $_.Count -gt 1 } | Select-Object Name,Count); $roleMap=@{}; $roles=(Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/api/roles?page=1&pageSize=300' -Headers $h).data.list; foreach($r in $roles){ $roleMap[[string]$r.id]=$r.code }; $invalidRole=@($users | Where-Object { $_.roleId -and -not $roleMap.ContainsKey([string]$_.roleId) }); $adminUser=$users | Where-Object { $_.username -eq 'admin' } | Select-Object -First 1; [pscustomobject]@{ total=$users.Count; missingRealName=$missing.Count; duplicateRealNameGroups=$dup.Count; invalidRoleIdUsers=$invalidRole.Count; adminRoleId=$adminUser.roleId; adminRoleCode=($roleMap[[string]$adminUser.roleId]); sampleMissing=($missing | Select-Object -First 5 username,realName,nickname,roleId); sampleInvalidRole=($invalidRole | Select-Object -First 5 username,roleId,companyId,realName) } | ConvertTo-Json -Depth 10"
+		},
+		{
+			"label": "api-user-quality-duplicates-detail",
+			"type": "shell",
+			"command": "$payload=@{ username='admin'; password='admin' } | ConvertTo-Json; $login=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body $payload; $token=$login.data.token; $h=@{ Authorization=('Bearer '+$token) }; $users=@((Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/api/user/list' -Headers $h).data); $dups=@($users | Group-Object realName | Where-Object { $_.Name -and $_.Count -gt 1 } | Sort-Object Count -Descending); $detail=@(); foreach($g in $dups){ $detail += [pscustomobject]@{ realName=$g.Name; count=$g.Count; users=($g.Group | Select-Object -First 8 username,accountStatus,department,roleId) } }; $detail | ConvertTo-Json -Depth 8"
+		},
+		{
+			"label": "api-invite-list-active-now",
+			"type": "shell",
+			"command": "$payload=@{ username='admin'; password='admin' } | ConvertTo-Json; $login=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body $payload; $token=$login.data.token; $headers=@{ Authorization=('Bearer ' + $token) }; $res=Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/api/auth/invite-code/list?page=1&pageSize=20&status=active' -Headers $headers; $res | ConvertTo-Json -Depth 10"
+		},
+		{
+			"label": "run-user-management-cleanup-sql-20260405",
+			"type": "shell",
+			"command": "Get-Content -Raw '.\\docs\\user-management-cleanup-2026-04-05.sql' | docker compose exec -T mysql mysql --default-character-set=utf8mb4 -uroot -proot aegisai"
+		},
+		{
+			"label": "run-user-management-cleanup-sql-20260405-v2",
+			"type": "shell",
+			"command": "$sql=@'\nUPDATE sys_user\nSET real_name = CONCAT(''Duty Pending User-'', username),\n    nickname = CONCAT(''DutyPending-'', username),\n    update_time = CURRENT_TIMESTAMP\nWHERE company_id = 1\n  AND username LIKE ''duty_pending_%'';\n\nUPDATE sys_user\nSET real_name = CONCAT(''Walkthrough User-'', username),\n    nickname = CONCAT(''Walkthrough-'', username),\n    update_time = CURRENT_TIMESTAMP\nWHERE company_id = 1\n  AND username LIKE ''walkthrough_%'';\n\nUPDATE sys_user\nSET real_name = CONCAT(''员工-'', username),\n    nickname = CONCAT(''员工-'', username),\n    update_time = CURRENT_TIMESTAMP\nWHERE company_id = 1\n  AND username IN (''employee_2'',''employee2'',''employee_3'',''employee3'');\n'@; $sql | docker compose exec -T mysql mysql --default-character-set=utf8mb4 -uroot -proot aegisai"
+		},
+		{
+			"label": "api-user-duplicate-count-quick",
+			"type": "shell",
+			"command": "$payload=@{ username='admin'; password='admin' } | ConvertTo-Json; $login=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body $payload; $token=$login.data.token; $h=@{ Authorization=('Bearer '+$token) }; $users=@((Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/api/user/list' -Headers $h).data); $dups=@($users | Group-Object realName | Where-Object { $_.Name -and $_.Count -gt 1 }); [pscustomobject]@{ duplicateGroups=$dups.Count; top=($dups | Sort-Object Count -Descending | Select-Object -First 8 Name,Count) } | ConvertTo-Json -Depth 8"
+		},
+		{
+			"label": "cleanup-delete-regression-users-20260405",
+			"type": "shell",
+			"command": "$sql=@'\nDELETE FROM sys_user\nWHERE company_id = 1\n  AND (\n    username LIKE 'duty_%'\n    OR username LIKE 'walkthrough_%'\n  );\n'@; $sql | docker compose exec -T mysql mysql --default-character-set=utf8mb4 -uroot -proot aegisai"
+		},
+		{
+			"label": "governance-e2e-check",
+			"type": "shell",
+			"command": "npx playwright test governance-admin-full-workflow.spec.js --config=playwright.config.js --reporter=line",
+			"isBackground": false
+		},
+		{
+			"label": "role-isolation-e2e-check",
+			"type": "shell",
+			"command": "npx playwright test role-isolation.spec.js --config=playwright.config.js --reporter=line",
+			"isBackground": false
 		}
 	]
 }

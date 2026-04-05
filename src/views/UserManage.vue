@@ -23,7 +23,11 @@
     <el-table :data="users" style="width: 100%" v-loading="loading" empty-text="暂无记录">
       <el-table-column prop="id" label="ID" width="180" />
       <el-table-column prop="username" label="用户名" min-width="140" />
-      <el-table-column prop="realName" label="真实姓名" min-width="120" />
+      <el-table-column label="真实姓名" min-width="160" show-overflow-tooltip>
+        <template #default="scope">
+          {{ displayRealName(scope.row) }}
+        </template>
+      </el-table-column>
       <el-table-column label="角色" min-width="260">
         <template #default="scope">
           <el-space wrap>
@@ -37,7 +41,7 @@
           <el-tag :type="statusTagType(scope.row.accountStatus)">{{ scope.row.accountStatus || 'active' }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="420" fixed="right">
+      <el-table-column label="操作" width="420" :fixed="isNarrowScreen ? false : 'right'">
         <template #default="scope">
           <el-button v-if="canApproveUser && scope.row.accountStatus === 'pending'" size="small" type="success" @click="approveUser(scope.row.id)">通过</el-button>
           <el-button v-if="canApproveUser && scope.row.accountStatus === 'pending'" size="small" type="warning" @click="rejectUser(scope.row.id)">拒绝</el-button>
@@ -60,8 +64,8 @@
         background
         layout="total, sizes, prev, pager, next"
         :total="pagination.total"
-        :current-page="pagination.current"
-        :page-size="pagination.pageSize"
+        v-model:current-page="pagination.current"
+        v-model:page-size="pagination.pageSize"
         :page-sizes="[10, 20, 50]"
         @current-change="onPageChange"
         @size-change="onPageSizeChange"
@@ -74,7 +78,7 @@
         <el-form-item label="密码" prop="password"><el-input v-model="addForm.password" type="password" /></el-form-item>
         <el-form-item label="真实姓名" prop="realName"><el-input v-model="addForm.realName" /></el-form-item>
         <el-form-item label="角色分配" prop="roleIds">
-          <el-select v-model="addForm.roleIds" multiple filterable collapse-tags style="width: 100%" placeholder="选择一个或多个角色">
+          <el-select v-model="addForm.roleIds" multiple filterable collapse-tags style="width: 100%" placeholder="可留空，后续由管理员分配">
             <el-option v-for="role in roleOptions" :key="role.id" :label="`${role.name} (${role.code})`" :value="role.id" />
           </el-select>
         </el-form-item>
@@ -90,7 +94,7 @@
       <el-form ref="editFormRef" :model="editForm" :rules="editRules" label-width="100px">
         <el-form-item label="真实姓名" prop="realName"><el-input v-model="editForm.realName" /></el-form-item>
         <el-form-item label="角色分配" prop="roleIds">
-          <el-select v-model="editForm.roleIds" multiple filterable collapse-tags style="width: 100%" placeholder="选择一个或多个角色">
+          <el-select v-model="editForm.roleIds" multiple filterable collapse-tags style="width: 100%" placeholder="可留空，后续由管理员分配">
             <el-option v-for="role in roleOptions" :key="role.id" :label="`${role.name} (${role.code})`" :value="role.id" />
           </el-select>
         </el-form-item>
@@ -131,7 +135,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue';
+import { onBeforeUnmount, onMounted, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import request from '../api/request';
 import { getSession } from '../utils/auth';
@@ -147,6 +151,11 @@ const showEdit = ref(false);
 const showRoleRecommend = ref(false);
 const roleRecommendLoadingUserId = ref(null);
 const recommendPayload = ref(null);
+const isNarrowScreen = ref(false);
+
+const syncViewport = () => {
+  isNarrowScreen.value = window.innerWidth < 992;
+};
 
 const query = ref({ username: '', accountStatus: '' });
 const pagination = ref({ current: 1, pageSize: 10, total: 0 });
@@ -155,8 +164,9 @@ const addFormRef = ref();
 const editFormRef = ref();
 const sessionUser = getSession()?.user || {};
 const currentUsername = String(sessionUser?.username || '').trim().toLowerCase();
-const canApproveUser = currentUsername === 'admin' || currentUsername === 'admin_reviewer';
-const canWriteUser = currentUsername === 'admin' || currentUsername === 'admin_ops';
+const currentRoleCode = String(sessionUser?.roleCode || sessionUser?.role || '').trim().toUpperCase();
+const canApproveUser = currentRoleCode === 'ADMIN';
+const canWriteUser = currentRoleCode === 'ADMIN';
 
 const addForm = ref({
   username: '',
@@ -178,12 +188,10 @@ const addRules = {
   username: [{ required: true, message: '用户名不能为空', trigger: 'blur' }],
   password: [{ required: true, message: '密码不能为空', trigger: 'blur' }],
   realName: [{ required: true, message: '真实姓名不能为空', trigger: 'blur' }],
-  roleIds: [{ type: 'array', required: true, min: 1, message: '请至少选择一个角色', trigger: 'change' }],
 };
 
 const editRules = {
   realName: [{ required: true, message: '真实姓名不能为空', trigger: 'blur' }],
-  roleIds: [{ type: 'array', required: true, min: 1, message: '请至少选择一个角色', trigger: 'change' }],
   accountStatus: [{ required: true, message: '账号状态不能为空', trigger: 'change' }],
 };
 
@@ -198,10 +206,16 @@ function roleLabels(user) {
   const ids = Array.isArray(user?.roleIds) && user.roleIds.length > 0
     ? user.roleIds
     : (user?.roleId ? [user.roleId] : []);
-  return ids
+  const labels = ids
     .map(id => roleIndex.value[id])
     .filter(Boolean)
     .map(role => `${role.name} (${role.code})`);
+  return labels.length > 0 ? labels : ['待分配'];
+}
+
+function displayRealName(user) {
+  const value = String(user?.realName || user?.nickname || user?.username || '').trim();
+  return value || '待补全';
 }
 
 async function fetchRoles() {
@@ -225,7 +239,11 @@ async function fetchUsers() {
         accountStatus: query.value.accountStatus || undefined,
       }
     });
-    users.value = Array.isArray(data?.list) ? data.list : [];
+    users.value = (Array.isArray(data?.list) ? data.list : []).map(item => ({
+      ...item,
+      realName: String(item?.realName || item?.nickname || item?.username || '').trim(),
+      nickname: String(item?.nickname || item?.realName || item?.username || '').trim(),
+    }));
     pagination.value.total = Number(data?.total || 0);
   } catch (err) {
     ElMessage.error(err?.message || '用户加载失败');
@@ -308,18 +326,33 @@ async function updateUser() {
     if (!valid) return;
     saving.value = true;
     try {
+      const pwdPrompt = await ElMessageBox.prompt('请输入当前账号密码确认发起用户更新', '治理变更发起确认', {
+        inputType: 'password',
+        inputPlaceholder: '请输入当前账号密码',
+        inputValidator: value => (!!value && value.trim().length > 0) || '密码不能为空',
+        confirmButtonText: '确认发起',
+        cancelButtonText: '取消',
+      });
       const payload = {
-        id: editForm.value.id,
         realName: editForm.value.realName,
         department: editForm.value.department,
         accountStatus: editForm.value.accountStatus,
         ...buildUserRolePayload(editForm.value),
       };
-      await request.post('/user/update', payload);
-      ElMessage.success('更新成功');
+      await request.post('/governance-change/submit', {
+        module: 'USER',
+        action: 'UPDATE',
+        targetId: editForm.value.id,
+        payloadJson: JSON.stringify(payload),
+        confirmPassword: pwdPrompt.value,
+      });
+      ElMessage.success('用户更新申请已提交待复核');
       showEdit.value = false;
       await fetchUsers();
     } catch (err) {
+      if (err === 'cancel' || err === 'close') {
+        return;
+      }
       ElMessage.error(err?.message || '更新失败');
     } finally {
       saving.value = false;
@@ -356,19 +389,32 @@ async function rejectUser(id) {
 async function deleteUser(id) {
   try {
     await ElMessageBox.confirm('确认删除该用户吗？', '提示', { type: 'warning' });
-    const { value: confirmPassword } = await ElMessageBox.prompt('请输入当前治理管理员密码以确认删除', '敏感操作二次校验', {
+    const pwdPrompt = await ElMessageBox.prompt('请输入当前账号密码确认发起用户删除', '治理变更发起确认', {
       inputType: 'password',
-      inputPlaceholder: '请输入密码',
+      inputPlaceholder: '请输入当前账号密码',
       inputValidator: value => (!!value && value.trim().length > 0) || '密码不能为空',
-      confirmButtonText: '确认删除',
+      confirmButtonText: '确认发起',
       cancelButtonText: '取消',
     });
-    await request.post('/user/delete', { id, confirmPassword, deleteReason: 'governance_console_delete' });
-    ElMessage.success('删除成功');
+    await request.post('/governance-change/submit', {
+      module: 'USER',
+      action: 'DELETE',
+      targetId: id,
+      payloadJson: JSON.stringify({ id, deleteReason: 'governance_console_delete' }),
+      confirmPassword: pwdPrompt.value,
+    });
+    ElMessage.success('用户删除申请已提交待复核');
     pagination.value.current = 1;
     await fetchUsers();
   } catch (err) {
-    if (err !== 'cancel') {
+    const message = String(err?.message || '');
+    if (message.includes('不存在或不在当前公司')) {
+      users.value = users.value.filter(item => item?.id !== id);
+      ElMessage.warning('该用户不在当前公司，已从当前列表移除并刷新');
+      await fetchUsers();
+      return;
+    }
+    if (err !== 'cancel' && err !== 'close') {
       ElMessage.error(err?.message || '删除失败');
     }
   }
@@ -398,11 +444,17 @@ async function viewRoleRecommend(row) {
 }
 
 onMounted(async () => {
+  syncViewport();
+  window.addEventListener('resize', syncViewport, { passive: true });
   try {
     await fetchRoles();
   } catch (err) {
     ElMessage.error(err?.message || '角色加载失败');
   }
   await fetchUsers();
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', syncViewport);
 });
 </script>

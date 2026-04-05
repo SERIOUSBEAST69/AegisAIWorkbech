@@ -196,25 +196,11 @@
                         </div>
                       </div>
 
-                      <div class="compact-grid">
-                        <div class="field-group">
-                          <label for="register-role">身份</label>
-                          <select id="register-role" v-model="selectedRegisterRole" class="field-input field-select">
-                            <option
-                              v-for="item in registrationOptions.identities"
-                              :key="`${item.id || 'na'}-${item.code}`"
-                              :value="String(item.id || item.code)"
-                            >
-                              {{ item.label }}
-                            </option>
-                          </select>
-                        </div>
-                        <div class="field-group">
-                          <label for="register-organization">组织类型</label>
-                          <select id="register-organization" v-model="registerForm.organizationType" class="field-input field-select">
-                            <option v-for="item in registrationOptions.organizations" :key="item.code" :value="item.code">{{ item.label }}</option>
-                          </select>
-                        </div>
+                      <div class="field-group">
+                        <label for="register-organization">组织类型</label>
+                        <select id="register-organization" v-model="registerForm.organizationType" class="field-input field-select">
+                          <option v-for="item in registrationOptions.organizations" :key="item.code" :value="item.code">{{ item.label }}</option>
+                        </select>
                       </div>
 
                       <div class="compact-grid">
@@ -314,6 +300,7 @@ import { authApi } from '../api/auth';
 import { useUserStore } from '../store/user';
 import LiquidChrome from '../components/LiquidChrome.vue';
 import { acceptEmployeeAgreement, hasAcceptedEmployeeAgreement, isEmployeeUser } from '../utils/employeePolicy';
+import { canAccessPath, resolveDefaultLandingPath } from '../utils/persona';
 
 const router = useRouter();
 const route = useRoute();
@@ -388,6 +375,8 @@ const DEFAULT_IDENTITIES = [
   { code: 'EMPLOYEE', label: '普通员工' },
 ];
 
+const ALLOWED_IDENTITY_CODES = new Set(DEFAULT_IDENTITIES.map(item => String(item.code || '').trim().toUpperCase()));
+
 const DEFAULT_ORGANIZATIONS = [
   { code: 'enterprise', label: '企业' },
   { code: 'school', label: '学校' },
@@ -405,7 +394,8 @@ function normalizeOptions(options, fallback) {
       code: String(item?.code || '').trim(),
       label: String(item?.label || '').trim(),
     }))
-    .filter(item => item.code && item.label);
+    .filter(item => item.code && item.label)
+    .filter(item => ALLOWED_IDENTITY_CODES.has(String(item.code || '').trim().toUpperCase()));
   return normalized.length > 0
     ? normalized
     : fallback.map(item => ({ id: item.id ?? null, code: item.code, label: item.label }));
@@ -416,20 +406,6 @@ const registrationOptions = reactive({
   organizations: [...DEFAULT_ORGANIZATIONS],
   demoAccounts: [],
 });
-
-const registerRoleOptions = computed(() => registrationOptions.identities || []);
-const selectedRegisterRole = ref('');
-
-function syncRegisterRoleSelection(selectedValue) {
-  const selected = registerRoleOptions.value.find(item => String(item.id ?? item.code) === String(selectedValue));
-  if (!selected) {
-    registerForm.roleId = null;
-    registerForm.roleCode = '';
-    return;
-  }
-  registerForm.roleId = selected.id || null;
-  registerForm.roleCode = selected.code || '';
-}
 
 const selectedDemoRole = ref('');
 const selectedDemoUsername = ref('');
@@ -516,8 +492,7 @@ const reviewPrimaryIdentity = computed(() => {
 });
 
 const reviewRole = computed(() => {
-  const matched = registerRoleOptions.value.find(item => String(item.code) === String(registerForm.roleCode));
-  return matched?.label || registerForm.roleCode || '未选择';
+  return '注册后由治理管理员分配';
 });
 
 const reviewOrganization = computed(() => {
@@ -624,10 +599,7 @@ function refreshCaptcha() {
 
 function ensureRegistrationBasics() {
   if (!registerForm.realName || !registerForm.organizationType) {
-    throw new Error('请先填写姓名、身份与组织类型');
-  }
-  if (!registerForm.roleId && !registerForm.roleCode) {
-    throw new Error('请选择身份');
+    throw new Error('请先填写姓名与组织类型');
   }
   if (!registerForm.inviteCode) {
     throw new Error('请输入企业邀请码');
@@ -717,7 +689,11 @@ async function establishAndRoute(response) {
   await enforceEmployeeAgreement(user);
   await playCinematicSuccess();
   sessionStorage.setItem('aegis.transition.origin', 'login');
-  const redirect = '/';
+  const requestedRedirect = String(route.query?.redirect || '').trim();
+  const fallbackRedirect = resolveDefaultLandingPath(user);
+  const redirect = requestedRedirect && canAccessPath(requestedRedirect, user)
+    ? requestedRedirect
+    : fallbackRedirect;
 
   // Use the modern View Transitions API if supported for silky smooth transition
   if (document.startViewTransition) {
@@ -863,8 +839,8 @@ async function submitRegistration() {
       ...registerForm,
       loginType: activeMode.value,
       accountType: 'real',
-      roleId: registerForm.roleId || null,
-      roleCode: registerForm.roleCode || '',
+      roleId: null,
+      roleCode: '',
     };
     const res = await authApi.register(payload);
     if (res?.pendingApproval || !res?.token) {
@@ -1060,13 +1036,6 @@ watch([flowType, activeMode], async () => {
   syncStepHeight();
 });
 
-watch(
-  () => selectedRegisterRole.value,
-  (value) => {
-    syncRegisterRoleSelection(value);
-  }
-);
-
 watch(isPortalLifted, async () => {
   await nextTick();
   syncPortalPose();
@@ -1125,17 +1094,14 @@ onMounted(async () => {
     if (Array.isArray(roleOptions) && roleOptions.length > 0) {
       registrationOptions.identities = normalizeOptions(roleOptions, registrationOptions.identities);
     }
-    const defaultRole = registrationOptions.identities[0];
-    registerForm.roleCode = defaultRole?.code || '';
-    registerForm.roleId = defaultRole?.id || null;
-    selectedRegisterRole.value = String(defaultRole?.id || defaultRole?.code || '');
+    registerForm.roleCode = '';
+    registerForm.roleId = null;
   } catch {
     registrationOptions.identities = [...DEFAULT_IDENTITIES];
     registrationOptions.organizations = [...DEFAULT_ORGANIZATIONS];
     registrationOptions.demoAccounts = [];
-    registerForm.roleCode = registrationOptions.identities[0]?.code || '';
-    registerForm.roleId = registrationOptions.identities[0]?.id || null;
-    selectedRegisterRole.value = String(registerForm.roleId || registerForm.roleCode || '');
+    registerForm.roleCode = '';
+    registerForm.roleId = null;
   }
 
   const initialPose = getPortalPose(false);

@@ -2,11 +2,18 @@
 FROM node:18-alpine
 WORKDIR /app
 
+# Frontend container does not run Electron; skip binary download to avoid flaky external fetches.
+ENV ELECTRON_SKIP_BINARY_DOWNLOAD=1
+
 # 复制依赖清单
 COPY package*.json ./
 
 # 安装依赖
-RUN npm install --legacy-peer-deps
+RUN npm config set registry https://registry.npmmirror.com \
+ && npm config set fetch-retries 5 \
+ && npm config set fetch-retry-mintimeout 20000 \
+ && npm config set fetch-retry-maxtimeout 120000 \
+ && npm install --legacy-peer-deps --no-audit --no-fund
 
 # 复制源代码
 COPY src ./src

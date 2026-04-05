@@ -79,9 +79,14 @@
 
 <script setup>
 import { ref, onMounted, onBeforeUnmount } from 'vue';
-import * as echarts from 'echarts';
+import * as echarts from 'echarts/core';
+import { LineChart, BarChart, PieChart, RadarChart } from 'echarts/charts';
+import { GridComponent, LegendComponent, TooltipComponent, RadarComponent } from 'echarts/components';
+import { CanvasRenderer } from 'echarts/renderers';
 import { Warning, TrendCharts, DataAnalysis, Monitor } from '@element-plus/icons-vue';
 import request from '../api/request';
+
+echarts.use([LineChart, BarChart, PieChart, RadarChart, GridComponent, LegendComponent, TooltipComponent, RadarComponent, CanvasRenderer]);
 
 const timeRange = ref('24h');
 const refreshing = ref(false);

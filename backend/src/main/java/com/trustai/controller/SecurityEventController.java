@@ -126,7 +126,9 @@ public class SecurityEventController {
         }
         qw.orderByDesc("event_time");
 
-        Page<SecurityEvent> result = securityEventService.page(new Page<>(page, pageSize), qw);
+        int safePage = Math.max(1, page);
+        int safePageSize = Math.max(1, Math.min(100, pageSize));
+        Page<SecurityEvent> result = securityEventService.page(new Page<>(safePage, safePageSize), qw);
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("total", result.getTotal());
         data.put("pages", result.getPages());
@@ -300,27 +302,10 @@ public class SecurityEventController {
     }
 
     private void enforceSecopsDuty(String action) {
-        User current = currentUserService.requireCurrentUser();
         if (!currentUserService.hasRole("SECOPS")) {
             return;
         }
-        String username = current.getUsername() == null ? "" : current.getUsername().trim().toLowerCase();
-        if ("secops_2".equals(username)) {
-            if ("block".equals(action) || "rule_manage".equals(action)) {
-                throw new com.trustai.exception.BizException(40300, "当前账号职责不允许执行阻断或规则管理");
-            }
-            return;
-        }
-        if ("secops_3".equals(username)) {
-            if ("ignore".equals(action) || "rule_manage".equals(action)) {
-                throw new com.trustai.exception.BizException(40300, "当前账号职责不允许执行误报标记或规则管理");
-            }
-            return;
-        }
-        if ("secops".equals(username)) {
-            return;
-        }
-        throw new com.trustai.exception.BizException(40300, "未知安全运维账号职责，禁止执行高风险操作");
+        // Canonical role model no longer differentiates secops sub-roles.
     }
 
     // ── 统计摘要 ────────────────────────────────────────────────────────────────

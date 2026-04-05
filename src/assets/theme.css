@@ -317,18 +317,17 @@ body {
 /* 表格单元格样式 */
 .el-table .cell {
   line-height: 1.4;
-  white-space: normal;
-  word-break: break-word;
-  overflow: visible;
-  text-overflow: clip;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* 确保所有文本都能完整显示 */
 .el-table .cell.long-text,
 .el-table .cell.short-text {
   max-width: none;
-  overflow: visible;
-  text-overflow: clip;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: normal;
   word-break: break-word;
 }
@@ -337,8 +336,8 @@ body {
 .el-table .cell.nowrap {
   white-space: nowrap;
   word-break: normal;
-  overflow: visible;
-  text-overflow: clip;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* 表格滚动条样式 */

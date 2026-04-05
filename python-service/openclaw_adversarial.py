@@ -72,6 +72,10 @@ class AttackStrategy(str, Enum):
     SHADOW_DEPLOYMENT     = "shadow_deployment"        # 影子AI部署
     REPLAY_ATTACK         = "replay_attack"            # 重放攻击
     CONTEXT_MANIPULATION  = "context_manipulation"     # 上下文操纵
+    FRAGMENTED_PROMPT_CHAIN = "fragmented_prompt_chain" # 分片提示注入链
+    SESSION_LATERAL_ABUSE = "session_lateral_abuse"    # 会话横移滥用
+    SOCIAL_ENGINEERING_AUTOMATION = "social_engineering_automation"  # 自动化社工攻击
+    LOW_SLOW_EXFIL = "low_slow_exfil"                  # 低慢速外泄
 
 
 class DefenseStrategy(str, Enum):
@@ -215,6 +219,54 @@ EFFECTIVENESS_MATRIX: Dict[AttackStrategy, Dict[DefenseStrategy, float]] = {
         DefenseStrategy.IMMUTABLE_INFRA:    0.60,
         DefenseStrategy.DECISION_ALIGNMENT: 0.10,  # 强克制
     },
+    AttackStrategy.FRAGMENTED_PROMPT_CHAIN: {
+        DefenseStrategy.SANDBOX_ISOLATION:  0.45,
+        DefenseStrategy.INPUT_SANITIZER:    0.20,
+        DefenseStrategy.MEMORY_FIREWALL:    0.55,
+        DefenseStrategy.BEHAVIOR_MONITOR:   0.25,
+        DefenseStrategy.CIRCUIT_BREAKER:    0.22,
+        DefenseStrategy.DLP_ENGINE:         0.50,
+        DefenseStrategy.SUPPLY_CHAIN_AUDIT: 0.65,
+        DefenseStrategy.HUMAN_OVERSIGHT:    0.25,
+        DefenseStrategy.IMMUTABLE_INFRA:    0.60,
+        DefenseStrategy.DECISION_ALIGNMENT: 0.15,
+    },
+    AttackStrategy.SESSION_LATERAL_ABUSE: {
+        DefenseStrategy.SANDBOX_ISOLATION:  0.40,
+        DefenseStrategy.INPUT_SANITIZER:    0.30,
+        DefenseStrategy.MEMORY_FIREWALL:    0.45,
+        DefenseStrategy.BEHAVIOR_MONITOR:   0.18,
+        DefenseStrategy.CIRCUIT_BREAKER:    0.12,
+        DefenseStrategy.DLP_ENGINE:         0.50,
+        DefenseStrategy.SUPPLY_CHAIN_AUDIT: 0.55,
+        DefenseStrategy.HUMAN_OVERSIGHT:    0.22,
+        DefenseStrategy.IMMUTABLE_INFRA:    0.35,
+        DefenseStrategy.DECISION_ALIGNMENT: 0.25,
+    },
+    AttackStrategy.SOCIAL_ENGINEERING_AUTOMATION: {
+        DefenseStrategy.SANDBOX_ISOLATION:  0.55,
+        DefenseStrategy.INPUT_SANITIZER:    0.30,
+        DefenseStrategy.MEMORY_FIREWALL:    0.45,
+        DefenseStrategy.BEHAVIOR_MONITOR:   0.20,
+        DefenseStrategy.CIRCUIT_BREAKER:    0.25,
+        DefenseStrategy.DLP_ENGINE:         0.40,
+        DefenseStrategy.SUPPLY_CHAIN_AUDIT: 0.60,
+        DefenseStrategy.HUMAN_OVERSIGHT:    0.12,
+        DefenseStrategy.IMMUTABLE_INFRA:    0.55,
+        DefenseStrategy.DECISION_ALIGNMENT: 0.20,
+    },
+    AttackStrategy.LOW_SLOW_EXFIL: {
+        DefenseStrategy.SANDBOX_ISOLATION:  0.52,
+        DefenseStrategy.INPUT_SANITIZER:    0.38,
+        DefenseStrategy.MEMORY_FIREWALL:    0.50,
+        DefenseStrategy.BEHAVIOR_MONITOR:   0.15,
+        DefenseStrategy.CIRCUIT_BREAKER:    0.30,
+        DefenseStrategy.DLP_ENGINE:         0.22,
+        DefenseStrategy.SUPPLY_CHAIN_AUDIT: 0.58,
+        DefenseStrategy.HUMAN_OVERSIGHT:    0.20,
+        DefenseStrategy.IMMUTABLE_INFRA:    0.52,
+        DefenseStrategy.DECISION_ALIGNMENT: 0.35,
+    },
 }
 
 
@@ -252,6 +304,8 @@ class BattleReport:
     timeline: List[str] = field(default_factory=list)
     defense_effectiveness: Dict[str, float] = field(default_factory=dict)
     attack_frequency: Dict[str, int] = field(default_factory=dict)
+    chain_transition_count: int = 0
+    composite_chain_success_count: int = 0
     critical_breaches: List[str] = field(default_factory=list)
     recommendations: List[str] = field(default_factory=list)
     battle_start: str = ""
@@ -300,6 +354,10 @@ class AttackAgent:
             AttackStrategy.SHADOW_DEPLOYMENT:   "在合法AI旁部署未授权影子模型",
             AttackStrategy.REPLAY_ATTACK:       "重放捕获的合法令牌绕过身份认证",
             AttackStrategy.CONTEXT_MANIPULATION:"操纵对话历史改变AI后续决策",
+            AttackStrategy.FRAGMENTED_PROMPT_CHAIN: "将恶意指令切片分轮注入并在目标端重组",
+            AttackStrategy.SESSION_LATERAL_ABUSE: "窃取或借用会话后在权限边界内横向滥用",
+            AttackStrategy.SOCIAL_ENGINEERING_AUTOMATION: "自动化仿真高信任沟通诱导执行敏感动作",
+            AttackStrategy.LOW_SLOW_EXFIL: "以低速小包持续外泄规避阈值告警",
         }
 
     def _update_phase(self):
@@ -318,15 +376,19 @@ class AttackAgent:
                 AttackStrategy.CONTEXT_MANIPULATION,
                 AttackStrategy.REPLAY_ATTACK,
                 AttackStrategy.CREDENTIAL_HARVEST,
+                AttackStrategy.SOCIAL_ENGINEERING_AUTOMATION,
             ],
             "infiltration": [
                 AttackStrategy.PROMPT_INJECTION,
+                AttackStrategy.FRAGMENTED_PROMPT_CHAIN,
                 AttackStrategy.SUPPLY_CHAIN_POISON,
                 AttackStrategy.SHADOW_DEPLOYMENT,
                 AttackStrategy.MODEL_POISONING,
+                AttackStrategy.SESSION_LATERAL_ABUSE,
             ],
             "exfiltration": [
                 AttackStrategy.DATA_EXFIL_STEG,
+                AttackStrategy.LOW_SLOW_EXFIL,
                 AttackStrategy.MEMORY_TAMPER,
                 AttackStrategy.DECISION_DRIFT,
             ],
@@ -355,6 +417,20 @@ class AttackAgent:
             boost = 2.0 if s in preferred else 1.0
             weights[s] = w * boost
 
+        # 复合攻击链：若上一轮突破，倾向选择可衔接策略
+        if self._history and self._history[-1][1]:
+            prev = self._history[-1][0]
+            follow_map = {
+                AttackStrategy.CREDENTIAL_HARVEST: [AttackStrategy.SESSION_LATERAL_ABUSE, AttackStrategy.REPLAY_ATTACK],
+                AttackStrategy.PROMPT_INJECTION: [AttackStrategy.FRAGMENTED_PROMPT_CHAIN, AttackStrategy.CONTEXT_MANIPULATION],
+                AttackStrategy.FRAGMENTED_PROMPT_CHAIN: [AttackStrategy.SESSION_LATERAL_ABUSE, AttackStrategy.LOW_SLOW_EXFIL],
+                AttackStrategy.SESSION_LATERAL_ABUSE: [AttackStrategy.LOW_SLOW_EXFIL, AttackStrategy.DATA_EXFIL_STEG],
+                AttackStrategy.SOCIAL_ENGINEERING_AUTOMATION: [AttackStrategy.CREDENTIAL_HARVEST, AttackStrategy.SESSION_LATERAL_ABUSE],
+                AttackStrategy.DATA_EXFIL_STEG: [AttackStrategy.LOW_SLOW_EXFIL],
+            }
+            for nxt in follow_map.get(prev, []):
+                weights[nxt] = weights.get(nxt, 1.0) * 1.8
+
         strategies = list(weights.keys())
         probs = [weights[s] for s in strategies]
         total = sum(probs)
@@ -377,6 +453,10 @@ class AttackAgent:
             AttackStrategy.SHADOW_DEPLOYMENT:     20,
             AttackStrategy.REPLAY_ATTACK:          5,
             AttackStrategy.CONTEXT_MANIPULATION:   8,
+            AttackStrategy.FRAGMENTED_PROMPT_CHAIN: 11,
+            AttackStrategy.SESSION_LATERAL_ABUSE:   13,
+            AttackStrategy.SOCIAL_ENGINEERING_AUTOMATION: 9,
+            AttackStrategy.LOW_SLOW_EXFIL:          7,
         }
         return costs.get(strategy, 10)
 
@@ -634,6 +714,46 @@ class NarrativeEngine:
                 "输入净化器检测到对话历史中包含 system 角色注入，已清除污染段",
             ],
         },
+        AttackStrategy.FRAGMENTED_PROMPT_CHAIN: {
+            True:  [
+                "攻击者将高风险指令拆分为多轮片段注入，最终在上下文窗口中重组成功",
+                "分片提示链绕过了单次请求检测阈值，模型执行了越界操作",
+            ],
+            False: [
+                "行为监控识别到跨轮指令重组特征，分片注入链在合并前被阻断",
+                "输入净化层检测到多轮拼接的控制语义，已触发链式告警",
+            ],
+        },
+        AttackStrategy.SESSION_LATERAL_ABUSE: {
+            True:  [
+                "攻击者利用已获取会话上下文执行横向高权限调用，边界控制被绕过",
+                "会话令牌在多端复用后触发越权操作，横移攻击达成",
+            ],
+            False: [
+                "行为熔断器识别出会话指纹异常与横向调用模式，访问已立即撤销",
+                "跨模块权限一致性校验触发阻断，会话横移未能得逞",
+            ],
+        },
+        AttackStrategy.SOCIAL_ENGINEERING_AUTOMATION: {
+            True:  [
+                "自动化社工代理成功仿真高信任语气，诱导目标执行了敏感流程",
+                "攻击者批量生成高可信沟通内容并触发多名目标误操作",
+            ],
+            False: [
+                "人机协同审核识别出异常话术模式，自动化社工链被切断",
+                "决策对齐监控检测到沟通意图偏离，社工请求被降级处理",
+            ],
+        },
+        AttackStrategy.LOW_SLOW_EXFIL: {
+            True:  [
+                "攻击者以低频小包持续外传敏感信息，规避了传统阈值告警",
+                "低慢速渗出在长时间窗口内完成数据拼接并成功泄露",
+            ],
+            False: [
+                "时序关联检测识别出低慢速外泄链，累计风险触发集中阻断",
+                "DLP 长窗口聚合发现分散片段可重构敏感内容，渗出通道被封禁",
+            ],
+        },
     }
 
     @classmethod
@@ -648,6 +768,23 @@ class NarrativeEngine:
 # ─────────────────────────── 对弈场景 ───────────────────────────────────────
 
 SCENARIOS: Dict[str, Dict] = {
+    "composite_ai_chain": {
+        "description": "复合AI攻击链：提示注入分片 + 会话横移 + 低慢速外泄 + 自动化社工联动",
+        "attack_bias":  [
+            AttackStrategy.FRAGMENTED_PROMPT_CHAIN,
+            AttackStrategy.SESSION_LATERAL_ABUSE,
+            AttackStrategy.LOW_SLOW_EXFIL,
+            AttackStrategy.SOCIAL_ENGINEERING_AUTOMATION,
+            AttackStrategy.PROMPT_INJECTION,
+        ],
+        "defense_bias": [
+            DefenseStrategy.INPUT_SANITIZER,
+            DefenseStrategy.BEHAVIOR_MONITOR,
+            DefenseStrategy.CIRCUIT_BREAKER,
+            DefenseStrategy.DLP_ENGINE,
+            DefenseStrategy.HUMAN_OVERSIGHT,
+        ],
+    },
     "stealth_exfil": {
         "description": "潜伏渗出场景：攻击者以低强度攻击积累立足点，最终发动大规模数据窃取",
         "attack_bias":  [AttackStrategy.CREDENTIAL_HARVEST, AttackStrategy.CONTEXT_MANIPULATION,
@@ -874,6 +1011,22 @@ class BattleArena:
         # 防御建议
         recommendations = self._generate_recommendations(defense_eff, freq)
 
+        composite_set = {
+            AttackStrategy.FRAGMENTED_PROMPT_CHAIN.value,
+            AttackStrategy.SESSION_LATERAL_ABUSE.value,
+            AttackStrategy.SOCIAL_ENGINEERING_AUTOMATION.value,
+            AttackStrategy.LOW_SLOW_EXFIL.value,
+        }
+        chain_transition_count = 0
+        composite_chain_success_count = 0
+        for idx in range(1, len(self._round_results)):
+            prev = self._round_results[idx - 1]
+            curr = self._round_results[idx]
+            if prev.attack_strategy != curr.attack_strategy:
+                chain_transition_count += 1
+            if curr.attack_success and curr.attack_strategy in composite_set:
+                composite_chain_success_count += 1
+
         # 胜负判定
         if self.attacker.score > self.defender.score:
             winner = f"攻击方 ({self.attacker.name})"
@@ -894,6 +1047,8 @@ class BattleArena:
             timeline=[f"轮{r.round_num}: [{r.attack_strategy}] {'✓突破' if r.attack_success else '✗阻断'}" for r in self._round_results],
             defense_effectiveness=defense_eff,
             attack_frequency=freq,
+            chain_transition_count=chain_transition_count,
+            composite_chain_success_count=composite_chain_success_count,
             critical_breaches=critical,
             recommendations=recommendations,
             battle_start=self._start_time,

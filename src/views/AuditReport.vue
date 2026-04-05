@@ -44,7 +44,8 @@
         <el-form-item label="报告范围标识">
           <el-input v-model="reportRange" placeholder="如 2026Q1 或 weekly" style="width: 220px" />
         </el-form-item>
-        <el-button type="primary" :loading="generating" @click="generateReport">生成报告</el-button>
+        <el-button v-if="canGenerate" type="primary" :loading="generating" @click="generateReport">生成报告</el-button>
+        <el-tag v-else type="info">当前身份仅可查看报表</el-tag>
       </el-form>
 
       <el-alert
@@ -68,6 +69,7 @@
 import { ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import request from '../api/request';
+import { hasPermission } from '../utils/permission';
 
 const today = new Date();
 const day = String(today.getDate()).padStart(2, '0');
@@ -82,6 +84,7 @@ const compareData = ref(null);
 const reportRange = ref('');
 const generating = ref(false);
 const generated = ref(null);
+const canGenerate = hasPermission('audit:report:generate');
 
 async function compareReport() {
   if (!fromDate.value || !toDate.value) {

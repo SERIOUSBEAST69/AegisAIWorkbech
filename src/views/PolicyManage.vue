@@ -1,68 +1,199 @@
 <template>
   <el-card>
-    <h2>合规策略管理</h2>
-    <el-alert
-      type="info"
-      show-icon
-      :closable="false"
-      style="margin-bottom: 12px"
-      title="生效说明"
-      :description="policyHint"/>
+    <div class="policy-head">
+      <h2>合规策略列表</h2>
+      <div class="policy-count">共 {{ pagination.total }} 条，当前显示 {{ normalizedPolicies.length }} 条</div>
+    </div>
+
     <el-form :inline="true" @submit.prevent>
-      <el-form-item label="策略名称">
-        <el-input v-model="query.name" placeholder="输入策略名称" />
+      <el-form-item label="业务策略名称">
+        <el-input v-model="query.name" placeholder="例如：核心客户导出限制策略" clearable />
+      </el-form-item>
+      <el-form-item label="策略状态">
+        <el-select v-model="query.status" placeholder="全部" clearable style="width: 140px">
+          <el-option label="启用" value="ENABLED" />
+          <el-option label="禁用" value="DISABLED" />
+          <el-option label="草稿" value="DRAFT" />
+        </el-select>
+      </el-form-item>
+      <el-form-item label="策略类型">
+        <el-select v-model="query.policyType" placeholder="全部" clearable style="width: 160px">
+          <el-option label="脱敏" value="MASKING" />
+          <el-option label="访问控制" value="ACCESS_CONTROL" />
+          <el-option label="导出限制" value="EXPORT_LIMIT" />
+        </el-select>
+      </el-form-item>
+      <el-form-item label="生效范围">
+        <el-select v-model="query.scope" placeholder="全部" clearable style="width: 180px">
+          <el-option label="ai_prompt（提示词拦截）" value="ai_prompt" />
+          <el-option label="全局" value="全局" />
+          <el-option label="业务部门" value="业务部门" />
+          <el-option label="技术部门" value="技术部门" />
+        </el-select>
       </el-form-item>
       <el-form-item>
-        <el-button type="primary" :loading="loading" @click="fetchPolicies">查询</el-button>
+        <el-button type="primary" :loading="loading" @click="fetchPolicies">刷新</el-button>
         <el-button v-if="canManageStructure" @click="openAdd">新增策略</el-button>
       </el-form-item>
     </el-form>
-    <el-table :data="policies" style="width: 100%" v-loading="loading">
-      <el-table-column prop="id" label="ID" width="250">
+
+    <div class="policy-toolbar" v-if="canToggleStatus">
+      <el-button
+        size="small"
+        type="success"
+        :disabled="selectedPolicies.length === 0 || batchLoading"
+        :loading="batchLoading"
+        @click="batchToggleStatus(true)">
+        批量启用
+      </el-button>
+      <el-button
+        size="small"
+        type="warning"
+        :disabled="selectedPolicies.length === 0 || batchLoading"
+        :loading="batchLoading"
+        @click="batchToggleStatus(false)">
+        批量禁用
+      </el-button>
+      <el-button size="small" @click="clearSelection" :disabled="selectedPolicies.length === 0">清空选择</el-button>
+      <span class="selection-count">已选 {{ selectedPolicies.length }} 条</span>
+    </div>
+
+    <el-table
+      ref="tableRef"
+      :data="normalizedPolicies"
+      style="width: 100%"
+      v-loading="loading"
+      row-key="id"
+      @selection-change="handleSelectionChange">
+      <el-table-column type="selection" width="48" />
+      <el-table-column label="序号" width="70">
         <template #default="scope">
-          <div class="cell nowrap">{{ scope.row.id }}</div>
+          {{ (pagination.current - 1) * pagination.pageSize + scope.$index + 1 }}
         </template>
       </el-table-column>
-      <el-table-column prop="name" label="策略名称" />
-      <el-table-column prop="ruleContent" label="规则内容" />
-      <el-table-column prop="scope" label="生效范围" />
-      <el-table-column prop="status" label="状态">
+      <el-table-column prop="id" label="ID" width="130" show-overflow-tooltip />
+      <el-table-column prop="businessName" label="业务策略名称" min-width="210" show-overflow-tooltip />
+      <el-table-column label="策略类型" width="120">
         <template #default="scope">
-          <el-tag :type="isEnabled(scope.row.status) ? 'success' : 'info'">
-            {{ formatStatus(scope.row.status) }}
-          </el-tag>
+          <el-tag type="info">{{ formatPolicyType(scope.row.policyType) }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="操作">
+      <el-table-column label="策略状态" width="110">
         <template #default="scope">
-          <el-button
-            v-if="canManageStructure"
-            size="small"
-            @click="editPolicy(scope.row)">
-            编辑
-          </el-button>
-          <el-button
-            v-if="canManageStructure"
-            size="small"
-            type="danger"
-            @click="deletePolicy(scope.row.id)">
-            删除
-          </el-button>
-          <el-button
-            v-if="!canManageStructure && canToggleStatus"
-            size="small"
-            :type="isEnabled(scope.row.status) ? 'warning' : 'success'"
-            @click="togglePolicyStatus(scope.row)">
-            {{ isEnabled(scope.row.status) ? '停用' : '启用' }}
-          </el-button>
+          <el-tag :type="statusTagType(scope.row.statusNormalized)">{{ formatStatus(scope.row.statusNormalized) }}</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="优先级" width="130">
+        <template #default="scope">
+          <el-tag :type="priorityTagType(scope.row.priority)">{{ priorityLabel(scope.row.priority) }}</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column prop="scope" label="基础范围" width="150" show-overflow-tooltip />
+      <el-table-column label="生效范围详情" min-width="220" show-overflow-tooltip>
+        <template #default="scope">
+          {{ formatEffectiveScope(scope.row) }}
+        </template>
+      </el-table-column>
+      <el-table-column label="规则友好" min-width="320">
+        <template #default="scope">
+          <el-tooltip :content="scope.row.ruleFriendlyText" placement="top" :show-after="250">
+            <div class="rule-chip-wrap">
+              <el-tag
+                v-for="chip in scope.row.ruleHighlights"
+                :key="`${scope.row.id}-${chip}`"
+                class="rule-chip"
+                size="small"
+                effect="plain"
+              >
+                {{ chip }}
+              </el-tag>
+            </div>
+          </el-tooltip>
+        </template>
+      </el-table-column>
+      <el-table-column label="更新时间" min-width="170" show-overflow-tooltip>
+        <template #default="scope">
+          {{ formatTime(scope.row.updateTime || scope.row.lastModifiedAt) }}
+        </template>
+      </el-table-column>
+      <el-table-column label="最近修改" min-width="220" show-overflow-tooltip>
+        <template #default="scope">
+          {{ scope.row.lastModifier }} / {{ formatTime(scope.row.lastModifiedAt) }}
+        </template>
+      </el-table-column>
+      <el-table-column label="操作" width="380" :fixed="isNarrowScreen ? false : 'right'">
+        <template #default="scope">
+          <el-space wrap>
+            <el-button
+              v-if="canToggleStatus && scope.row.statusNormalized === 'ENABLED'"
+              size="small"
+              type="warning"
+              @click="togglePolicyStatus(scope.row)">
+              禁用
+            </el-button>
+            <el-button
+              v-if="canToggleStatus && scope.row.statusNormalized !== 'ENABLED'"
+              size="small"
+              type="success"
+              @click="togglePolicyStatus(scope.row)">
+              启用
+            </el-button>
+            <el-button
+              v-if="canManageStructure"
+              size="small"
+              @click="editPolicy(scope.row)">
+              编辑
+            </el-button>
+            <el-button
+              v-if="canManageStructure && scope.row.statusNormalized !== 'ENABLED'"
+              size="small"
+              type="danger"
+              @click="deletePolicy(scope.row.id)">
+              删除
+            </el-button>
+            <el-button size="small" @click="openAuditDrawer(scope.row)">日志</el-button>
+          </el-space>
         </template>
       </el-table-column>
     </el-table>
-    <el-dialog v-model="showAdd" title="新增策略">
-      <el-form :model="addForm" :rules="rules" ref="addFormRef">
-        <el-form-item label="策略名称" prop="name"><el-input v-model="addForm.name" /></el-form-item>
-        <el-form-item label="规则内容" prop="ruleContent"><el-input v-model="addForm.ruleContent" /></el-form-item>
-        <el-form-item label="生效范围" prop="scope">
+
+    <div class="policy-pagination">
+      <el-pagination
+        background
+        layout="total, sizes, prev, pager, next"
+        :total="pagination.total"
+        v-model:current-page="pagination.current"
+        v-model:page-size="pagination.pageSize"
+        :page-sizes="[10, 20, 50]"
+        @size-change="onPageSizeChange"
+        @current-change="onPageChange"
+      />
+    </div>
+
+    <el-dialog v-model="showAdd" title="新增策略" width="760px">
+      <el-form :model="addForm" :rules="rules" ref="addFormRef" label-width="120px">
+        <el-form-item label="业务策略名称" prop="name">
+          <el-input v-model="addForm.name" placeholder="例如：研发文档对外导出限制策略" />
+        </el-form-item>
+        <el-form-item label="策略类型" prop="policyType">
+          <el-select v-model="addForm.policyType" style="width: 220px">
+            <el-option label="脱敏" value="MASKING" />
+            <el-option label="访问控制" value="ACCESS_CONTROL" />
+            <el-option label="导出限制" value="EXPORT_LIMIT" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="策略状态" prop="status">
+          <el-select v-model="addForm.status" style="width: 220px">
+            <el-option label="草稿" value="DRAFT" />
+            <el-option label="启用" value="ENABLED" />
+            <el-option label="禁用" value="DISABLED" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="优先级" prop="priority">
+          <el-input-number v-model="addForm.priority" :min="1" :max="999" />
+          <span class="field-hint">数字越小优先级越高，用于执行冲突仲裁。</span>
+        </el-form-item>
+        <el-form-item label="基础生效范围" prop="scope">
           <el-select v-model="addForm.scope" style="width: 220px">
             <el-option label="ai_prompt（提示词拦截）" value="ai_prompt" />
             <el-option label="全局" value="全局" />
@@ -70,17 +201,51 @@
             <el-option label="技术部门" value="技术部门" />
           </el-select>
         </el-form-item>
+        <el-form-item label="部门范围">
+          <el-input v-model="addForm.departments" placeholder="多个用逗号分隔，例如：研发部,风控部" />
+        </el-form-item>
+        <el-form-item label="用户组范围">
+          <el-input v-model="addForm.userGroups" placeholder="多个用逗号分隔，例如：高权限组,外包组" />
+        </el-form-item>
+        <el-form-item label="数据类型范围">
+          <el-input v-model="addForm.dataTypes" placeholder="多个用逗号分隔，例如：身份证号,手机号,银行卡" />
+        </el-form-item>
+        <el-form-item label="规则JSON" prop="ruleContent">
+          <el-input v-model="addForm.ruleContent" type="textarea" :rows="7" placeholder='例如：{"keywords":["身份证","手机号"],"action":"mask"}' />
+        </el-form-item>
+        <el-form-item>
+          <div class="field-hint">index 含义：系统会按规则数组中的 index 从小到大执行，index 越小越先命中。</div>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="showAdd = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="addPolicy">保存</el-button>
       </template>
     </el-dialog>
-    <el-dialog v-model="showEdit" title="编辑策略">
-      <el-form :model="editForm" :rules="editRules" ref="editFormRef">
-        <el-form-item label="策略名称" prop="name"><el-input v-model="editForm.name" /></el-form-item>
-        <el-form-item label="规则内容" prop="ruleContent"><el-input v-model="editForm.ruleContent" /></el-form-item>
-        <el-form-item label="生效范围" prop="scope">
+
+    <el-dialog v-model="showEdit" title="编辑策略" width="760px">
+      <el-form :model="editForm" :rules="rules" ref="editFormRef" label-width="120px">
+        <el-form-item label="业务策略名称" prop="name">
+          <el-input v-model="editForm.name" />
+        </el-form-item>
+        <el-form-item label="策略类型" prop="policyType">
+          <el-select v-model="editForm.policyType" style="width: 220px">
+            <el-option label="脱敏" value="MASKING" />
+            <el-option label="访问控制" value="ACCESS_CONTROL" />
+            <el-option label="导出限制" value="EXPORT_LIMIT" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="策略状态" prop="status">
+          <el-select v-model="editForm.status" style="width: 220px">
+            <el-option label="草稿" value="DRAFT" />
+            <el-option label="启用" value="ENABLED" />
+            <el-option label="禁用" value="DISABLED" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="优先级" prop="priority">
+          <el-input-number v-model="editForm.priority" :min="1" :max="999" />
+        </el-form-item>
+        <el-form-item label="基础生效范围" prop="scope">
           <el-select v-model="editForm.scope" style="width: 220px">
             <el-option label="ai_prompt（提示词拦截）" value="ai_prompt" />
             <el-option label="全局" value="全局" />
@@ -88,168 +253,628 @@
             <el-option label="技术部门" value="技术部门" />
           </el-select>
         </el-form-item>
+        <el-form-item label="部门范围">
+          <el-input v-model="editForm.departments" />
+        </el-form-item>
+        <el-form-item label="用户组范围">
+          <el-input v-model="editForm.userGroups" />
+        </el-form-item>
+        <el-form-item label="数据类型范围">
+          <el-input v-model="editForm.dataTypes" />
+        </el-form-item>
+        <el-form-item label="规则JSON" prop="ruleContent">
+          <el-input v-model="editForm.ruleContent" type="textarea" :rows="7" />
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="showEdit = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="updatePolicy">保存</el-button>
       </template>
     </el-dialog>
+
+    <el-drawer v-model="auditDrawerVisible" title="策略变更审计日志" :size="isNarrowScreen ? '96%' : '52%'">
+      <div class="audit-head">
+        <div>策略：{{ auditTarget?.businessName || '-' }}</div>
+        <div>策略ID：{{ auditTarget?.id || '-' }}</div>
+      </div>
+      <el-table :data="auditLogs" v-loading="auditLoading" empty-text="暂无审计记录" style="width: 100%">
+        <el-table-column prop="id" label="申请ID" width="120" />
+        <el-table-column prop="action" label="动作" width="100" />
+        <el-table-column prop="status" label="状态" width="100" />
+        <el-table-column label="申请人" width="120">
+          <template #default="scope">{{ scope.row.requesterId || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="提交时间" min-width="180">
+          <template #default="scope">{{ formatTime(scope.row.createTime) }}</template>
+        </el-table-column>
+        <el-table-column label="复核时间" min-width="180">
+          <template #default="scope">{{ formatTime(scope.row.approvedAt) }}</template>
+        </el-table-column>
+        <el-table-column label="备注" min-width="180" show-overflow-tooltip>
+          <template #default="scope">{{ scope.row.approveNote || '-' }}</template>
+        </el-table-column>
+      </el-table>
+    </el-drawer>
   </el-card>
 </template>
+
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { useUserStore } from '../store/user';
-import { canManagePolicyStructure, canTogglePolicyStatus } from '../utils/roleBoundary';
+import { canManagePolicyStructure, canTogglePolicyStatus, canReviewGovernanceChange } from '../utils/roleBoundary';
+import { getSession } from '../utils/auth';
 import request from '../api/request';
 
+const currentUsername = String(getSession()?.user?.username || '').trim().toLowerCase();
+const canSubmitPolicyChange = currentUsername === 'admin';
+
+async function promptOperatorConfirm(actionText) {
+  const operatorPrompt = await ElMessageBox.prompt(`请输入当前账号密码确认${actionText}`, '治理变更发起确认', {
+    inputType: 'password',
+    inputPlaceholder: '请输入当前账号密码',
+    inputValidator: value => (!!value && value.trim().length > 0) || '密码不能为空',
+    confirmButtonText: '确认',
+    cancelButtonText: '取消'
+  });
+  return {
+    confirmPassword: operatorPrompt.value,
+  };
+}
+
 const userStore = useUserStore();
-const canManageStructure = computed(() => canManagePolicyStructure(userStore.userInfo));
-const canToggleStatus = computed(() => canTogglePolicyStatus(userStore.userInfo));
+const canManageStructure = computed(() => canManagePolicyStructure(userStore.userInfo) && canSubmitPolicyChange);
+const canToggleStatus = computed(() => canTogglePolicyStatus(userStore.userInfo) && canSubmitPolicyChange);
+const canViewAudit = computed(() => canReviewGovernanceChange(userStore.userInfo) || canManageStructure.value || canToggleStatus.value);
+
+const tableRef = ref();
 const policies = ref([]);
+const auditIndexMap = ref(new Map());
 const loading = ref(false);
+const saving = ref(false);
+const batchLoading = ref(false);
+const selectedPolicies = ref([]);
 const showAdd = ref(false);
 const showEdit = ref(false);
-const saving = ref(false);
-const policyHint = '当 scope=ai_prompt 且策略启用时，系统会把 ruleContent 中定义的敏感词应用到 AI 提示词拦截链路。推荐 ruleContent 使用 JSON：{"keywords":["身份证号","银行卡号"]}';
-const addForm = ref({ name: '', ruleContent: '{"keywords":[]}', scope: 'ai_prompt' });
-const editForm = ref({});
-const query = ref({ name: '' });
+const query = ref({ name: '', status: '', policyType: '', scope: '' });
+const pagination = ref({ current: 1, pageSize: 10 });
 const addFormRef = ref();
 const editFormRef = ref();
+
+const auditDrawerVisible = ref(false);
+const auditLoading = ref(false);
+const auditLogs = ref([]);
+const auditTarget = ref(null);
+const isNarrowScreen = ref(false);
+
+const defaultForm = () => ({
+  id: null,
+  name: '',
+  policyType: 'MASKING',
+  status: 'DRAFT',
+  priority: 50,
+  scope: 'ai_prompt',
+  departments: '',
+  userGroups: '',
+  dataTypes: '',
+  ruleContent: '{"keywords":[],"action":"mask"}'
+});
+
+const addForm = ref(defaultForm());
+const editForm = ref(defaultForm());
+
 const rules = {
-  name: [{ required: true, message: '策略名称不能为空', trigger: 'blur' }],
+  name: [{ required: true, message: '业务策略名称不能为空', trigger: 'blur' }],
+  policyType: [{ required: true, message: '策略类型不能为空', trigger: 'change' }],
+  status: [{ required: true, message: '策略状态不能为空', trigger: 'change' }],
+  scope: [{ required: true, message: '生效范围不能为空', trigger: 'change' }],
+  priority: [{ required: true, message: '优先级不能为空', trigger: 'change' }],
   ruleContent: [{ required: true, message: '规则内容不能为空', trigger: 'blur' }],
-  scope: [{ required: true, message: '生效范围不能为空', trigger: 'blur' }]
 };
-const editRules = { ...rules };
+
+const normalizedPolicies = computed(() => {
+  return (Array.isArray(policies.value) ? policies.value : []).map(item => enrichPolicy(item));
+});
+
+function syncViewport() {
+  isNarrowScreen.value = typeof window !== 'undefined' ? window.innerWidth < 992 : false;
+}
+
+function normalizeStatus(status) {
+  const value = String(status ?? '').trim().toUpperCase();
+  if (['1', 'TRUE', 'ENABLED', 'ACTIVE', '启用'].includes(value)) return 'ENABLED';
+  if (['0', 'FALSE', 'DISABLED', 'INACTIVE', '停用'].includes(value)) return 'DISABLED';
+  return 'DRAFT';
+}
+
+function formatStatus(status) {
+  if (status === 'ENABLED') return '启用';
+  if (status === 'DISABLED') return '禁用';
+  return '草稿';
+}
+
+function statusTagType(status) {
+  if (status === 'ENABLED') return 'success';
+  if (status === 'DISABLED') return 'info';
+  return 'warning';
+}
+
+function formatPolicyType(type) {
+  if (type === 'MASKING') return '脱敏';
+  if (type === 'ACCESS_CONTROL') return '访问控制';
+  if (type === 'EXPORT_LIMIT') return '导出限制';
+  return '未分类';
+}
+
+function priorityLevel(priority) {
+  const value = Number(priority || 50);
+  if (value <= 30) return 'high';
+  if (value <= 70) return 'medium';
+  return 'low';
+}
+
+function priorityTagType(priority) {
+  const level = priorityLevel(priority);
+  if (level === 'high') return 'danger';
+  if (level === 'medium') return 'warning';
+  return 'success';
+}
+
+function priorityLabel(priority) {
+  const value = Number(priority || 50);
+  const level = priorityLevel(value);
+  if (level === 'high') return `高 ${value}`;
+  if (level === 'medium') return `中 ${value}`;
+  return `低 ${value}`;
+}
+
+function tryParseJson(raw) {
+  const text = String(raw || '').trim();
+  if (!text || !(text.startsWith('{') || text.startsWith('['))) {
+    return null;
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function splitList(text) {
+  return String(text || '')
+    .split(',')
+    .map(item => item.trim())
+    .filter(Boolean);
+}
+
+function inferPolicyType(policy, ruleObj) {
+  const raw = String(policy?.policyType || ruleObj?.policyType || ruleObj?.type || '').trim().toUpperCase();
+  if (['MASKING', 'ACCESS_CONTROL', 'EXPORT_LIMIT'].includes(raw)) {
+    return raw;
+  }
+  const text = `${policy?.name || ''} ${policy?.ruleContent || ''}`.toLowerCase();
+  if (text.includes('导出')) return 'EXPORT_LIMIT';
+  if (text.includes('访问') || text.includes('权限')) return 'ACCESS_CONTROL';
+  return 'MASKING';
+}
+
+function normalizePriority(policy, ruleObj) {
+  const v = Number(policy?.priority || ruleObj?.priority || 50);
+  if (!Number.isFinite(v)) return 50;
+  return Math.min(999, Math.max(1, Math.round(v)));
+}
+
+function normalizeScopeDetail(ruleObj) {
+  const detail = ruleObj?.scopeDetail || {};
+  return {
+    departments: Array.isArray(detail.departments) ? detail.departments : [],
+    userGroups: Array.isArray(detail.userGroups) ? detail.userGroups : [],
+    dataTypes: Array.isArray(detail.dataTypes) ? detail.dataTypes : [],
+  };
+}
+
+function splitCsv(value) {
+  return String(value || '')
+    .split(',')
+    .map(item => item.trim())
+    .filter(Boolean);
+}
+
+function formatEffectiveScope(policy) {
+  const detail = policy.scopeDetail || {};
+  const parts = [];
+  if ((detail.departments || []).length) {
+    parts.push(`部门:${detail.departments.join('、')}`);
+  }
+  if ((detail.userGroups || []).length) {
+    parts.push(`用户组:${detail.userGroups.join('、')}`);
+  }
+  if ((detail.dataTypes || []).length) {
+    parts.push(`数据类型:${detail.dataTypes.join('、')}`);
+  }
+  if (parts.length === 0) {
+    return '默认全量范围';
+  }
+  return parts.join(' | ');
+}
+
+function normalizeBusinessName(name) {
+  return String(name || '').trim();
+}
+
+function isGenericPolicyName(name) {
+  const normalized = normalizeBusinessName(name);
+  if (!normalized) return true;
+  return /^治理策略[-_\s]*\d+$/i.test(normalized);
+}
+
+function inferScopeLabel(scope, scopeDetail) {
+  if (String(scope || '').trim() === 'ai_prompt') {
+    return '敏感AI指令';
+  }
+  if ((scopeDetail?.dataTypes || []).length > 0) {
+    return `${scopeDetail.dataTypes[0]}`;
+  }
+  if ((scopeDetail?.departments || []).length > 0) {
+    return `${scopeDetail.departments[0]}数据`;
+  }
+  return '核心数据';
+}
+
+function deriveBusinessName(policy, ruleObj, policyType, scopeDetail) {
+  const original = normalizeBusinessName(policy?.name);
+  if (!isGenericPolicyName(original)) {
+    return original;
+  }
+  const target = inferScopeLabel(policy?.scope, scopeDetail);
+  if (policyType === 'MASKING') {
+    return `${target}脱敏策略`;
+  }
+  if (policyType === 'ACCESS_CONTROL') {
+    return `${target}访问控制策略`;
+  }
+  if (policyType === 'EXPORT_LIMIT') {
+    const maxRows = Number(ruleObj?.maxRows || ruleObj?.exportLimit || 0);
+    if (Number.isFinite(maxRows) && maxRows > 0) {
+      return `${target}单次导出上限${maxRows}条策略`;
+    }
+    return `${target}导出次数限制策略`;
+  }
+  return original || `策略-${policy?.id || 'N/A'}`;
+}
+
+function buildRuleHighlights(policy, ruleObj, policyType) {
+  const tags = [];
+  const dataTypes = splitCsv(policy?.scopeDataTypes);
+  const keywords = Array.isArray(ruleObj?.keywords) ? ruleObj.keywords : [];
+  const conditions = Array.isArray(ruleObj?.conditions) ? ruleObj.conditions : [];
+  if (policyType === 'MASKING') {
+    if (dataTypes.length) {
+      dataTypes.slice(0, 3).forEach(item => tags.push(`${item}脱敏`));
+    }
+    if (keywords.length) {
+      keywords.slice(0, 2).forEach(item => tags.push(`${item}命中`));
+    }
+  }
+  if (policyType === 'EXPORT_LIMIT') {
+    const maxRows = Number(ruleObj?.maxRows || ruleObj?.exportLimit || 0);
+    if (Number.isFinite(maxRows) && maxRows > 0) {
+      tags.push(`单次导出上限${maxRows}条`);
+    }
+  }
+  if (policyType === 'ACCESS_CONTROL') {
+    if (conditions.length) {
+      tags.push(`访问条件${conditions.length}项`);
+    }
+    if (!conditions.length && keywords.length) {
+      tags.push(`关键规则${keywords.length}项`);
+    }
+  }
+  const action = String(ruleObj?.action || '').trim();
+  if (action) {
+    if (action === 'mask') tags.push('命中后脱敏');
+    else if (action === 'block') tags.push('命中后拦截');
+    else tags.push(`动作:${action}`);
+  }
+  if (!tags.length) {
+    tags.push('规则详情见悬停');
+  }
+  return Array.from(new Set(tags)).slice(0, 4);
+}
+
+function buildRuleFriendlyText(policy, ruleObj, priority) {
+  if (!ruleObj) {
+    return `优先级${priority}，规则原文：${String(policy?.ruleContent || '').slice(0, 200)}`;
+  }
+  const keywords = Array.isArray(ruleObj.keywords) ? ruleObj.keywords : [];
+  const conditions = Array.isArray(ruleObj.conditions) ? ruleObj.conditions : [];
+  const action = String(ruleObj.action || '').trim() || '按策略执行';
+  const parts = [];
+  if (keywords.length > 0) {
+    parts.push(`关键词：${keywords.slice(0, 5).join('、')}`);
+  }
+  if (conditions.length > 0) {
+    const compactConditions = conditions.slice(0, 3).map(c => `${c?.field || '字段'}${c?.op || ''}${c?.value || ''}`);
+    parts.push(`条件：${compactConditions.join('；')}`);
+  }
+  if (ruleObj.maxRows || ruleObj.exportLimit) {
+    const maxRows = Number(ruleObj.maxRows || ruleObj.exportLimit || 0);
+    if (Number.isFinite(maxRows) && maxRows > 0) {
+      parts.push(`导出上限：${maxRows}条`);
+    }
+  }
+  parts.push(`动作：${action}`);
+  parts.push(`优先级：${priority}`);
+  return parts.join(' | ');
+}
+
+function getAuditKey(policyId) {
+  return String(policyId == null ? '' : policyId);
+}
+
+function enrichPolicy(policy) {
+  const ruleObj = tryParseJson(policy?.ruleContent);
+  const policyType = inferPolicyType(policy, ruleObj);
+  const priority = normalizePriority(policy, ruleObj);
+  const fromRuleScope = normalizeScopeDetail(ruleObj || {});
+  const scopeDetail = {
+    departments: splitCsv(policy?.scopeDepartments).length > 0 ? splitCsv(policy?.scopeDepartments) : fromRuleScope.departments,
+    userGroups: splitCsv(policy?.scopeUserGroups).length > 0 ? splitCsv(policy?.scopeUserGroups) : fromRuleScope.userGroups,
+    dataTypes: splitCsv(policy?.scopeDataTypes).length > 0 ? splitCsv(policy?.scopeDataTypes) : fromRuleScope.dataTypes,
+  };
+  const statusNormalized = normalizeStatus(policy?.status);
+  const businessName = deriveBusinessName(policy, ruleObj, policyType, scopeDetail);
+  const ruleHighlights = buildRuleHighlights(policy, ruleObj, policyType);
+  const audit = auditIndexMap.value.get(getAuditKey(policy?.id)) || null;
+  return {
+    ...policy,
+    businessName,
+    policyType,
+    priority,
+    scopeDetail,
+    statusNormalized,
+    ruleHighlights,
+    ruleFriendlyText: buildRuleFriendlyText(policy, ruleObj, priority),
+    lastModifier: audit?.operator || '系统',
+    lastModifiedAt: audit?.time || policy?.updateTime || policy?.createTime || null,
+  };
+}
+
+function openAdd() {
+  if (!canSubmitPolicyChange) {
+    ElMessage.error('仅主治理管理员(admin)可发起策略结构变更');
+    return;
+  }
+  if (!canManageStructure.value) {
+    ElMessage.error('当前身份仅可执行策略启停，不能新增策略');
+    return;
+  }
+  addForm.value = defaultForm();
+  showAdd.value = true;
+}
+
+function prepareFormFromPolicy(row) {
+  const ruleObj = tryParseJson(row?.ruleContent) || {};
+  const detail = normalizeScopeDetail(ruleObj);
+  return {
+    id: row.id,
+    name: row.businessName || row.name || '',
+    policyType: row.policyType || inferPolicyType(row, ruleObj),
+    status: row.statusNormalized || normalizeStatus(row.status),
+    priority: row.priority || normalizePriority(row, ruleObj),
+    scope: row.scope || 'ai_prompt',
+    departments: String(row?.scopeDepartments || (detail.departments || []).join(',')),
+    userGroups: String(row?.scopeUserGroups || (detail.userGroups || []).join(',')),
+    dataTypes: String(row?.scopeDataTypes || (detail.dataTypes || []).join(',')),
+    ruleContent: String(row.ruleContent || '{"keywords":[],"action":"mask"}')
+  };
+}
+
+function buildPayloadFromForm(form) {
+  const parsedRule = tryParseJson(form.ruleContent) || {};
+  parsedRule.policyType = form.policyType;
+  parsedRule.priority = Number(form.priority || 50);
+  parsedRule.scopeDetail = {
+    departments: splitList(form.departments),
+    userGroups: splitList(form.userGroups),
+    dataTypes: splitList(form.dataTypes),
+  };
+
+  if (Array.isArray(parsedRule.keywords)) {
+    parsedRule.keywords = parsedRule.keywords.map(item => String(item || '').trim()).filter(Boolean);
+  }
+  if (Array.isArray(parsedRule.conditions)) {
+    parsedRule.conditions = parsedRule.conditions.map((item, index) => ({
+      ...item,
+      index: Number(item?.index || index + 1),
+    }));
+  }
+
+  return {
+    id: form.id,
+    name: form.name,
+    policyType: form.policyType,
+    priority: Number(form.priority || 50),
+    scope: form.scope,
+    scopeDepartments: splitList(form.departments).join(','),
+    scopeUserGroups: splitList(form.userGroups).join(','),
+    scopeDataTypes: splitList(form.dataTypes).join(','),
+    status: form.status,
+    ruleContent: JSON.stringify(parsedRule),
+  };
+}
+
+async function fetchPolicyAuditIndex() {
+  if (!canViewAudit.value) {
+    auditIndexMap.value = new Map();
+    return;
+  }
+  try {
+    const res = await request.get('/governance-change/page', {
+      params: {
+        module: 'POLICY',
+        page: 1,
+        pageSize: 200,
+      },
+    });
+    const list = Array.isArray(res?.list) ? res.list : [];
+    const map = new Map();
+    list.forEach(item => {
+      const id = extractPolicyId(item);
+      if (!id) return;
+      const key = getAuditKey(id);
+      const existing = map.get(key);
+      const itemTime = new Date(item?.approvedAt || item?.createTime || 0).getTime();
+      const existingTime = new Date(existing?.time || 0).getTime();
+      if (!existing || itemTime > existingTime) {
+        map.set(key, {
+          operator: item?.requesterId ? `用户#${item.requesterId}` : '系统',
+          time: item?.approvedAt || item?.createTime || null,
+        });
+      }
+    });
+    auditIndexMap.value = map;
+  } catch {
+    auditIndexMap.value = new Map();
+  }
+}
+
+function extractPolicyId(change) {
+  if (change?.targetId != null) {
+    return change.targetId;
+  }
+  const payload = tryParseJson(change?.payloadJson);
+  if (payload?.id != null) {
+    return payload.id;
+  }
+  return null;
+}
+
 async function fetchPolicies() {
   loading.value = true;
   try {
-    const res = await request.get('/policy/list', { params: query.value });
-    policies.value = res || [];
+    const res = await request.get('/policy/page', {
+      params: {
+        page: pagination.value.current,
+        pageSize: pagination.value.pageSize,
+        name: String(query.value.name || '').trim() || undefined,
+        status: query.value.status || undefined,
+        policyType: query.value.policyType || undefined,
+        scope: query.value.scope || undefined,
+      },
+    });
+    const all = Array.isArray(res?.list) ? res.list : [];
+    policies.value = all.filter(item => ['ai_prompt', '全局', '业务部门', '技术部门'].includes(String(item?.scope || '').trim()));
+    pagination.value.total = Number(res?.total || policies.value.length || 0);
+    await fetchPolicyAuditIndex();
+    selectedPolicies.value = [];
+    tableRef.value?.clearSelection?.();
+    if ((pagination.value.current - 1) * pagination.value.pageSize >= pagination.value.total && pagination.value.current > 1) {
+      pagination.value.current = 1;
+      await fetchPolicies();
+    }
   } catch (err) {
     ElMessage.error(err?.message || '加载失败');
   } finally {
     loading.value = false;
   }
 }
-function openAdd() {
-  if (!canManageStructure.value) {
-    ElMessage.error('当前身份仅可执行策略启停，不能新增策略');
+
+function editPolicy(row) {
+  if (!canSubmitPolicyChange) {
+    ElMessage.error('仅主治理管理员(admin)可发起策略结构变更');
     return;
   }
-  addForm.value = { name: '', ruleContent: '{"keywords":[]}', scope: 'ai_prompt' };
-  showAdd.value = true;
+  if (!canManageStructure.value) {
+    ElMessage.error('当前身份仅可执行策略启停，不能编辑策略结构');
+    return;
+  }
+  editForm.value = prepareFormFromPolicy(row);
+  showEdit.value = true;
 }
+
 async function addPolicy() {
-  if (!canManageStructure.value) {
-    ElMessage.error('当前身份仅可执行策略启停，不能新增策略');
+  if (!canSubmitPolicyChange || !canManageStructure.value || !addFormRef.value) {
+    ElMessage.error('当前账号不能新增策略');
     return;
   }
-  if (!addFormRef.value) return;
   addFormRef.value.validate(async valid => {
     if (!valid) return;
-    let confirmPassword = '';
-    try {
-      const prompt = await ElMessageBox.prompt('请输入当前账号密码确认保存策略', '敏感操作二次校验', {
-        inputType: 'password',
-        inputAttributes: { autocomplete: 'current-password', autofocus: 'autofocus' },
-        inputPlaceholder: '请输入密码',
-        inputValidator: value => (!!value && value.trim().length > 0) || '密码不能为空',
-        confirmButtonText: '确认',
-        cancelButtonText: '取消'
-      });
-      confirmPassword = prompt.value;
-    } catch {
-      return;
-    }
     saving.value = true;
     try {
-      await request.post('/policy/save', { ...addForm.value, confirmPassword });
-      ElMessage.success('保存成功');
+      const payload = buildPayloadFromForm(addForm.value);
+      const reviewPayload = await promptOperatorConfirm('保存策略');
+      await request.post('/governance-change/submit', {
+        module: 'POLICY',
+        action: 'ADD',
+        targetId: null,
+        payloadJson: JSON.stringify(payload),
+        confirmPassword: reviewPayload.confirmPassword,
+      });
+      ElMessage.success('策略新增申请已提交待复核');
       showAdd.value = false;
       fetchPolicies();
     } catch (err) {
+      if (err === 'cancel' || err === 'close') return;
       ElMessage.error(err?.message || '保存失败');
     } finally {
       saving.value = false;
     }
   });
 }
-function editPolicy(row) {
-  if (!canManageStructure.value) {
-    ElMessage.error('当前身份仅可执行策略启停，不能编辑策略结构');
-    return;
-  }
-  editForm.value = { ...row };
-  showEdit.value = true;
-}
+
 async function updatePolicy() {
-  if (!canManageStructure.value) {
-    ElMessage.error('当前身份仅可执行策略启停，不能编辑策略结构');
+  if (!canSubmitPolicyChange || !canManageStructure.value || !editFormRef.value) {
+    ElMessage.error('当前账号不能编辑策略');
     return;
   }
-  if (!editFormRef.value) return;
   editFormRef.value.validate(async valid => {
     if (!valid) return;
-    let confirmPassword = '';
-    try {
-      const prompt = await ElMessageBox.prompt('请输入当前账号密码确认更新策略', '敏感操作二次校验', {
-        inputType: 'password',
-        inputAttributes: { autocomplete: 'current-password', autofocus: 'autofocus' },
-        inputPlaceholder: '请输入密码',
-        inputValidator: value => (!!value && value.trim().length > 0) || '密码不能为空',
-        confirmButtonText: '确认',
-        cancelButtonText: '取消'
-      });
-      confirmPassword = prompt.value;
-    } catch {
-      return;
-    }
     saving.value = true;
     try {
-      await request.post('/policy/save', { ...editForm.value, confirmPassword });
-      ElMessage.success('更新成功');
+      const payload = buildPayloadFromForm(editForm.value);
+      const reviewPayload = await promptOperatorConfirm('更新策略');
+      await request.post('/governance-change/submit', {
+        module: 'POLICY',
+        action: 'UPDATE',
+        targetId: editForm.value.id,
+        payloadJson: JSON.stringify(payload),
+        confirmPassword: reviewPayload.confirmPassword,
+      });
+      ElMessage.success('策略更新申请已提交待复核');
       showEdit.value = false;
       fetchPolicies();
     } catch (err) {
+      if (err === 'cancel' || err === 'close') return;
       ElMessage.error(err?.message || '更新失败');
     } finally {
       saving.value = false;
     }
   });
 }
+
 async function deletePolicy(id) {
-  if (!canManageStructure.value) {
-    ElMessage.error('当前身份仅可执行策略启停，不能删除策略');
+  if (!canSubmitPolicyChange || !canManageStructure.value) {
+    ElMessage.error('当前账号不能删除策略');
     return;
   }
   try {
     await ElMessageBox.confirm('确认删除该策略吗？', '提示', { type: 'warning' });
-    const prompt = await ElMessageBox.prompt('请输入当前账号密码确认删除策略', '敏感操作二次校验', {
-      inputType: 'password',
-      inputAttributes: { autocomplete: 'current-password', autofocus: 'autofocus' },
-      inputPlaceholder: '请输入密码',
-      inputValidator: value => (!!value && value.trim().length > 0) || '密码不能为空',
-      confirmButtonText: '确认',
-      cancelButtonText: '取消'
+    const reviewPayload = await promptOperatorConfirm('删除策略');
+    await request.post('/governance-change/submit', {
+      module: 'POLICY',
+      action: 'DELETE',
+      targetId: id,
+      payloadJson: JSON.stringify({ id }),
+      confirmPassword: reviewPayload.confirmPassword,
     });
-    await request.post('/policy/delete', { id, confirmPassword: prompt.value });
-    ElMessage.success('删除成功');
+    ElMessage.success('策略删除申请已提交待复核');
     fetchPolicies();
   } catch (err) {
-    if (err !== 'cancel') ElMessage.error(err?.message || '删除失败');
+    if (err !== 'cancel') {
+      ElMessage.error(err?.message || '删除失败');
+    }
   }
-}
-
-function isEnabled(status) {
-  const value = String(status ?? '').trim().toLowerCase();
-  return ['enabled', 'active', 'true', '1', '启用'].includes(value);
-}
-
-function formatStatus(status) {
-  return isEnabled(status) ? '启用' : '停用';
 }
 
 async function togglePolicyStatus(row) {
@@ -257,28 +882,196 @@ async function togglePolicyStatus(row) {
     ElMessage.error('当前身份无策略启停权限');
     return;
   }
-  const targetStatus = isEnabled(row?.status) ? 'DISABLED' : 'ENABLED';
-  const actionLabel = targetStatus === 'ENABLED' ? '启用' : '停用';
+  const targetStatus = row.statusNormalized === 'ENABLED' ? 'DISABLED' : 'ENABLED';
+  const actionLabel = targetStatus === 'ENABLED' ? '启用' : '禁用';
   try {
-    const prompt = await ElMessageBox.prompt(`请输入当前账号密码确认${actionLabel}策略`, '敏感操作二次校验', {
-      inputType: 'password',
-      inputAttributes: { autocomplete: 'current-password', autofocus: 'autofocus' },
-      inputPlaceholder: '请输入密码',
-      inputValidator: value => (!!value && value.trim().length > 0) || '密码不能为空',
-      confirmButtonText: '确认',
-      cancelButtonText: '取消'
+    if (!canSubmitPolicyChange) {
+      ElMessage.error('仅主治理管理员(admin)可发起策略启停变更');
+      return;
+    }
+    const reviewPayload = await promptOperatorConfirm(`${actionLabel}策略`);
+    await request.post('/governance-change/submit', {
+      module: 'POLICY',
+      action: 'UPDATE',
+      targetId: row.id,
+      payloadJson: JSON.stringify({ enabled: targetStatus === 'ENABLED', status: targetStatus }),
+      confirmPassword: reviewPayload.confirmPassword,
     });
-    await request.post('/policy/toggle-status', {
-      id: row.id,
-      status: targetStatus,
-      confirmPassword: prompt.value
-    });
-    ElMessage.success(`${actionLabel}成功`);
+    ElMessage.success(`${actionLabel}申请已提交待复核`);
     fetchPolicies();
   } catch (err) {
     if (err !== 'cancel') ElMessage.error(err?.message || `${actionLabel}失败`);
   }
 }
 
-fetchPolicies();
+async function batchToggleStatus(enable) {
+  if (!canToggleStatus.value || selectedPolicies.value.length === 0) {
+    return;
+  }
+  const targetStatus = enable ? 'ENABLED' : 'DISABLED';
+  const actionLabel = enable ? '启用' : '禁用';
+  try {
+    await ElMessageBox.confirm(`确认对已选 ${selectedPolicies.value.length} 条策略执行批量${actionLabel}吗？`, '批量操作确认', { type: 'warning' });
+    const reviewPayload = await promptOperatorConfirm(`批量${actionLabel}策略`);
+    batchLoading.value = true;
+    const jobs = selectedPolicies.value.map(item => request.post('/governance-change/submit', {
+      module: 'POLICY',
+      action: 'UPDATE',
+      targetId: item.id,
+      payloadJson: JSON.stringify({ enabled: enable, status: targetStatus }),
+      confirmPassword: reviewPayload.confirmPassword,
+    }));
+    const result = await Promise.allSettled(jobs);
+    const successCount = result.filter(item => item.status === 'fulfilled').length;
+    const failedCount = result.length - successCount;
+    if (failedCount === 0) {
+      ElMessage.success(`批量${actionLabel}申请已全部提交待复核`);
+    } else {
+      ElMessage.warning(`批量${actionLabel}完成：成功 ${successCount} 条，失败 ${failedCount} 条`);
+    }
+    fetchPolicies();
+  } catch (err) {
+    if (err !== 'cancel') {
+      ElMessage.error(err?.message || `批量${actionLabel}失败`);
+    }
+  } finally {
+    batchLoading.value = false;
+  }
+}
+
+function handleSelectionChange(rows) {
+  selectedPolicies.value = Array.isArray(rows) ? rows : [];
+}
+
+function clearSelection() {
+  selectedPolicies.value = [];
+  tableRef.value?.clearSelection?.();
+}
+
+function onPageChange(page) {
+  pagination.value.current = page;
+  fetchPolicies();
+}
+
+function onPageSizeChange(size) {
+  pagination.value.pageSize = size;
+  pagination.value.current = 1;
+  fetchPolicies();
+}
+
+function formatTime(value) {
+  if (!value) return '-';
+  const date = new Date(String(value).replace(' ', 'T'));
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString('zh-CN', { hour12: false });
+}
+
+async function openAuditDrawer(row) {
+  auditTarget.value = row;
+  auditDrawerVisible.value = true;
+  auditLoading.value = true;
+  try {
+    const res = await request.get('/governance-change/page', {
+      params: {
+        module: 'POLICY',
+        page: 1,
+        pageSize: 100,
+      },
+    });
+    const list = Array.isArray(res?.list) ? res.list : [];
+    auditLogs.value = list
+      .filter(item => String(extractPolicyId(item) || '') === String(row.id || ''))
+      .sort((a, b) => new Date(b?.createTime || 0).getTime() - new Date(a?.createTime || 0).getTime());
+  } catch (err) {
+    auditLogs.value = [];
+    ElMessage.error(err?.message || '加载审计日志失败');
+  } finally {
+    auditLoading.value = false;
+  }
+}
+
+onMounted(() => {
+  syncViewport();
+  window.addEventListener('resize', syncViewport, { passive: true });
+  fetchPolicies();
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', syncViewport);
+});
 </script>
+
+<style scoped>
+.policy-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.policy-count {
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+
+.policy-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0 12px;
+}
+
+.selection-count {
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+
+.policy-pagination {
+  margin-top: 14px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.field-hint {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.audit-head {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  color: var(--color-text-secondary);
+}
+
+.rule-chip-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  max-height: 48px;
+  overflow: hidden;
+}
+
+.rule-chip {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+:deep(.el-table__fixed-right .cell) {
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .policy-head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  .policy-toolbar {
+    flex-wrap: wrap;
+  }
+}
+</style>

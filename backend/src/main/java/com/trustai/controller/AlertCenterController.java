@@ -22,6 +22,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -35,6 +38,10 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/alert-center")
 public class AlertCenterController {
+
+    private static final Set<String> THREAT_EVENT_TYPES = Set.of(
+        "PRIVACY_ALERT", "ANOMALY_ALERT", "SHADOW_AI_ALERT", "SECURITY_ALERT"
+    );
 
     private final GovernanceEventService governanceEventService;
     private final AdversarialRecordService adversarialRecordService;
@@ -101,7 +108,9 @@ public class AlertCenterController {
         }
 
         qw.orderByDesc("event_time");
-        Page<GovernanceEvent> result = governanceEventService.page(new Page<>(Math.max(1, page), Math.max(1, pageSize)), qw);
+        int safePage = Math.max(1, page);
+        int safePageSize = Math.max(1, Math.min(100, pageSize));
+        Page<GovernanceEvent> result = governanceEventService.page(new Page<>(safePage, safePageSize), qw);
 
         Map<String, Object> stats = statsCore(current);
         Map<String, Object> data = new LinkedHashMap<>();
@@ -118,6 +127,119 @@ public class AlertCenterController {
     public R<Map<String, Object>> stats() {
         enforceExecutiveDuty("stats");
         return R.ok(statsCore(currentUserService.requireCurrentUser()));
+    }
+
+    @GetMapping("/threat-overview")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','EXECUTIVE','SECOPS','DATA_ADMIN','AI_BUILDER','BUSINESS_OWNER','EMPLOYEE')")
+    public R<Map<String, Object>> threatOverview(@RequestParam(defaultValue = "72") int windowHours) {
+        enforceExecutiveDuty("stats");
+        User current = currentUserService.requireCurrentUser();
+        int safeWindowHours = Math.max(1, Math.min(720, windowHours));
+        Date since = Date.from(LocalDateTime.now().minusHours(safeWindowHours).atZone(ZoneId.systemDefault()).toInstant());
+
+        QueryWrapper<GovernanceEvent> query = companyScopeService.withCompany(new QueryWrapper<GovernanceEvent>())
+            .ge("create_time", since)
+            .orderByDesc("event_time")
+            .last("LIMIT 8000");
+        if (!currentUserService.hasAnyRole("ADMIN", "SECOPS", "EXECUTIVE")) {
+            query.eq("user_id", current.getId());
+        }
+
+        List<GovernanceEvent> sourceEvents = governanceEventService.list(query).stream()
+            .filter(item -> THREAT_EVENT_TYPES.contains(String.valueOf(item.getEventType()).toUpperCase(Locale.ROOT)))
+            .toList();
+
+        Map<String, GovernanceEvent> deduped = new LinkedHashMap<>();
+        for (GovernanceEvent item : sourceEvents) {
+            String key = threatChainKey(item);
+            GovernanceEvent currentValue = deduped.get(key);
+            if (currentValue == null || isNewerEvent(item, currentValue)) {
+                deduped.put(key, item);
+            }
+        }
+
+        long pending = 0L;
+        long blocked = 0L;
+        long critical = 0L;
+        long high = 0L;
+        long sourceLinked = 0L;
+        Map<String, Long> byType = new LinkedHashMap<>();
+        Map<String, Long> bySource = new LinkedHashMap<>();
+
+        byType.put("privacy", 0L);
+        byType.put("anomaly", 0L);
+        byType.put("shadowAi", 0L);
+        byType.put("security", 0L);
+
+        for (GovernanceEvent item : deduped.values()) {
+            String status = normalize(String.valueOf(item.getStatus()));
+            String severity = normalize(String.valueOf(item.getSeverity()));
+            String type = String.valueOf(item.getEventType() == null ? "" : item.getEventType()).toUpperCase(Locale.ROOT);
+            String source = normalize(String.valueOf(item.getSourceModule()));
+
+            if ("pending".equals(status) || "reviewing".equals(status)) {
+                pending++;
+            }
+            if ("blocked".equals(status)) {
+                blocked++;
+            }
+            if ("critical".equals(severity)) {
+                critical++;
+            }
+            if ("high".equals(severity)) {
+                high++;
+            }
+
+            if (StringUtils.hasText(item.getSourceEventId())) {
+                sourceLinked++;
+            }
+
+            if ("PRIVACY_ALERT".equals(type)) {
+                byType.put("privacy", byType.get("privacy") + 1);
+            } else if ("ANOMALY_ALERT".equals(type)) {
+                byType.put("anomaly", byType.get("anomaly") + 1);
+            } else if ("SHADOW_AI_ALERT".equals(type)) {
+                byType.put("shadowAi", byType.get("shadowAi") + 1);
+            } else if ("SECURITY_ALERT".equals(type)) {
+                byType.put("security", byType.get("security") + 1);
+            }
+
+            String sourceKey = source.isBlank() ? "unknown" : source;
+            bySource.put(sourceKey, bySource.getOrDefault(sourceKey, 0L) + 1);
+        }
+
+        long uniqueTotal = deduped.size();
+        long rawTotal = sourceEvents.size();
+        long collapsed = Math.max(0L, rawTotal - uniqueTotal);
+        double linkRate = uniqueTotal <= 0 ? 0D : (double) sourceLinked / uniqueTotal;
+
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("total", uniqueTotal);
+        summary.put("pending", pending);
+        summary.put("blocked", blocked);
+        summary.put("critical", critical);
+        summary.put("high", high);
+
+        Map<String, Object> dedupe = new LinkedHashMap<>();
+        dedupe.put("rawTotal", rawTotal);
+        dedupe.put("uniqueTotal", uniqueTotal);
+        dedupe.put("collapsed", collapsed);
+        dedupe.put("windowHours", safeWindowHours);
+        dedupe.put("caliber", "governance_event_dedup_chain_v1");
+
+        Map<String, Object> trace = new LinkedHashMap<>();
+        trace.put("sourceLinked", sourceLinked);
+        trace.put("sourceLinkRate", Math.round(linkRate * 1000D) / 1000D);
+        trace.put("rule", "source_module + source_event_id，缺失时回退 event_type + user_id + title + minute");
+
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("summary", summary);
+        data.put("byType", byType);
+        data.put("bySource", bySource);
+        data.put("dedupe", dedupe);
+        data.put("trace", trace);
+        data.put("generatedAt", new Date());
+        return R.ok(data);
     }
 
     @GetMapping("/{id}")
@@ -217,17 +339,11 @@ public class AlertCenterController {
     }
 
     private void enforceExecutiveDuty(String action) {
-        User current = currentUserService.requireCurrentUser();
-        String username = current.getUsername() == null ? "" : current.getUsername().trim().toLowerCase();
-        if (!username.startsWith("executive")) {
+        currentUserService.requireCurrentUser();
+        if (!currentUserService.hasRole("EXECUTIVE")) {
             return;
         }
-        if ("executive_2".equals(username) && !"stats".equals(action)) {
-            throw new BizException(40300, "管理层二号为总览决策岗，仅可访问统计总览");
-        }
-        if ("executive_3".equals(username) && "user-history".equals(action)) {
-            throw new BizException(40300, "管理层三号不具备个人历史明细查询权限");
-        }
+        // Canonical role model no longer differentiates executive sub-roles.
     }
 
     @PostMapping("/dispose")
@@ -319,14 +435,7 @@ public class AlertCenterController {
         if (operator == null || !currentUserService.hasRole("SECOPS")) {
             return;
         }
-        String normalizedStatus = targetStatus == null ? "reviewing" : targetStatus.trim().toLowerCase(Locale.ROOT);
-        String username = operator.getUsername() == null ? "" : operator.getUsername().trim().toLowerCase(Locale.ROOT);
-        if ("secops_2".equals(username) && "blocked".equals(normalizedStatus)) {
-            throw new BizException(40300, "安全运维二号仅负责误报复核，不可执行阻断");
-        }
-        if ("secops_3".equals(username) && "ignored".equals(normalizedStatus)) {
-            throw new BizException(40300, "安全运维三号仅负责阻断处置，不可标记误报");
-        }
+        // Canonical role model no longer differentiates secops sub-roles.
     }
 
     private GovernanceEvent getScopedEvent(Long id) {
@@ -380,6 +489,53 @@ public class AlertCenterController {
         stats.put("anomaly", anomaly);
         stats.put("shadowAi", shadowAi);
         return stats;
+    }
+
+    private String threatChainKey(GovernanceEvent item) {
+        String sourceModule = normalize(item.getSourceModule());
+        String sourceEventId = item.getSourceEventId() == null ? "" : item.getSourceEventId().trim();
+        if (!sourceModule.isBlank() && !sourceEventId.isBlank()) {
+            return sourceModule + "::" + sourceEventId;
+        }
+        LocalDateTime time = resolveAnchor(item).toInstant().atZone(ZoneId.systemDefault()).toLocalDateTime();
+        return String.join("::",
+            normalize(item.getEventType()),
+            String.valueOf(item.getUserId() == null ? 0L : item.getUserId()),
+            normalize(item.getTitle()),
+            String.valueOf(time.getYear()),
+            String.valueOf(time.getMonthValue()),
+            String.valueOf(time.getDayOfMonth()),
+            String.valueOf(time.getHour()),
+            String.valueOf(time.getMinute())
+        );
+    }
+
+    private boolean isNewerEvent(GovernanceEvent left, GovernanceEvent right) {
+        Date leftTime = resolveAnchor(left);
+        Date rightTime = resolveAnchor(right);
+        if (leftTime.after(rightTime)) {
+            return true;
+        }
+        if (leftTime.before(rightTime)) {
+            return false;
+        }
+        long leftId = left.getId() == null ? 0L : left.getId();
+        long rightId = right.getId() == null ? 0L : right.getId();
+        return leftId > rightId;
+    }
+
+    private Date resolveAnchor(GovernanceEvent event) {
+        if (event.getEventTime() != null) {
+            return event.getEventTime();
+        }
+        if (event.getCreateTime() != null) {
+            return event.getCreateTime();
+        }
+        return new Date(0L);
+    }
+
+    private String normalize(String value) {
+        return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
     }
 
     @SuppressWarnings("unchecked")

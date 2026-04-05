@@ -396,7 +396,6 @@ public class NationalAwardReadinessService {
         );
     }
 
-    @SuppressWarnings("unchecked")
     private Map<String, Object> asMap(Object value) {
         if (value instanceof Map<?, ?> map) {
             Map<String, Object> out = new LinkedHashMap<>();

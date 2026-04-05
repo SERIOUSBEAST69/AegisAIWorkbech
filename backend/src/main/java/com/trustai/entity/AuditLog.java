@@ -12,6 +12,8 @@ public class AuditLog {
     private Long id;
     private Long userId;
     private Long assetId;
+    private Long permissionId;
+    private String permissionName;
     private String operation;
     private Date operationTime;
     private String ip;

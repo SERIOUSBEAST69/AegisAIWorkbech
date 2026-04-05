@@ -36,11 +36,20 @@ async function assertSessionAlive(page, route) {
   await expect(page, `route ${route} should not redirect to login`).not.toHaveURL(/\/login/);
 }
 
+async function dismissDeckBackdropIfPresent(page) {
+  const backdrop = page.locator('button.deck-backdrop').first();
+  if (await backdrop.isVisible().catch(() => false)) {
+    await backdrop.click({ force: true });
+  }
+}
+
 async function doCommonOps(page) {
+  await dismissDeckBackdropIfPresent(page);
   await clickButtonIfVisible(page, /查询|搜索|刷新/);
+  await dismissDeckBackdropIfPresent(page);
   const nextPage = page.locator('.el-pagination .btn-next:not([disabled]):not(.is-disabled)').first();
   if (await nextPage.isVisible().catch(() => false)) {
-    await nextPage.click();
+    await nextPage.click({ force: true });
   }
 }
 

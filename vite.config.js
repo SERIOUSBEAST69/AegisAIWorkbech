@@ -11,12 +11,13 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (!id.includes('node_modules')) return;
+          if (id.includes('@element-plus/icons-vue')) return 'ui-icons';
           if (id.includes('echarts')) return 'charts-echarts';
           if (id.includes('zrender')) return 'charts-zrender';
           if (id.includes('element-plus')) return 'ui-element-plus';
-          if (id.includes('@element-plus/icons-vue')) return 'ui-icons';
           if (id.includes('vue') || id.includes('pinia') || id.includes('vue-router')) return 'framework-vue';
           if (id.includes('axios')) return 'http-client';
+          if (id.includes('dayjs')) return 'date-dayjs';
           if (id.includes('gsap')) return 'motion-gsap';
           return 'vendor';
         }

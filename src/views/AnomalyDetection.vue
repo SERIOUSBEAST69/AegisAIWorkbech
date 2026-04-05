@@ -295,7 +295,10 @@ const modelStatusLabel = computed(() => {
 const recentAnomalyCount = computed(() =>
   events.value.filter(e => e.is_anomaly).length
 );
-const isEmployeeView = computed(() => String(userStore.userInfo?.roleCode || '').toUpperCase() === 'EMPLOYEE');
+const isEmployeeView = computed(() => {
+  const role = String(userStore.userInfo?.roleCode || '').toUpperCase();
+  return role === 'EMPLOYEE';
+});
 const canSubmitAnomaly = computed(() => canRunAnomalyCheck(userStore.userInfo));
 const canAccessAnomalyEvents = computed(() => canViewAnomalyEvents(userStore.userInfo));
 

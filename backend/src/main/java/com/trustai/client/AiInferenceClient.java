@@ -89,7 +89,8 @@ public interface AiInferenceClient {
 
     /** 查询异常事件日志。 */
     @GetMapping("/api/anomaly/events")
-    Map<String, Object> anomalyEvents();
+    Map<String, Object> anomalyEvents(@RequestParam("page") int page,
+                                      @RequestParam("pageSize") int pageSize);
 
     /** 获取异常检测模型状态。 */
     @GetMapping("/api/anomaly/status")

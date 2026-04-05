@@ -36,6 +36,71 @@ const REGEX_RULES = {
   company_code: /(?<![A-Z0-9])[0-9A-Z]{18}(?![A-Z0-9])/g,
 };
 
+const JAILBREAK_PATTERNS = [
+  /ignore\s+(all|previous|prior)\s+instructions?/i,
+  /system\s+prompt/i,
+  /developer\s+mode/i,
+  /bypass\s+(policy|guard|safety|filter)/i,
+  /do\s+not\s+follow\s+safety/i,
+  /reveal\s+(hidden|internal)\s+rules/i,
+];
+
+const SOCIAL_ENGINEERING_PATTERNS = [
+  /urgent/i,
+  /wire\s+transfer/i,
+  /change\s+beneficiary/i,
+  /verify\s+invoice/i,
+  /executive\s+request/i,
+];
+
+const ENCODED_PATTERNS = [
+  /[A-Za-z0-9+/=]{220,}/,
+  /(?:[A-Za-z0-9_-]{40,}\.){2}[A-Za-z0-9_-]{20,}/,
+  /\\x[0-9a-fA-F]{2}/,
+];
+
+const TAB_RISK_STATE = new Map();
+
+function getSenderKey(sender) {
+  const tabId = sender?.tab?.id;
+  if (Number.isFinite(tabId)) {
+    return `tab:${tabId}`;
+  }
+  return `ctx:${sender?.id || 'unknown'}`;
+}
+
+function updateRiskChain(senderKey, riskCategory, reasons) {
+  const now = Date.now();
+  const prev = TAB_RISK_STATE.get(senderKey) || {
+    chainId: `ext-${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    score: 0,
+    lastAt: now,
+    reasons: [],
+  };
+  const elapsed = now - prev.lastAt;
+  const decay = elapsed > 45000 ? 0.4 : (elapsed > 25000 ? 0.7 : 1);
+  let score = Math.max(0, prev.score * decay);
+  if (riskCategory === 'high') score += 4;
+  if (riskCategory === 'medium') score += 2;
+  if (riskCategory === 'low') score += 1;
+  const mergedReasons = Array.from(new Set([...(prev.reasons || []), ...(reasons || [])])).slice(-8);
+  const state = {
+    chainId: prev.chainId,
+    score,
+    lastAt: now,
+    reasons: mergedReasons,
+    level: score >= 8 ? 'high' : (score >= 4 ? 'medium' : (score > 0 ? 'low' : 'none')),
+  };
+  if (elapsed > 90000) {
+    state.chainId = `ext-${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    state.score = riskCategory === 'high' ? 4 : (riskCategory === 'medium' ? 2 : 1);
+    state.reasons = Array.from(new Set(reasons || [])).slice(-8);
+    state.level = state.score >= 8 ? 'high' : (state.score >= 4 ? 'medium' : (state.score > 0 ? 'low' : 'none'));
+  }
+  TAB_RISK_STATE.set(senderKey, state);
+  return state;
+}
+
 async function getLocalConfig() {
   const data = await chrome.storage.local.get(['privacyConfig']);
   return { ...DEFAULT_CONFIG, ...(data.privacyConfig || {}) };
@@ -149,11 +214,11 @@ async function detectByPredict(endpoint, text) {
   return [];
 }
 
-async function detectSensitive(text) {
+async function detectSensitive(text, context = {}) {
   const config = await ensureConfig();
   const safeText = String(text || '').trim();
   if (!safeText || !config.monitorEnabled) {
-    return { blocked: false, detected: [], maskedText: safeText, config };
+    return { blocked: false, detected: [], maskedText: safeText, riskCategory: 'none', confidence: 0, reasons: [], config };
   }
 
   const regexDetected = detectByRegex(safeText);
@@ -162,24 +227,69 @@ async function detectSensitive(text) {
     : [];
   const detected = Array.from(new Set([...regexDetected, ...predictDetected]));
 
+  const reasons = [];
+  let score = 0;
+  if (regexDetected.length > 0 || predictDetected.length > 0) {
+    score += 4;
+    reasons.push('sensitive_data_signal');
+  }
+  if (JAILBREAK_PATTERNS.some((pattern) => pattern.test(safeText))) {
+    score += 4;
+    reasons.push('prompt_injection_signal');
+  }
+  if (SOCIAL_ENGINEERING_PATTERNS.some((pattern) => pattern.test(safeText))) {
+    score += 2;
+    reasons.push('social_engineering_signal');
+  }
+  if (ENCODED_PATTERNS.some((pattern) => pattern.test(safeText))) {
+    score += 2;
+    reasons.push('encoded_payload_signal');
+  }
+
+  const fragmentSignals = Array.isArray(context.fragmentSignals) ? context.fragmentSignals : [];
+  if (fragmentSignals.length > 0) {
+    score += 2;
+    reasons.push('fragmented_composition_signal');
+  }
+  const mutationSignals = Array.isArray(context.mutationSignals) ? context.mutationSignals : [];
+  if (mutationSignals.length > 0) {
+    score += 2;
+    reasons.push('dom_injection_signal');
+  }
+
+  const riskCategory = score >= 8 ? 'high' : (score >= 4 ? 'medium' : (score > 0 ? 'low' : 'none'));
+  const confidence = Math.min(1, score / 10);
+
   return {
-    blocked: detected.length > 0,
+    blocked: detected.length > 0 || score >= 4,
     detected,
     maskedText: desensitizeText(safeText),
+    riskCategory,
+    confidence,
+    reasons: Array.from(new Set(reasons)),
     config,
   };
 }
 
 async function reportEvent(payload) {
   const config = await ensureConfig();
+  const reasonList = Array.isArray(payload.reasons) ? payload.reasons : [];
+  const typeList = Array.isArray(payload.matchedTypes) ? payload.matchedTypes : [];
+  const mergedMatched = Array.from(new Set([
+    ...typeList,
+    ...reasonList,
+    payload.riskCategory ? `risk:${payload.riskCategory}` : '',
+    payload.chainId ? `chain:${payload.chainId}` : '',
+    payload.chainLevel ? `chain_level:${payload.chainLevel}` : '',
+  ].filter(Boolean)));
   const event = {
     userId: payload.userId || 'unknown',
     eventType: payload.eventType || 'EXTENSION_SENSITIVE',
     content: desensitizeText(payload.content || ''),
     source: 'extension',
     timestamp: new Date().toISOString(),
-    action: payload.action || 'detect',
-    matchedTypes: Array.isArray(payload.matchedTypes) ? payload.matchedTypes.join(',') : (payload.matchedTypes || ''),
+    action: payload.action || (payload.riskCategory === 'high' ? 'block' : 'detect'),
+    matchedTypes: mergedMatched.join(','),
   };
 
   try {
@@ -211,7 +321,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message?.type === 'detect-content') {
-    detectSensitive(message.text || '').then((result) => sendResponse({ ok: true, ...result }));
+    detectSensitive(message.text || '', message.context || {}).then((result) => {
+      const senderKey = getSenderKey(sender);
+      const chain = updateRiskChain(senderKey, result.riskCategory, result.reasons);
+      sendResponse({ ok: true, ...result, chain });
+    });
     return true;
   }
 

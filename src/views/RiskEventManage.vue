@@ -38,6 +38,15 @@
       <el-table-column label="处置公司" min-width="120">
         <template #default="scope">{{ companyById(scope.row.handlerId) }}</template>
       </el-table-column>
+      <el-table-column label="处置设备/IP" min-width="160" show-overflow-tooltip>
+        <template #default="scope">{{ traceValue(scope.row.processLog, 'device') || traceValue(scope.row.processLog, 'ip') || '-' }}</template>
+      </el-table-column>
+      <el-table-column label="创建时间" min-width="170">
+        <template #default="scope">{{ formatTime(scope.row.createTime) }}</template>
+      </el-table-column>
+      <el-table-column label="更新时间" min-width="170">
+        <template #default="scope">{{ formatTime(scope.row.updateTime) }}</template>
+      </el-table-column>
       <el-table-column label="操作">
         <template #default="scope">
           <template v-if="canHandleRiskEvent">
@@ -218,6 +227,19 @@ function editEvent(row) {
 function cleanProcessLog(value) {
   const text = String(value || '');
   return text.replace(/\s*\[TRACE\s+[^\]]+\]/gi, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function traceValue(processLog, key) {
+  const text = String(processLog || '');
+  const match = text.match(new RegExp(`${key}=([^\] ]+)`, 'i'));
+  return match?.[1] || '';
+}
+
+function formatTime(value) {
+  if (!value) return '-';
+  const date = new Date(String(value).replace(' ', 'T'));
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString('zh-CN', { hour12: false });
 }
 async function updateEvent() {
   if (!canHandleRiskEvent.value) {

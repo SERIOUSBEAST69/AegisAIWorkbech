@@ -10,5 +10,5 @@ public interface AuditLogService extends IService<AuditLog> {
 
 	boolean saveAudit(AuditLog log);
 
-	List<AuditLogDocument> search(Long userId, String operation, Date from, Date to);
+	List<AuditLogDocument> search(Long userId, Long permissionId, String operation, Date from, Date to);
 }

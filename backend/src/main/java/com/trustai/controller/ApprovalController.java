@@ -4,7 +4,6 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.trustai.entity.AuditLog;
 import com.trustai.entity.ApprovalRequest;
-import com.trustai.entity.Role;
 import com.trustai.entity.User;
 import com.trustai.exception.BizException;
 import com.trustai.service.AuditLogService;
@@ -16,7 +15,6 @@ import com.trustai.utils.R;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
-import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -41,15 +39,21 @@ public class ApprovalController {
     private static final String ROLE_DATA_ADMIN = "DATA_ADMIN";
     private static final String ROLE_BUSINESS_OWNER = "BUSINESS_OWNER";
     private static final String ROLE_EMPLOYEE = "EMPLOYEE";
+    private static final String PERM_APPROVAL_VIEW = "approval:view";
+    private static final String PERM_APPROVAL_OPERATE = "approval:operate";
+    private static final String PERM_APPROVAL_OPERATE_DATA = "approval:operate:data";
+    private static final String PERM_APPROVAL_OPERATE_GOVERNANCE = "approval:operate:governance";
+    private static final String PERM_APPROVAL_OPERATE_BUSINESS = "approval:operate:business";
     private static final String TYPE_DATA = "DATA";
+    private static final String TYPE_GOVERNANCE = "GOVERNANCE";
     private static final String TYPE_BUSINESS = "BUSINESS";
     private static final String TYPE_PERSONAL = "PERSONAL";
 
     @GetMapping("/list")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN','BUSINESS_OWNER','EMPLOYEE')")
+    @PreAuthorize("@currentUserService.hasPermission('approval:view')")
     public R<List<ApprovalRequest>> list(@RequestParam(required = false) Long applicantId,
                                          @RequestParam(required = false) Long assetId) {
-        currentUserService.requireAnyRole("ADMIN", "DATA_ADMIN", "BUSINESS_OWNER", "EMPLOYEE");
+        currentUserService.requirePermission(PERM_APPROVAL_VIEW);
         User currentUser = currentUserService.requireCurrentUser();
         String roleCode = currentUserService.currentRoleCode();
         QueryWrapper<ApprovalRequest> qw = companyScopeService.withCompany(new QueryWrapper<>());
@@ -64,14 +68,14 @@ public class ApprovalController {
     }
 
     @GetMapping("/page")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN','BUSINESS_OWNER','EMPLOYEE')")
+    @PreAuthorize("@currentUserService.hasPermission('approval:view')")
     public R<Map<String, Object>> page(@RequestParam(defaultValue = "1") int page,
                                        @RequestParam(defaultValue = "10") int pageSize,
                                        @RequestParam(required = false) Long applicantId,
                                        @RequestParam(required = false) Long assetId,
                                        @RequestParam(required = false) String status,
                                        @RequestParam(required = false) String keyword) {
-        currentUserService.requireAnyRole("ADMIN", "DATA_ADMIN", "BUSINESS_OWNER", "EMPLOYEE");
+        currentUserService.requirePermission(PERM_APPROVAL_VIEW);
         User currentUser = currentUserService.requireCurrentUser();
         String roleCode = currentUserService.currentRoleCode();
         QueryWrapper<ApprovalRequest> qw = companyScopeService.withCompany(new QueryWrapper<>());
@@ -93,7 +97,9 @@ public class ApprovalController {
         }
         qw.orderByDesc("update_time");
 
-        Page<ApprovalRequest> result = approvalRequestService.page(new Page<>(Math.max(1, page), Math.max(1, pageSize)), qw);
+        int safePage = Math.max(1, page);
+        int safePageSize = Math.max(1, Math.min(100, pageSize));
+        Page<ApprovalRequest> result = approvalRequestService.page(new Page<>(safePage, safePageSize), qw);
         List<ApprovalRequest> scoped = filterByOperatorScope(result.getRecords(), roleCode, currentUser);
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("current", result.getCurrent());
@@ -127,13 +133,11 @@ public class ApprovalController {
     }
 
     @PostMapping("/reject")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN','BUSINESS_OWNER')")
+    @PreAuthorize("@currentUserService.hasAnyPermission('approval:operate','approval:operate:data','approval:operate:governance','approval:operate:business')")
     public R<?> reject(@RequestBody ApproveReq req) {
         try {
             User currentUser = currentUserService.requireCurrentUser();
             String roleCode = currentUserService.currentRoleCode();
-            enforceDataAdminDutyForApproval(currentUser, roleCode);
-            enforceBusinessOwnerDutyForApproval(currentUser, roleCode, "reject");
             ApprovalRequest before = approvalRequestService.getOne(
                 companyScopeService.withCompany(new QueryWrapper<ApprovalRequest>()).eq("id", req.getRequestId())
             );
@@ -160,15 +164,13 @@ public class ApprovalController {
     }
 
     @PostMapping("/approve")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN','BUSINESS_OWNER')")
+    @PreAuthorize("@currentUserService.hasAnyPermission('approval:operate','approval:operate:data','approval:operate:governance','approval:operate:business')")
     public R<?> approve(@RequestBody ApproveReq req) {
         try {
             String targetStatus = normalizeDecisionStatus(req.getStatus());
             if (targetStatus == null) return R.error(40000, "不支持的状态");
             User currentUser = currentUserService.requireCurrentUser();
             String roleCode = currentUserService.currentRoleCode();
-            enforceDataAdminDutyForApproval(currentUser, roleCode);
-            enforceBusinessOwnerDutyForApproval(currentUser, roleCode, STATUS_APPROVE.equals(targetStatus) ? "approve" : "reject");
             ApprovalRequest request = approvalRequestService.getOne(
                 companyScopeService.withCompany(new QueryWrapper<ApprovalRequest>()).eq("id", req.getRequestId())
             );
@@ -187,13 +189,16 @@ public class ApprovalController {
     }
 
     @GetMapping("/todo")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN','BUSINESS_OWNER')")
+    @PreAuthorize("@currentUserService.hasAnyPermission('approval:operate','approval:operate:data','approval:operate:governance','approval:operate:business')")
     public R<List<ApprovalRequest>> todo() {
-        currentUserService.requireAnyRole("ADMIN", "DATA_ADMIN", "BUSINESS_OWNER");
+        currentUserService.requireAnyPermission(
+            PERM_APPROVAL_OPERATE,
+            PERM_APPROVAL_OPERATE_DATA,
+            PERM_APPROVAL_OPERATE_GOVERNANCE,
+            PERM_APPROVAL_OPERATE_BUSINESS
+        );
         User currentUser = currentUserService.requireCurrentUser();
         String roleCode = currentUserService.currentRoleCode();
-        enforceDataAdminDutyForApproval(currentUser, roleCode);
-        enforceBusinessOwnerDutyForApproval(currentUser, roleCode, "todo");
         List<ApprovalRequest> todos = approvalRequestService.todo(currentUser.getId());
         Long companyId = companyScopeService.requireCompanyId();
         todos = todos.stream()
@@ -203,8 +208,9 @@ public class ApprovalController {
     }
 
     @PostMapping("/delete")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN','BUSINESS_OWNER')")
+    @PreAuthorize("@currentUserService.hasPermission('approval:view')")
     public R<?> delete(@RequestBody @Validated IdReq req) {
+        currentUserService.requirePermission(PERM_APPROVAL_VIEW);
         User currentUser = currentUserService.requireCurrentUser();
         String roleCode = currentUserService.currentRoleCode();
         ApprovalRequest approval = approvalRequestService.getOne(
@@ -239,25 +245,32 @@ public class ApprovalController {
     }
 
     private boolean isApprovalOperator(User user) {
-        Role role = currentUserService.getCurrentRole(user);
-        if (role == null || role.getCode() == null) {
+        if (user == null) {
             return false;
         }
-        return Arrays.asList(ROLE_ADMIN, ROLE_DATA_ADMIN, ROLE_BUSINESS_OWNER).contains(role.getCode().toUpperCase());
+        return hasGlobalOperatePermission()
+            || currentUserService.hasPermission(PERM_APPROVAL_OPERATE_DATA)
+            || currentUserService.hasPermission(PERM_APPROVAL_OPERATE_GOVERNANCE)
+            || currentUserService.hasPermission(PERM_APPROVAL_OPERATE_BUSINESS);
     }
 
     private List<ApprovalRequest> filterByOperatorScope(List<ApprovalRequest> list, String roleCode, User currentUser) {
         if (list == null) {
             return List.of();
         }
-        if (ROLE_ADMIN.equalsIgnoreCase(roleCode)) {
+        if (hasGlobalOperatePermission() || isAdminRole(roleCode)) {
             return list;
         }
-        if (ROLE_DATA_ADMIN.equalsIgnoreCase(roleCode)) {
-            return list.stream().filter(item -> TYPE_DATA.equals(resolveRequestType(item))).toList();
-        }
-        if (ROLE_BUSINESS_OWNER.equalsIgnoreCase(roleCode)) {
-            return list.stream().filter(item -> TYPE_BUSINESS.equals(resolveRequestType(item))).toList();
+        boolean canData = currentUserService.hasPermission(PERM_APPROVAL_OPERATE_DATA);
+        boolean canGovernance = currentUserService.hasPermission(PERM_APPROVAL_OPERATE_GOVERNANCE);
+        boolean canBusiness = currentUserService.hasPermission(PERM_APPROVAL_OPERATE_BUSINESS);
+        if (canData || canGovernance || canBusiness) {
+            return list.stream().filter(item -> {
+                String type = resolveRequestType(item);
+                return (canData && TYPE_DATA.equals(type))
+                    || (canGovernance && TYPE_GOVERNANCE.equals(type))
+                    || (canBusiness && TYPE_BUSINESS.equals(type));
+            }).toList();
         }
         return list.stream()
             .filter(item -> currentUser.getId() != null && currentUser.getId().equals(item.getApplicantId()))
@@ -265,50 +278,34 @@ public class ApprovalController {
     }
 
     private boolean canOperateRequest(String roleCode, ApprovalRequest request, User currentUser) {
-        if (ROLE_ADMIN.equalsIgnoreCase(roleCode)) {
+        if (hasGlobalOperatePermission() || isAdminRole(roleCode)) {
             return true;
         }
         String type = resolveRequestType(request);
-        if (ROLE_DATA_ADMIN.equalsIgnoreCase(roleCode)) {
-            return TYPE_DATA.equals(type);
+        if (TYPE_DATA.equals(type)) {
+            return currentUserService.hasPermission(PERM_APPROVAL_OPERATE_DATA);
         }
-        if (ROLE_BUSINESS_OWNER.equalsIgnoreCase(roleCode)) {
-            return TYPE_BUSINESS.equals(type);
+        if (TYPE_GOVERNANCE.equals(type)) {
+            return currentUserService.hasPermission(PERM_APPROVAL_OPERATE_GOVERNANCE);
+        }
+        if (TYPE_BUSINESS.equals(type)) {
+            return currentUserService.hasPermission(PERM_APPROVAL_OPERATE_BUSINESS);
         }
         return currentUser.getId() != null && currentUser.getId().equals(request.getApplicantId());
     }
 
     private boolean canDeleteRequest(String roleCode, ApprovalRequest request, User currentUser) {
-        if (ROLE_ADMIN.equalsIgnoreCase(roleCode)) {
+        if (isAdminRole(roleCode)) {
             return true;
         }
-        if (ROLE_EMPLOYEE.equalsIgnoreCase(roleCode)) {
+        if (isEmployeeRole(roleCode)) {
             return currentUser.getId() != null && currentUser.getId().equals(request.getApplicantId());
         }
         return canOperateRequest(roleCode, request, currentUser);
     }
 
-    private void enforceDataAdminDutyForApproval(User currentUser, String roleCode) {
-        if (!ROLE_DATA_ADMIN.equalsIgnoreCase(roleCode) || currentUser == null) {
-            return;
-        }
-        String username = currentUser.getUsername() == null ? "" : currentUser.getUsername().trim().toLowerCase();
-        if ("dataadmin_2".equals(username)) {
-            throw new BizException(40300, "数据管理员二号为资产维护岗，不可执行审批处置");
-        }
-    }
-
-    private void enforceBusinessOwnerDutyForApproval(User currentUser, String roleCode, String action) {
-        if (!ROLE_BUSINESS_OWNER.equalsIgnoreCase(roleCode) || currentUser == null) {
-            return;
-        }
-        String username = currentUser.getUsername() == null ? "" : currentUser.getUsername().trim().toLowerCase();
-        if ("bizowner_2".equals(username) && "reject".equals(action)) {
-            throw new BizException(40300, "业务负责人二号为授权放行岗，不可执行驳回");
-        }
-        if ("bizowner_3".equals(username) && "approve".equals(action)) {
-            throw new BizException(40300, "业务负责人三号为风险复核岗，不可执行通过");
-        }
+    private boolean hasGlobalOperatePermission() {
+        return currentUserService.hasPermission(PERM_APPROVAL_OPERATE);
     }
 
     private String resolveRequestType(ApprovalRequest request) {
@@ -320,6 +317,9 @@ public class ApprovalController {
             return TYPE_DATA;
         }
         String normalized = reason.trim().toUpperCase();
+        if (normalized.startsWith("[GOVERNANCE]")) {
+            return TYPE_GOVERNANCE;
+        }
         if (normalized.startsWith("[BUSINESS]")) {
             return TYPE_BUSINESS;
         }
@@ -336,18 +336,34 @@ public class ApprovalController {
         String base = reason == null ? "" : reason.trim();
         String upper = base.toUpperCase();
         String normalized = base;
-        if (!upper.startsWith("[DATA]") && !upper.startsWith("[BUSINESS]") && !upper.startsWith("[PERSONAL]")) {
-            if (ROLE_EMPLOYEE.equalsIgnoreCase(roleCode)) {
+        if (!upper.startsWith("[DATA]") && !upper.startsWith("[BUSINESS]") && !upper.startsWith("[GOVERNANCE]") && !upper.startsWith("[PERSONAL]")) {
+            if (isEmployeeRole(roleCode)) {
                 normalized = "[PERSONAL] " + base;
-            } else if (ROLE_BUSINESS_OWNER.equalsIgnoreCase(roleCode)) {
+            } else if (isBusinessOwnerRole(roleCode)) {
                 normalized = "[BUSINESS] " + base;
-            } else if (ROLE_DATA_ADMIN.equalsIgnoreCase(roleCode)) {
+            } else if (isDataAdminRole(roleCode)) {
                 normalized = "[DATA] " + base;
             } else {
                 normalized = "[DATA] " + base;
             }
         }
         return normalized + buildTraceSnapshot(currentUser, roleCode);
+    }
+
+    private boolean isAdminRole(String roleCode) {
+        return ROLE_ADMIN.equalsIgnoreCase(roleCode);
+    }
+
+    private boolean isDataAdminRole(String roleCode) {
+        return ROLE_DATA_ADMIN.equalsIgnoreCase(roleCode);
+    }
+
+    private boolean isBusinessOwnerRole(String roleCode) {
+        return ROLE_BUSINESS_OWNER.equalsIgnoreCase(roleCode);
+    }
+
+    private boolean isEmployeeRole(String roleCode) {
+        return ROLE_EMPLOYEE.equalsIgnoreCase(roleCode);
     }
 
     private String normalizeDecisionStatus(String raw) {

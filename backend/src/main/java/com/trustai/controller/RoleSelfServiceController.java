@@ -12,6 +12,7 @@ import com.trustai.service.CurrentUserService;
 import com.trustai.service.PermissionService;
 import com.trustai.service.RolePermissionService;
 import com.trustai.service.RoleService;
+import com.trustai.service.SensitiveOperationGuardService;
 import com.trustai.service.UserRoleService;
 import com.trustai.service.UserService;
 import com.trustai.utils.R;
@@ -28,6 +29,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.Data;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
@@ -54,6 +56,8 @@ public class RoleSelfServiceController {
     private final UserService userService;
     private final UserRoleService userRoleService;
     private final JdbcTemplate jdbcTemplate;
+    private final SensitiveOperationGuardService sensitiveOperationGuardService;
+    private final HttpServletRequest httpServletRequest;
 
     private static final Set<String> HIGH_RISK_SELF_REGISTER_CODES = Set.of("ADMIN", "EXECUTIVE", "SECOPS", "DATA_ADMIN");
 
@@ -63,7 +67,9 @@ public class RoleSelfServiceController {
                                      CurrentUserService currentUserService,
                                      UserService userService,
                                      UserRoleService userRoleService,
-                                     JdbcTemplate jdbcTemplate) {
+                                     JdbcTemplate jdbcTemplate,
+                                     SensitiveOperationGuardService sensitiveOperationGuardService,
+                                     HttpServletRequest httpServletRequest) {
         this.roleService = roleService;
         this.permissionService = permissionService;
         this.rolePermissionService = rolePermissionService;
@@ -71,6 +77,8 @@ public class RoleSelfServiceController {
         this.userService = userService;
         this.userRoleService = userRoleService;
         this.jdbcTemplate = jdbcTemplate;
+        this.sensitiveOperationGuardService = sensitiveOperationGuardService;
+        this.httpServletRequest = httpServletRequest;
     }
 
     @GetMapping("/roles")
@@ -78,15 +86,18 @@ public class RoleSelfServiceController {
                                             @RequestParam(defaultValue = "10") int pageSize,
                                             @RequestParam(required = false) String keyword) {
         User currentUser = requireRoleManageAccess();
+        Long companyId = resolveCompanyId(currentUser);
         QueryWrapper<Role> wrapper = new QueryWrapper<Role>()
-            .eq("company_id", currentUser.getCompanyId())
+            .eq("company_id", companyId)
             .orderByDesc("is_system")
             .orderByDesc("update_time");
         if (StringUtils.hasText(keyword)) {
             wrapper.and(w -> w.like("name", keyword).or().like("code", keyword));
         }
 
-        Page<Role> result = roleService.page(new Page<>(Math.max(page, 1), Math.max(pageSize, 1)), wrapper);
+        int safePage = Math.max(1, page);
+        int safePageSize = Math.max(1, Math.min(100, pageSize));
+        Page<Role> result = roleService.page(new Page<>(safePage, safePageSize), wrapper);
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("current", result.getCurrent());
         payload.put("pages", result.getPages());
@@ -98,13 +109,22 @@ public class RoleSelfServiceController {
     @PostMapping("/roles")
     public R<?> createRole(@Valid @RequestBody RoleUpsertReq req) {
         User currentUser = requireRoleManageAccess();
+        Long companyId = resolveCompanyId(currentUser);
+        sensitiveOperationGuardService.requireDualReviewedOperator(
+            currentUser,
+            req.getConfirmPassword(),
+            req.getReviewerUsername(),
+            req.getReviewerPassword(),
+            "role_self_service_create",
+            "roleCode=" + req.getCode()
+        );
         String code = normalizeRoleCode(req.getCode());
-        ensureRoleCodeUnique(currentUser.getCompanyId(), code, null);
+        ensureRoleCodeUnique(companyId, code, null);
         boolean requestedSelfRegister = Boolean.TRUE.equals(req.getAllowSelfRegister());
         boolean needsApproval = requestedSelfRegister && requiresSelfRegisterApproval(code);
 
         Role role = new Role();
-        role.setCompanyId(currentUser.getCompanyId());
+        role.setCompanyId(companyId);
         role.setName(req.getName().trim());
         role.setCode(code);
         role.setDescription(req.getDescription());
@@ -114,7 +134,7 @@ public class RoleSelfServiceController {
         role.setUpdateTime(new Date());
         roleService.save(role);
 
-        replaceRolePermissions(currentUser.getCompanyId(), role.getId(), req.getPermissionCodes());
+        replaceRolePermissions(companyId, role.getId(), req.getPermissionCodes());
         if (needsApproval) {
             Long requestId = createSelfRegisterApprovalRequest(currentUser, role, true, req.getReviewNote());
             Map<String, Object> payload = new LinkedHashMap<>();
@@ -130,13 +150,11 @@ public class RoleSelfServiceController {
     @PutMapping("/roles/{id}")
     public R<?> updateRole(@PathVariable Long id, @Valid @RequestBody RoleUpsertReq req) {
         User currentUser = requireRoleManageAccess();
-        Role role = requireCompanyRole(id, currentUser.getCompanyId());
-        if (Boolean.TRUE.equals(role.getIsSystem())) {
-            throw new BizException(40000, "系统预设角色不允许编辑");
-        }
+        Long companyId = resolveCompanyId(currentUser);
+        Role role = requireCompanyRole(id, companyId);
 
         String code = normalizeRoleCode(req.getCode());
-        ensureRoleCodeUnique(currentUser.getCompanyId(), code, role.getId());
+        ensureRoleCodeUnique(companyId, code, role.getId());
 
         role.setName(req.getName().trim());
         role.setCode(code);
@@ -147,7 +165,7 @@ public class RoleSelfServiceController {
         role.setUpdateTime(new Date());
         roleService.updateById(role);
 
-        replaceRolePermissions(currentUser.getCompanyId(), role.getId(), req.getPermissionCodes());
+        replaceRolePermissions(companyId, role.getId(), req.getPermissionCodes());
         if (needsApproval) {
             Long requestId = createSelfRegisterApprovalRequest(currentUser, role, true, req.getReviewNote());
             Map<String, Object> payload = new LinkedHashMap<>();
@@ -165,6 +183,7 @@ public class RoleSelfServiceController {
                                          @RequestParam(defaultValue = "10") int pageSize,
                                          @RequestParam(required = false) String status) {
         User currentUser = requireRoleManageAccess();
+        Long companyId = resolveCompanyId(currentUser);
         int safePage = Math.max(1, page);
         int safeSize = Math.max(1, Math.min(100, pageSize));
         int offset = (safePage - 1) * safeSize;
@@ -176,7 +195,7 @@ public class RoleSelfServiceController {
                 ? "SELECT COUNT(1) FROM role_self_register_change WHERE company_id = ? AND status = ?"
                 : "SELECT COUNT(1) FROM role_self_register_change WHERE company_id = ?",
             Integer.class,
-            hasStatus ? new Object[] { currentUser.getCompanyId(), normalizedStatus } : new Object[] { currentUser.getCompanyId() }
+            hasStatus ? new Object[] { companyId, normalizedStatus } : new Object[] { companyId }
         );
 
         List<Map<String, Object>> list = jdbcTemplate.query(
@@ -185,7 +204,7 @@ public class RoleSelfServiceController {
                 : "SELECT id, role_id, role_code, requested_allow_self_register, status, requested_by, reviewed_by, review_note, create_time, update_time FROM role_self_register_change WHERE company_id = ? ORDER BY id DESC LIMIT ? OFFSET ?",
             ps -> {
                 int idx = 1;
-                ps.setLong(idx++, currentUser.getCompanyId());
+                ps.setLong(idx++, companyId);
                 if (hasStatus) {
                     ps.setString(idx++, normalizedStatus);
                 }
@@ -219,7 +238,8 @@ public class RoleSelfServiceController {
     @PutMapping("/roles/self-register-requests/{id}/approve")
     public R<?> approveSelfRegisterRequest(@PathVariable Long id, @RequestBody(required = false) ReviewReq req) {
         User reviewer = requireRoleManageAccess();
-        Map<String, Object> request = requirePendingSelfRegisterRequest(id, reviewer.getCompanyId());
+        Long companyId = resolveCompanyId(reviewer);
+        Map<String, Object> request = requirePendingSelfRegisterRequest(id, companyId);
         Long requestedBy = toLong(request.get("requestedBy"));
         if (requestedBy != null && requestedBy.equals(reviewer.getId())) {
             throw new BizException(40000, "申请人与审批人不能是同一人");
@@ -230,7 +250,7 @@ public class RoleSelfServiceController {
             throw new BizException(40000, "审批请求数据异常");
         }
 
-        Role role = requireCompanyRole(roleId, reviewer.getCompanyId());
+        Role role = requireCompanyRole(roleId, companyId);
         role.setAllowSelfRegister(requestedAllow);
         role.setUpdateTime(new Date());
         roleService.updateById(role);
@@ -240,7 +260,7 @@ public class RoleSelfServiceController {
             reviewer.getId(),
             req == null ? null : req.getReviewNote(),
             id,
-            reviewer.getCompanyId()
+            companyId
         );
         return R.okMsg("审批通过，角色开放注册状态已更新");
     }
@@ -248,7 +268,8 @@ public class RoleSelfServiceController {
     @PutMapping("/roles/self-register-requests/{id}/reject")
     public R<?> rejectSelfRegisterRequest(@PathVariable Long id, @RequestBody(required = false) ReviewReq req) {
         User reviewer = requireRoleManageAccess();
-        Map<String, Object> request = requirePendingSelfRegisterRequest(id, reviewer.getCompanyId());
+        Long companyId = resolveCompanyId(reviewer);
+        Map<String, Object> request = requirePendingSelfRegisterRequest(id, companyId);
         Long requestedBy = toLong(request.get("requestedBy"));
         if (requestedBy != null && requestedBy.equals(reviewer.getId())) {
             throw new BizException(40000, "申请人与审批人不能是同一人");
@@ -259,15 +280,24 @@ public class RoleSelfServiceController {
             reviewer.getId(),
             req == null ? null : req.getReviewNote(),
             id,
-            reviewer.getCompanyId()
+            companyId
         );
         return R.okMsg("审批已拒绝");
     }
 
     @DeleteMapping("/roles/{id}")
-    public R<?> deleteRole(@PathVariable Long id) {
+    public R<?> deleteRole(@PathVariable Long id, @RequestBody(required = false) ReviewAuthReq req) {
         User currentUser = requireRoleManageAccess();
-        Role role = requireCompanyRole(id, currentUser.getCompanyId());
+        Long companyId = resolveCompanyId(currentUser);
+        sensitiveOperationGuardService.requireDualReviewedOperator(
+            currentUser,
+            req == null ? null : req.getConfirmPassword(),
+            req == null ? null : req.getReviewerUsername(),
+            req == null ? null : req.getReviewerPassword(),
+            "role_self_service_delete",
+            "roleId=" + id
+        );
+        Role role = requireCompanyRole(id, companyId);
         if (Boolean.TRUE.equals(role.getIsSystem())) {
             throw new BizException(40000, "系统预设角色不允许删除");
         }
@@ -294,8 +324,9 @@ public class RoleSelfServiceController {
 
     @GetMapping("/roles/{id}/permissions")
     public R<List<String>> getRolePermissions(@PathVariable Long id) {
-        User currentUser = requireRoleManageAccess();
-        Role role = requireCompanyRole(id, currentUser.getCompanyId());
+        User currentUser = requireRolePermissionAssignAccess();
+        Long companyId = resolveCompanyId(currentUser);
+        Role role = requireCompanyRole(id, companyId);
         List<Long> permissionIds = rolePermissionService.lambdaQuery()
             .eq(RolePermission::getRoleId, role.getId())
             .list()
@@ -308,7 +339,7 @@ public class RoleSelfServiceController {
         }
         List<String> codes = permissionService.lambdaQuery()
             .in(Permission::getId, permissionIds)
-            .eq(Permission::getCompanyId, currentUser.getCompanyId())
+            .eq(Permission::getCompanyId, companyId)
             .list()
             .stream()
             .map(Permission::getCode)
@@ -320,12 +351,21 @@ public class RoleSelfServiceController {
 
     @PutMapping("/roles/{id}/permissions")
     public R<?> updateRolePermissions(@PathVariable Long id, @Valid @RequestBody RolePermissionUpdateReq req) {
-        User currentUser = requireRoleManageAccess();
-        Role role = requireCompanyRole(id, currentUser.getCompanyId());
+        User currentUser = requireRolePermissionAssignAccess();
+        Long companyId = resolveCompanyId(currentUser);
+        sensitiveOperationGuardService.requireDualReviewedOperator(
+            currentUser,
+            req.getConfirmPassword(),
+            req.getReviewerUsername(),
+            req.getReviewerPassword(),
+            "role_self_service_permission_update",
+            "roleId=" + id
+        );
+        Role role = requireCompanyRole(id, companyId);
         if (Boolean.TRUE.equals(role.getIsSystem())) {
             throw new BizException(40000, "系统预设角色不允许编辑");
         }
-        replaceRolePermissions(currentUser.getCompanyId(), role.getId(), req.getPermissionCodes());
+        replaceRolePermissions(companyId, role.getId(), req.getPermissionCodes());
         return R.okMsg("权限更新成功");
     }
 
@@ -353,7 +393,15 @@ public class RoleSelfServiceController {
 
     private User requireRoleManageAccess() {
         User currentUser = currentUserService.requireCurrentUser();
-        if (currentUserService.hasRole("ADMIN") || hasAuthority("role:manage")) {
+        if (currentUserService.hasAnyRole("ADMIN", "SECOPS") || hasAuthority("role:manage") || hasAuthority("role:permission:assign")) {
+            return currentUser;
+        }
+        throw new BizException(40300, "无权限");
+    }
+
+    private User requireRolePermissionAssignAccess() {
+        User currentUser = currentUserService.requireCurrentUser();
+        if (currentUserService.hasAnyRole("ADMIN", "SECOPS") || hasAuthority("role:manage") || hasAuthority("role:permission:assign")) {
             return currentUser;
         }
         throw new BizException(40300, "无权限");
@@ -386,6 +434,25 @@ public class RoleSelfServiceController {
             throw new BizException(40400, "角色不存在或不属于当前公司");
         }
         return role;
+    }
+
+    private Long resolveCompanyId(User currentUser) {
+        if (currentUser != null && currentUser.getCompanyId() != null) {
+            return currentUser.getCompanyId();
+        }
+        String companyIdHeader = httpServletRequest == null ? null : httpServletRequest.getHeader("X-Company-Id");
+        if (StringUtils.hasText(companyIdHeader)) {
+            try {
+                String header = companyIdHeader == null ? "" : companyIdHeader.trim();
+                long parsed = Long.parseLong(header);
+                if (parsed > 0L) {
+                    return parsed;
+                }
+            } catch (NumberFormatException ignored) {
+                // Fall through to consistent access error.
+            }
+        }
+        throw new BizException(40300, "当前账号未绑定公司，无法访问角色数据");
     }
 
     private String normalizeRoleCode(String code) {
@@ -517,12 +584,31 @@ public class RoleSelfServiceController {
         private Boolean allowSelfRegister;
         private List<String> permissionCodes;
         private String reviewNote;
+        private String confirmPassword;
+        private String reviewerUsername;
+        private String reviewerPassword;
     }
 
     @Data
     public static class RolePermissionUpdateReq {
         @NotNull(message = "权限列表不能为空")
         private List<String> permissionCodes;
+        @NotBlank(message = "敏感操作需要二次密码")
+        private String confirmPassword;
+        @NotBlank(message = "敏感操作需要第二复核人账号")
+        private String reviewerUsername;
+        @NotBlank(message = "敏感操作需要第二复核人密码")
+        private String reviewerPassword;
+    }
+
+    @Data
+    public static class ReviewAuthReq {
+        @NotBlank(message = "敏感操作需要二次密码")
+        private String confirmPassword;
+        @NotBlank(message = "敏感操作需要第二复核人账号")
+        private String reviewerUsername;
+        @NotBlank(message = "敏感操作需要第二复核人密码")
+        private String reviewerPassword;
     }
 
     @Data

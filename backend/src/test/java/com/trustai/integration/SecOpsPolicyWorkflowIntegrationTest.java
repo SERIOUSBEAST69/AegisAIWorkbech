@@ -64,7 +64,9 @@ class SecOpsPolicyWorkflowIntegrationTest {
                 "ruleContent", "{\"keywords\":[\"身份证号\"]}",
                 "scope", "ai_prompt",
                 "status", "ACTIVE",
-                "confirmPassword", "Passw0rd!"
+                "confirmPassword", "Passw0rd!",
+                "reviewerUsername", "admin_reviewer",
+                "reviewerPassword", "admin"
             )
         );
         assertEquals(20000, saveResp.path("code").asInt(), saveResp.toString());
@@ -80,9 +82,110 @@ class SecOpsPolicyWorkflowIntegrationTest {
         JsonNode deleteResp = postJson(
             "/api/policy/delete",
             secopsToken,
-            Map.of("id", policyId, "confirmPassword", "Passw0rd!")
+            Map.of(
+                "id", policyId,
+                "confirmPassword", "Passw0rd!",
+                "reviewerUsername", "admin_reviewer",
+                "reviewerPassword", "admin"
+            )
         );
         assertEquals(20000, deleteResp.path("code").asInt(), deleteResp.toString());
+    }
+
+    @Test
+    void policyPageShouldSupportServerSideFilterAndPagination() throws Exception {
+        ensurePolicyTable();
+        ensurePermissionBindingForRole("SECOPS", "policy:structure:manage");
+        ensurePermissionBindingForRole("SECOPS", "policy:view");
+
+        String secopsToken = loginAndGetToken("secops", "Passw0rd!");
+        String tag = "PAGE_CASE_" + System.currentTimeMillis();
+
+        JsonNode p1 = postJson(
+            "/api/policy/save",
+            secopsToken,
+            Map.of(
+                "name", "MASKING_" + tag,
+                "ruleContent", "{\"match\":\"id_number\"}",
+                "scope", "ai_prompt",
+                "policyType", "MASKING",
+                "priority", 10,
+                "status", "ACTIVE",
+                "confirmPassword", "Passw0rd!",
+                "reviewerUsername", "admin_reviewer",
+                "reviewerPassword", "admin"
+            )
+        );
+        assertEquals(20000, p1.path("code").asInt(), p1.toString());
+
+        JsonNode p2 = postJson(
+            "/api/policy/save",
+            secopsToken,
+            Map.of(
+                "name", "MASKING_DRAFT_" + tag,
+                "ruleContent", "{\"match\":\"phone\"}",
+                "scope", "ai_prompt",
+                "policyType", "MASKING",
+                "priority", 20,
+                "status", "DRAFT",
+                "confirmPassword", "Passw0rd!",
+                "reviewerUsername", "admin_reviewer",
+                "reviewerPassword", "admin"
+            )
+        );
+        assertEquals(20000, p2.path("code").asInt(), p2.toString());
+
+        JsonNode p2b = postJson(
+            "/api/policy/save",
+            secopsToken,
+            Map.of(
+                "name", "MASKING_ACTIVE_" + tag,
+                "ruleContent", "{\"match\":\"email\"}",
+                "scope", "ai_prompt",
+                "policyType", "MASKING",
+                "priority", 15,
+                "status", "ACTIVE",
+                "confirmPassword", "Passw0rd!",
+                "reviewerUsername", "admin_reviewer",
+                "reviewerPassword", "admin"
+            )
+        );
+        assertEquals(20000, p2b.path("code").asInt(), p2b.toString());
+
+        JsonNode p3 = postJson(
+            "/api/policy/save",
+            secopsToken,
+            Map.of(
+                "name", "ACCESS_" + tag,
+                "ruleContent", "{\"allow\":\"analyst\"}",
+                "scope", "data_access",
+                "policyType", "ACCESS_CONTROL",
+                "priority", 30,
+                "status", "ACTIVE",
+                "confirmPassword", "Passw0rd!",
+                "reviewerUsername", "admin_reviewer",
+                "reviewerPassword", "admin"
+            )
+        );
+        assertEquals(20000, p3.path("code").asInt(), p3.toString());
+
+        JsonNode pageResp = getJson(
+            "/api/policy/page?page=1&pageSize=1&name=" + tag + "&status=ACTIVE&policyType=MASKING&scope=ai_prompt",
+            secopsToken
+        );
+        assertEquals(20000, pageResp.path("code").asInt(), pageResp.toString());
+
+        JsonNode data = pageResp.path("data");
+        assertEquals(1L, data.path("current").asLong(), pageResp.toString());
+        assertEquals(2L, data.path("total").asLong(), pageResp.toString());
+        JsonNode list = data.path("list");
+        assertTrue(list.isArray(), pageResp.toString());
+        assertEquals(1, list.size(), pageResp.toString());
+        JsonNode first = list.get(0);
+        assertEquals("MASKING", first.path("policyType").asText(), pageResp.toString());
+        assertEquals("ai_prompt", first.path("scope").asText(), pageResp.toString());
+        assertEquals(1, first.path("status").asInt(), pageResp.toString());
+        assertEquals(10, first.path("priority").asInt(), pageResp.toString());
     }
 
     private void ensurePolicyTable() {
@@ -91,9 +194,16 @@ class SecOpsPolicyWorkflowIntegrationTest {
               id BIGINT AUTO_INCREMENT PRIMARY KEY,
               company_id BIGINT NOT NULL,
               name VARCHAR(128) NOT NULL,
+                            policy_type VARCHAR(32),
+                            priority INT DEFAULT 50,
               rule_content CLOB,
               scope VARCHAR(64),
+                            scope_departments VARCHAR(500),
+                            scope_user_groups VARCHAR(500),
+                            scope_data_types VARCHAR(500),
               status INT DEFAULT 1,
+                            last_modifier VARCHAR(128),
+                            last_modified_at TIMESTAMP,
               version INT DEFAULT 1,
               create_time TIMESTAMP,
               update_time TIMESTAMP

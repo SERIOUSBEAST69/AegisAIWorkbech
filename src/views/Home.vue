@@ -37,7 +37,7 @@
       />
     </div>
 
-    <section class="trace-grid scene-block">
+    <section class="trace-grid scene-block" :class="{ 'trace-grid-admin': isAdmin }">
       <el-card class="trace-card card-glass">
         <div class="panel-head">
           <div>
@@ -50,8 +50,12 @@
           <span>账号范围：{{ traceContext.companyUserCount ?? 0 }} 人</span>
           <span>当前账号：{{ traceContext.currentUsername || '-' }} (#{{ traceContext.currentUserId ?? '-' }})</span>
           <span>生成时间：{{ traceContext.generatedAt || '-' }}</span>
+          <span>统一异常：{{ traceContext.monitorAnomaly ?? 0 }}</span>
+          <span>统一隐私：{{ traceContext.monitorPrivacy ?? 0 }}</span>
+          <span>统一待处置：{{ traceContext.monitorPending ?? 0 }}</span>
         </div>
         <p class="trace-note">{{ traceContext.traceabilityStatement || '数据范围：按当前公司与账号统计；支持按原始记录溯源。' }}</p>
+        <p v-if="traceContext.monitorCaliberNote" class="trace-note">{{ traceContext.monitorCaliberNote }}</p>
       </el-card>
 
       <el-card class="trace-card card-glass">
@@ -64,7 +68,6 @@
             <span class="verify-badge" :class="modelDriftBadgeClass">
               {{ modelDriftBadgeText }}
             </span>
-            <el-button size="small" type="primary" :loading="traceBootstrapLoading" @click="bootstrapTraceableData">补充样本</el-button>
             <el-button size="small" :loading="modelGovernanceLoading" @click="fetchModelGovernance">刷新</el-button>
           </div>
         </div>
@@ -243,7 +246,6 @@
           <span class="verify-badge" :class="aiAuditVerify.passed ? 'ok' : 'warn'">
             {{ aiAuditVerify.passed ? '链路验真通过' : '链路待校验' }}
           </span>
-          <el-button type="primary" :loading="traceBootstrapLoading" @click="bootstrapTraceableData">补充追溯样本</el-button>
           <el-button :loading="aiAuditVerify.loading" @click="verifyAiAuditChain">校验链路</el-button>
           <el-button :loading="aiAuditLoading" @click="loadAiAuditLogs">刷新</el-button>
         </div>
@@ -313,6 +315,10 @@
               <span>最终比分</span>
               <strong>{{ adversarialBattle.attacker_final_score }} : {{ adversarialBattle.defender_final_score }}</strong>
             </article>
+            <article>
+              <span>防御强度</span>
+              <strong>{{ adversarialDefenseStrengthText }}</strong>
+            </article>
           </div>
 
           <div v-if="adversarialVisibleRounds.length" class="adversarial-stream">
@@ -329,6 +335,27 @@
           <div v-if="adversarialBattle?.recommendations?.length" class="adversarial-recommendations">
             <h4>防御优化建议</h4>
             <p v-for="tip in adversarialBattle.recommendations" :key="tip">{{ tip }}</p>
+            <div class="adversarial-recommendation-actions" v-if="adversarialCanApplyHardening">
+              <el-button type="warning" size="small" :loading="adversarialHardeningApplying" @click="applyAdversarialHardening">
+                人工确认并应用防御加固
+              </el-button>
+              <span class="trace-note">仅应用真实规则/训练加固，不修改展示数据。</span>
+            </div>
+          </div>
+
+          <div v-if="adversarialComparisonVisible" class="adversarial-compare-grid">
+            <article>
+              <span>攻击成功率变化</span>
+              <strong>{{ adversarialAttackRateCompareText }}</strong>
+            </article>
+            <article>
+              <span>防御强度变化</span>
+              <strong>{{ adversarialDefenseCompareText }}</strong>
+            </article>
+            <article>
+              <span>当前结论</span>
+              <strong>{{ adversarialHardeningConclusion }}</strong>
+            </article>
           </div>
         </section>
       </Transition>
@@ -417,6 +444,10 @@ const traceContext = ref({
   currentUsername: '',
   generatedAt: '',
   traceabilityStatement: '',
+  monitorAnomaly: 0,
+  monitorPrivacy: 0,
+  monitorPending: 0,
+  monitorCaliberNote: '',
 });
 const forecastExplain = ref({
   method: '',
@@ -478,12 +509,11 @@ const forecastRefreshing = ref(false);
 const aiAuditLoading = ref(false);
 const aiAuditLogs = ref([]);
 const aiAuditVerify = ref({ loading: false, passed: false, checkedRows: 0, violationCount: 0 });
-const traceBootstrapLoading = ref(false);
 const isAdmin = computed(() => {
   const role = String(userStore.userInfo?.roleCode || userStore.userInfo?.role || '')
     .trim()
     .toUpperCase();
-  return role === 'ADMIN' || role === 'ADMIN_OPS' || role === 'ADMIN_REVIEWER';
+  return role === 'ADMIN';
 });
 const adversarialMeta = ref({ scenarios: [] });
 const adversarialConfig = ref({ scenario: 'random', rounds: 10, seed: '' });
@@ -492,7 +522,10 @@ const adversarialError = ref('');
 const adversarialRunning = ref(false);
 const adversarialBattle = ref(null);
 const adversarialVisibleRounds = ref([]);
+const adversarialHardeningApplying = ref(false);
+const adversarialBeforeHardening = ref(null);
 let adversarialPlaybackTimer = null;
+let homeLoadFrameId = null;
 
 function selectedModel() {
   return aiModelOptions.value.find(item => item.modelCode === selectedAiModelCode.value)
@@ -535,28 +568,13 @@ async function verifyAiAuditChain() {
     if (aiAuditVerify.value.passed && aiAuditVerify.value.checkedRows > 0) {
       ElMessage.success(`AI 调用审计链校验通过（${aiAuditVerify.value.checkedRows} 条）`);
     } else if (aiAuditVerify.value.checkedRows === 0) {
-      ElMessage.info('暂无可校验记录，请先点击“补充追溯样本”');
+      ElMessage.info('暂无可校验记录，请先完成真实业务调用后再校验链路');
     } else {
       ElMessage.error(`AI 调用审计链存在异常（${aiAuditVerify.value.violationCount} 处）`);
     }
   } catch (error) {
     aiAuditVerify.value.loading = false;
     ElMessage.error(error?.message || 'AI 审计链校验失败');
-  }
-}
-
-async function bootstrapTraceableData() {
-  traceBootstrapLoading.value = true;
-  try {
-    const data = await request.post('/ai/monitor/bootstrap-trace', { sampleSize: 40 });
-    const inserted = Number(data?.insertedAuditLogs || 0);
-    const predicted = Number(data?.predictedSamples || 0);
-    ElMessage.success(`已补充追溯样本：日志 ${inserted} 条，预测 ${predicted} 条`);
-    await Promise.all([fetchModelGovernance(), loadAiAuditLogs()]);
-  } catch (error) {
-    ElMessage.error(error?.message || '补充追溯样本失败');
-  } finally {
-    traceBootstrapLoading.value = false;
   }
 }
 
@@ -796,12 +814,10 @@ async function runAdversarialBattle() {
     const data = await request.post('/ai/adversarial/run', payload);
     if (data?.mode === 'real-threat-assessment') {
       adversarialBattle.value = {
-        rounds: [],
-        winner: '评估模式',
-        attack_success_rate: Number(data?.riskScore || 0) / 100,
-        attacker_final_score: Number(data?.riskScore || 0),
-        defender_final_score: Math.max(0, 100 - Number(data?.riskScore || 0)),
-        recommendations: Array.isArray(data?.optimizationSuggestions) ? data.optimizationSuggestions : [],
+        ...(data?.battle || {}),
+        recommendations: Array.isArray(data?.optimizationSuggestions) ? data.optimizationSuggestions : (data?.battle?.recommendations || []),
+        defense_strength_score: Number(data?.defenseStrengthScore ?? data?.battle?.defense_strength_score ?? 0),
+        hardening_status: data?.hardeningStatus || data?.battle?.hardening_status || 'pending_manual_apply',
       };
       adversarialVisibleRounds.value = [];
       ElMessage.success('已完成实时态势检测');
@@ -819,6 +835,31 @@ async function runAdversarialBattle() {
     adversarialError.value = error?.message || '攻防对弈失败';
   } finally {
     adversarialRunning.value = false;
+  }
+}
+
+async function applyAdversarialHardening() {
+  if (adversarialHardeningApplying.value) {
+    return;
+  }
+  adversarialHardeningApplying.value = true;
+  try {
+    adversarialBeforeHardening.value = {
+      attackSuccessRate: Number(adversarialBattle.value?.attack_success_rate || 0),
+      defenseStrength: Number(adversarialBattle.value?.defense_strength_score || 0),
+    };
+    const data = await request.post('/ai/adversarial/apply-hardening', {
+      thresholdReductionPct: 15,
+      scenario: adversarialConfig.value.scenario || 'real-threat-check',
+    });
+    const before = Number(data?.beforeAlertThresholdBytes || 0);
+    const after = Number(data?.afterAlertThresholdBytes || 0);
+    ElMessage.success(`防御加固已应用：阈值 ${before} -> ${after}`);
+    await runAdversarialBattle();
+  } catch (error) {
+    ElMessage.error(error?.message || '应用防御加固失败');
+  } finally {
+    adversarialHardeningApplying.value = false;
   }
 }
 
@@ -1058,6 +1099,48 @@ const adversarialWinnerText = computed(() => {
   if (winner.includes('防御方')) return '防御策略';
   return winner.replace(/\([^)]*\)/g, '').trim() || '-';
 });
+const adversarialDefenseStrengthText = computed(() => {
+  const score = Number(adversarialBattle.value?.defense_strength_score || 0);
+  if (!Number.isFinite(score) || score <= 0) {
+    return '-';
+  }
+  return `${Math.round(score)}分`;
+});
+const adversarialCanApplyHardening = computed(() => {
+  return String(adversarialBattle.value?.hardening_status || '').toLowerCase() === 'pending_manual_apply';
+});
+const adversarialComparisonVisible = computed(() => {
+  return Boolean(adversarialBeforeHardening.value) && Boolean(adversarialBattle.value);
+});
+const adversarialAttackRateCompareText = computed(() => {
+  const before = Number(adversarialBeforeHardening.value?.attackSuccessRate ?? NaN);
+  const after = Number(adversarialBattle.value?.attack_success_rate ?? NaN);
+  if (!Number.isFinite(before) || !Number.isFinite(after)) {
+    return '-';
+  }
+  const delta = Math.round((after - before) * 1000) / 10;
+  return `${Math.round(before * 100)}% -> ${Math.round(after * 100)}% (${delta > 0 ? '+' : ''}${delta}%)`;
+});
+const adversarialDefenseCompareText = computed(() => {
+  const before = Number(adversarialBeforeHardening.value?.defenseStrength ?? NaN);
+  const after = Number(adversarialBattle.value?.defense_strength_score ?? NaN);
+  if (!Number.isFinite(before) || !Number.isFinite(after)) {
+    return '-';
+  }
+  const delta = Math.round(after - before);
+  return `${Math.round(before)}分 -> ${Math.round(after)}分 (${delta > 0 ? '+' : ''}${delta})`;
+});
+const adversarialHardeningConclusion = computed(() => {
+  const beforeRate = Number(adversarialBeforeHardening.value?.attackSuccessRate ?? NaN);
+  const afterRate = Number(adversarialBattle.value?.attack_success_rate ?? NaN);
+  const beforeDefense = Number(adversarialBeforeHardening.value?.defenseStrength ?? NaN);
+  const afterDefense = Number(adversarialBattle.value?.defense_strength_score ?? NaN);
+  if (!Number.isFinite(beforeRate) || !Number.isFinite(afterRate) || !Number.isFinite(beforeDefense) || !Number.isFinite(afterDefense)) {
+    return '待验证';
+  }
+  const improved = afterRate <= beforeRate && afterDefense >= beforeDefense;
+  return improved ? '防御提升已验证' : '建议继续加固并复测';
+});
 
 function riskTone(level) {
   const value = String(level || '').toLowerCase();
@@ -1263,30 +1346,23 @@ function playEntryScene() {
   const blocks = Array.from(stageRef.value.querySelectorAll('.scene-block'));
   const cinematicEntry = sessionStorage.getItem('aegis.transition.origin') === 'login';
   sessionStorage.removeItem('aegis.transition.origin');
+  const prefersReducedMotion = typeof window.matchMedia === 'function'
+    && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  if (cinematicEntry) {
-    const revealBlocks = blocks.filter(block => block !== heroRef.value);
-    gsap.set(heroRef.value, { opacity: 1, y: 0 });
-    gsap.set(revealBlocks, { opacity: 0, y: 18 });
-    gsap.timeline({ defaults: { ease: 'power2.out' } })
-      .to(revealBlocks, {
-        opacity: 1,
-        y: 0,
-        duration: 0.8,
-        stagger: 0.1
-      }, 0.02);
+  if (cinematicEntry || prefersReducedMotion) {
+    gsap.set(blocks, { opacity: 1, y: 0 });
     return;
   }
 
-  gsap.set(blocks, { opacity: 0, y: 16 });
-  gsap.timeline({ defaults: { ease: 'power2.out' } })
-    .to(heroRef.value, { opacity: 1, y: 0, duration: 0.6 })
-    .to(blocks, {
-      opacity: 1,
-      y: 0,
-      duration: 0.5,
-      stagger: 0.1
-    }, '-=0.3');
+  gsap.set(blocks, { opacity: 0, y: 8 });
+  gsap.to(heroRef.value, { opacity: 1, y: 0, duration: 0.22, ease: 'power1.out' });
+  gsap.to(blocks.filter(block => block !== heroRef.value), {
+    opacity: 1,
+    y: 0,
+    duration: 0.16,
+    stagger: 0.035,
+    ease: 'power1.out'
+  });
 }
 
 async function fetchData() {
@@ -1427,10 +1503,13 @@ watch(() => overview.value.trend, async () => {
 }, { deep: true });
 
 onMounted(() => {
-  fetchData();
-  fetchModelGovernance();
-  fetchAwardReadiness();
-  loadAiAuditLogs();
+  homeLoadFrameId = window.requestAnimationFrame(() => {
+    fetchData();
+    fetchModelGovernance();
+    fetchAwardReadiness();
+    loadAiAuditLogs();
+    homeLoadFrameId = null;
+  });
   resizeHandler = () => {
     trendChart?.resize();
     riskChart?.resize();
@@ -1440,6 +1519,10 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', resizeHandler);
+  if (homeLoadFrameId != null) {
+    window.cancelAnimationFrame(homeLoadFrameId);
+    homeLoadFrameId = null;
+  }
   if (primaryChartRenderTimer) clearTimeout(primaryChartRenderTimer);
   stopAdversarialPlayback();
   trendChart?.dispose();
@@ -1588,6 +1671,10 @@ onBeforeUnmount(() => {
     grid-template-columns: 1fr;
   }
 
+  .trace-grid.trace-grid-admin {
+    grid-template-columns: 1fr;
+  }
+
   .trace-module-list {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1618,6 +1705,10 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
+}
+
+.trace-grid.trace-grid-admin {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .trace-card {
@@ -1703,6 +1794,32 @@ onBeforeUnmount(() => {
   background: rgba(11, 19, 35, 0.45);
   color: #dbe7ff;
   font-size: 12px;
+}
+
+.adversarial-compare-grid {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.adversarial-compare-grid article {
+  border: 1px solid rgba(140, 172, 239, 0.22);
+  background: rgba(11, 19, 35, 0.45);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+
+.adversarial-compare-grid span {
+  color: #9cb1d4;
+  font-size: 12px;
+}
+
+.adversarial-compare-grid strong {
+  display: block;
+  margin-top: 5px;
+  color: #ecf3ff;
+  font-size: 13px;
 }
 
 .trace-record-list {
@@ -1926,7 +2043,7 @@ onBeforeUnmount(() => {
   background:
     radial-gradient(circle at center, rgba(7, 12, 21, 0.86) 0 54%, transparent 55%),
     conic-gradient(from 180deg, #edf4ff, #85abff, #466de0, #edf4ff);
-  box-shadow: inset 0 0 40px rgba(255,255,255,0.04), 0 18px 42px rgba(52, 93, 210, 0.16);
+  box-shadow: inset 0 0 18px rgba(255,255,255,0.03), 0 10px 22px rgba(52, 93, 210, 0.1);
 }
 
 .pulse-score {
@@ -2189,11 +2306,10 @@ onBeforeUnmount(() => {
   border: 1px solid rgba(255,255,255,0.08);
   border-radius: 18px;
   background: rgba(255,255,255,0.03);
-  transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+  transition: border-color 0.15s ease, background 0.15s ease;
 }
 
 .todo-item:hover {
-  transform: translateY(-2px);
   border-color: rgba(115, 164, 255, 0.28);
   background: rgba(255,255,255,0.05);
 }
@@ -2565,7 +2681,7 @@ onBeforeUnmount(() => {
   border: 1px solid rgba(125, 190, 255, 0.28);
   background: linear-gradient(135deg, rgba(27, 58, 116, 0.92), rgba(12, 30, 74, 0.94));
   color: #e8f1ff;
-  box-shadow: 0 18px 38px rgba(13, 41, 94, 0.42);
+  box-shadow: 0 10px 22px rgba(13, 41, 94, 0.28);
   display: grid;
   gap: 4px;
   text-align: left;
@@ -2749,6 +2865,13 @@ onBeforeUnmount(() => {
   font-size: 12px;
 }
 
+.adversarial-recommendation-actions {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 @media (max-width: 768px) {
   .ai-config-row,
   .security-surface {
@@ -2777,6 +2900,10 @@ onBeforeUnmount(() => {
 
   .adversarial-config,
   .adversarial-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .adversarial-compare-grid {
     grid-template-columns: 1fr;
   }
 }

@@ -7,7 +7,7 @@ const path = require('path');
 const axios = require('axios');
 const { app, clipboard, Notification, dialog } = require('electron');
 const { execFile } = require('child_process');
-const { detectTypes, maskContent } = require('./privacyDetect');
+const { detectTypes, maskContent, assessTextRisk } = require('./privacyDetect');
 
 const DEFAULT_EXFIL_WINDOW_RULES = {
   titleKeywords: ['微信', '企业微信', '钉钉', 'qq', 'wechat', 'dingtalk', 'wecom'],
@@ -355,8 +355,14 @@ class ClipboardPrivacyMonitor {
     const localTypes = detectTypes(current);
     const predictTypes = await callPredict(this.config, current);
     const keywordTypes = detectKeywordTypes(current, normalizeKeywords(this.config));
-    const detectedTypes = Array.from(new Set([...localTypes, ...predictTypes, ...keywordTypes]));
-    if (detectedTypes.length === 0) {
+    const hybridRisk = assessTextRisk(current);
+    const detectedTypes = Array.from(new Set([
+      ...localTypes,
+      ...predictTypes,
+      ...keywordTypes,
+      ...(hybridRisk.reasons || []),
+    ]));
+    if (detectedTypes.length === 0 && hybridRisk.level === 'none') {
       return;
     }
 
@@ -371,11 +377,13 @@ class ClipboardPrivacyMonitor {
     if (!eventContext.username) {
       return;
     }
-    const severity = this.resolveSeverity(detectedTypes, exfilTarget != null);
+    const lowSlowSignals = this.detectLowAndSlowSignals(current);
+    const mergedTypes = Array.from(new Set([...detectedTypes, ...lowSlowSignals]));
+    const severity = this.resolveSeverity(mergedTypes, exfilTarget != null, hybridRisk.level, eventContext.roleCode);
     const copyRecord = {
       content: current,
       contentHash,
-      detectedTypes,
+      detectedTypes: mergedTypes,
       username: eventContext.username,
       copyAt: Date.now(),
       copyAtIso: eventContext.nowIso,
@@ -396,7 +404,7 @@ class ClipboardPrivacyMonitor {
       deviceId: `${eventContext.username}-device`,
       hostname: os.hostname(),
       windowTitle: this.composeWindowTitle(eventContext.copyWindowTitle, eventContext.copyProcessName, exfilTarget),
-      matchedTypes: detectedTypes.join(','),
+      matchedTypes: mergedTypes.join(','),
     };
 
     this.writeLocalAudit({
@@ -404,6 +412,9 @@ class ClipboardPrivacyMonitor {
       copyWindowTitle: eventContext.copyWindowTitle,
       copyProcessName: eventContext.copyProcessName,
       contentDigest: contentHash,
+      riskLevel: hybridRisk.level,
+      riskScore: hybridRisk.score,
+      entropy: hybridRisk.entropy,
       contentPreview: maskContent(current).slice(0, 180),
     });
     await this.reportEvent(payload);
@@ -417,12 +428,38 @@ class ClipboardPrivacyMonitor {
     }
 
     this.markWarned(contentHash);
+    if (severity === 'high' || severity === 'critical') {
+      this.enforceClipboardQuarantine(current, 'text_high_risk');
+    }
     this.showForcedRiskDialog({
       kind: exfilTarget ? 'text-exfil' : 'text-sensitive',
       exfilTarget,
-      detectedTypes,
+      detectedTypes: mergedTypes,
       rawContent: current,
     });
+  }
+
+  detectLowAndSlowSignals(content) {
+    const now = Date.now();
+    const windowMs = 90000;
+    this.pendingSensitiveCopies = this.pendingSensitiveCopies.filter(item => (item.expireAt || 0) > now - windowMs);
+    const normalized = String(content || '').replace(/\s+/g, ' ').trim();
+    const recentText = this.pendingSensitiveCopies
+      .filter(item => item.kind !== 'file' && typeof item.content === 'string')
+      .slice(-6)
+      .map(item => String(item.content || '').replace(/\s+/g, ' ').trim());
+    const signals = [];
+    if (recentText.length >= 3) {
+      const combinedLength = recentText.reduce((sum, item) => sum + item.length, 0) + normalized.length;
+      if (combinedLength >= 300 && recentText.every(item => item.length > 20)) {
+        signals.push('low_slow_exfil_sequence');
+      }
+      const overlapCount = recentText.filter(item => normalized && (item.includes(normalized.slice(0, 24)) || normalized.includes(item.slice(0, 24)))).length;
+      if (overlapCount >= 2) {
+        signals.push('chunk_similarity_chain');
+      }
+    }
+    return signals;
   }
 
   async handleSensitiveFileCopy(fileList, activeWindow) {
@@ -553,8 +590,10 @@ class ClipboardPrivacyMonitor {
   buildEventContext(activeWindow) {
     const authState = this.getAuthState() || {};
     const username = authState?.authenticated ? authState?.user?.username : null;
+    const roleCode = String(authState?.user?.roleCode || authState?.user?.role || '').trim().toUpperCase();
     return {
       username: username && String(username).trim() ? String(username).trim() : null,
+      roleCode,
       nowIso: new Date().toISOString(),
       copyWindowTitle: activeWindow?.title || '',
       copyProcessName: activeWindow?.owner?.name || '',
@@ -628,18 +667,38 @@ class ClipboardPrivacyMonitor {
     });
   }
 
-  resolveSeverity(detectedTypes, hasExfil) {
+  resolveSeverity(detectedTypes, hasExfil, riskLevel = 'none', roleCode = '') {
     if (hasExfil) {
+      return 'critical';
+    }
+    if (riskLevel === 'high') {
       return 'high';
     }
     const lowered = (detectedTypes || []).map(item => normalizeText(item));
-    if (lowered.some(item => item.includes('id_card') || item.includes('bank_card') || item.startsWith('keyword:'))) {
-      return 'high';
+    if (lowered.some(item => item.includes('id_card') || item.includes('bank_card') || item.startsWith('keyword:') || item.includes('secret_exfil_signal') || item.includes('prompt_injection_signal'))) {
+      return roleCode === 'ADMIN' || roleCode === 'SECOPS' || roleCode === 'DATA_ADMIN' ? 'critical' : 'high';
     }
-    if (lowered.some(item => item.includes('phone') || item.includes('company_code'))) {
+    if (lowered.some(item => item.includes('phone') || item.includes('company_code') || item.includes('low_slow_exfil_sequence') || item.includes('chunk_similarity_chain'))) {
       return 'medium';
     }
     return lowered.length > 0 ? 'low' : 'none';
+  }
+
+  enforceClipboardQuarantine(content, reason) {
+    try {
+      const current = String(clipboard.readText() || '').trim();
+      if (current && current === String(content || '').trim()) {
+        clipboard.clear();
+      }
+      this.writeLocalAudit({
+        eventType: 'CLIPBOARD_QUARANTINE',
+        action: 'clear_clipboard',
+        reason,
+        timestamp: new Date().toISOString(),
+      });
+    } catch {
+      // Keep monitor loop resilient.
+    }
   }
 
   composeWindowTitle(copyWindowTitle, copyProcessName, exfilTarget) {

@@ -16,6 +16,8 @@ public class AuditLogDocument {
     private Long logId;
     private Long userId;
     private Long assetId;
+    private Long permissionId;
+    private String permissionName;
     private String operation;
     private Date operationTime;
     private String ip;

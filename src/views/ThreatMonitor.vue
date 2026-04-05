@@ -43,6 +43,11 @@
         <div class="stat-value">{{ stats.blocked ?? '—' }}</div>
       </div>
     </div>
+    <div class="stats-footnote">
+      <span>去重链路：{{ dedupeMeta.uniqueTotal }} / {{ dedupeMeta.rawTotal }}（压缩 {{ dedupeMeta.collapsed }} 条）</span>
+      <span>原始链路挂接率：{{ dedupeMeta.sourceLinkRateText }}</span>
+      <span>统计口径：{{ dedupeMeta.caliber }}</span>
+    </div>
 
     <!-- 主内容标签页 -->
     <el-tabs v-model="activeTab" class="main-tabs">
@@ -603,13 +608,37 @@ const isAdminUser = computed(() => String(userStore.userInfo?.roleCode || '').to
 
 // ── 统计 ──────────────────────────────────────────────────────────────────────
 const stats = ref({});
+const dedupeMeta = ref({
+  rawTotal: 0,
+  uniqueTotal: 0,
+  collapsed: 0,
+  sourceLinkRateText: '0%',
+  caliber: 'governance_event_dedup_chain_v1',
+});
 
 async function fetchStats() {
   try {
-    stats.value = await alertCenterApi.stats();
+    const data = await alertCenterApi.threatOverview({ windowHours: 72 });
+    stats.value = data?.summary || {};
+    const dedupe = data?.dedupe || {};
+    const trace = data?.trace || {};
+    dedupeMeta.value = {
+      rawTotal: Number(dedupe.rawTotal || 0),
+      uniqueTotal: Number(dedupe.uniqueTotal || 0),
+      collapsed: Number(dedupe.collapsed || 0),
+      sourceLinkRateText: `${(Number(trace.sourceLinkRate || 0) * 100).toFixed(1)}%`,
+      caliber: dedupe.caliber || 'governance_event_dedup_chain_v1',
+    };
   } catch (e) {
     try {
       stats.value = await request.get('/security/stats');
+      dedupeMeta.value = {
+        rawTotal: Number(stats.value?.total || 0),
+        uniqueTotal: Number(stats.value?.total || 0),
+        collapsed: 0,
+        sourceLinkRateText: '0%',
+        caliber: 'security_event_raw_fallback',
+      };
     } catch (err) {
       console.warn('[ThreatMonitor] stats error:', err.message);
     }
@@ -681,7 +710,7 @@ async function blockEvent(row) {
     await request.post('/security/block', { id: row.id });
     ElMessage.success('已阻拦该事件');
     row.status = 'blocked';
-    fetchStats();
+    await fetchStats();
   } catch (e) {
     ElMessage.error('操作失败：' + (e.message || '未知错误'));
   } finally {
@@ -699,6 +728,7 @@ async function ignoreEvent(row) {
     await request.post('/security/ignore', { id: row.id });
     ElMessage.success('已忽略该事件');
     row.status = 'ignored';
+    await fetchStats();
   } catch (e) {
     ElMessage.error('操作失败：' + (e.message || '未知错误'));
   } finally {
@@ -847,9 +877,6 @@ async function refreshCenterEvents() {
     const data = await alertCenterApi.list(params);
     centerEvents.value = data.list || [];
     centerPagination.value.total = data.total || 0;
-    if (data.stats) {
-      stats.value = data.stats;
-    }
   } catch (e) {
     ElMessage.error('加载告警闭环失败：' + (e.message || '未知错误'));
   } finally {
@@ -1183,6 +1210,15 @@ onUnmounted(() => {
   grid-template-columns: repeat(5, 1fr);
   gap: 16px;
   margin-bottom: 24px;
+}
+
+.stats-footnote {
+  margin: -10px 0 20px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  font-size: 12px;
+  color: rgba(202, 224, 255, 0.85);
 }
 
 .stat-card {

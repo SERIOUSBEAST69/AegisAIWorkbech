@@ -7,6 +7,9 @@ export const alertCenterApi = {
   stats() {
     return request.get('/alert-center/stats');
   },
+  threatOverview(params = {}) {
+    return request.get('/alert-center/threat-overview', { params });
+  },
   detail(id) {
     return request.get(`/alert-center/${id}`);
   },

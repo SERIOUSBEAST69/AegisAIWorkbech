@@ -41,8 +41,8 @@
         background
         layout="total, sizes, prev, pager, next"
         :total="pagination.total"
-        :current-page="pagination.current"
-        :page-size="pagination.pageSize"
+        v-model:current-page="pagination.current"
+        v-model:page-size="pagination.pageSize"
         :page-sizes="[10, 20, 50]"
         @current-change="onPageChange"
         @size-change="onPageSizeChange"

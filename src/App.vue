@@ -148,6 +148,7 @@ const menuDescriptions = {
   '/audit-report': '审计报告输出',
   '/sensitive-scan': '敏感暴露扫描',
   '/approval-manage': '审批流处理',
+  '/approval-center': '待办审批与我发起',
   '/risk-event-manage': '风险事件编排',
   '/subject-request': '履约请求处理',
   '/policy-manage': '治理规则配置',

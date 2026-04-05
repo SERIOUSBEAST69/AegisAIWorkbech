@@ -10,6 +10,7 @@ import com.trustai.entity.AiCallLog;
 import com.trustai.entity.AiModel;
 import com.trustai.entity.AuditLog;
 import com.trustai.entity.RiskEvent;
+import com.trustai.entity.SecurityDetectionRule;
 import com.trustai.entity.SecurityEvent;
 import com.trustai.entity.User;
 import com.trustai.exception.BizException;
@@ -28,6 +29,7 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -53,6 +55,7 @@ public class AiGatewayService {
     private final AiModelAccessGuardService aiModelAccessGuardService;
     private final AiInferenceClient aiInferenceClient;
     private final SecurityEventService securityEventService;
+    private final SecurityDetectionRuleService securityDetectionRuleService;
     private final RiskEventService riskEventService;
     private final AuditLogService auditLogService;
     private final CompanyScopeService companyScopeService;
@@ -64,6 +67,7 @@ public class AiGatewayService {
                             AiModelAccessGuardService aiModelAccessGuardService,
                             AiInferenceClient aiInferenceClient,
                             SecurityEventService securityEventService,
+                            SecurityDetectionRuleService securityDetectionRuleService,
                             RiskEventService riskEventService,
                             AuditLogService auditLogService,
                             CompanyScopeService companyScopeService,
@@ -74,6 +78,7 @@ public class AiGatewayService {
         this.aiModelAccessGuardService = aiModelAccessGuardService;
         this.aiInferenceClient = aiInferenceClient;
         this.securityEventService = securityEventService;
+        this.securityDetectionRuleService = securityDetectionRuleService;
         this.riskEventService = riskEventService;
         this.auditLogService = auditLogService;
         this.companyScopeService = companyScopeService;
@@ -427,22 +432,38 @@ public class AiGatewayService {
         int effectiveSeed = seed == null ? ThreadLocalRandom.current().nextInt(1, Integer.MAX_VALUE) : seed;
 
         Map<String, Object> assessment = buildThreatAssessment(true);
+        long defenseStrengthScore = computeDefenseStrengthScore(assessment);
+        long riskScoreAdjusted = Math.max(0L, Math.min(100L, toLong(assessment.get("riskScore"), 0L) - Math.max(0L, defenseStrengthScore - 50L) / 3L));
+        assessment.put("defenseStrengthScore", defenseStrengthScore);
+        assessment.put("riskScoreAdjusted", riskScoreAdjusted);
+        assessment.put("hardeningStatus", "pending_manual_apply");
+        assessment.put("hardeningActions", buildHardeningActions());
         if ("real-threat-check".equalsIgnoreCase(scenario)) {
             Map<String, Object> quick = new HashMap<>(assessment);
+            List<String> suggestions = buildOptimizationSuggestions(quick, true);
+            double attackSuccessRate = Math.max(0.05, Math.min(0.90, riskScoreAdjusted / 130.0 + (100.0 - defenseStrengthScore) / 260.0));
+            int defenderScore = (int) Math.round(defenseStrengthScore + (1.0 - attackSuccessRate) * 28.0);
+            int attackerScore = (int) Math.round(riskScoreAdjusted + attackSuccessRate * 35.0);
+            String winner = attackSuccessRate >= 0.5 ? "攻击方" : "防御方";
             quick.put("scenario", "real-threat-check");
             quick.put("mode", "real-threat-assessment");
             quick.put("rounds", rounds);
             quick.put("seed", effectiveSeed);
             quick.put("ok", true);
             quick.put("battle", Map.of(
-                "winner", "assessment",
+                "winner", winner,
                 "total_rounds", 0,
-                "attack_success_rate", 0,
-                "attacker_final_score", 0,
-                "defender_final_score", 0,
+                "attack_success_rate", attackSuccessRate,
+                "attacker_final_score", attackerScore,
+                "defender_final_score", defenderScore,
                 "rounds", List.of(),
-                "recommendations", quick.getOrDefault("strategyOptimizationSuggestions", List.of())
+                "recommendations", suggestions,
+                "defense_strength_score", defenseStrengthScore,
+                "risk_score_adjusted", riskScoreAdjusted,
+                "hardening_status", "pending_manual_apply"
             ));
+            quick.put("optimizationSuggestions", suggestions);
+            quick.put("suggestions", suggestions);
             return quick;
         }
 
@@ -461,6 +482,7 @@ public class AiGatewayService {
             unavailable.put("ok", false);
             unavailable.put("mode", "engine_unavailable");
             unavailable.put("error", ex.getMessage());
+            List<String> suggestions = buildOptimizationSuggestions(unavailable, false);
             unavailable.put("battle", Map.of(
                 "winner", "unknown",
                 "total_rounds", 0,
@@ -468,10 +490,77 @@ public class AiGatewayService {
                 "attacker_final_score", 0,
                 "defender_final_score", 0,
                 "rounds", List.of(),
-                "recommendations", unavailable.getOrDefault("strategyOptimizationSuggestions", List.of())
+                "recommendations", suggestions
             ));
+            unavailable.put("optimizationSuggestions", suggestions);
+            unavailable.put("suggestions", suggestions);
             return unavailable;
         }
+    }
+
+    public Map<String, Object> adversarialApplyHardening(Map<String, Object> payload) {
+        Map<String, Object> request = payload == null ? Map.of() : payload;
+        int thresholdReductionPct = (int) Math.max(5, Math.min(35, toLong(request.get("thresholdReductionPct"), 15L)));
+
+        SecurityDetectionRule rule = securityDetectionRuleService.lambdaQuery()
+            .eq(SecurityDetectionRule::getEnabled, Boolean.TRUE)
+            .orderByAsc(SecurityDetectionRule::getId)
+            .last("limit 1")
+            .one();
+
+        Date now = new Date();
+        Long beforeThreshold;
+        if (rule == null) {
+            rule = new SecurityDetectionRule();
+            rule.setName("Adaptive Hardening Baseline");
+            rule.setEnabled(true);
+            rule.setDescription("由攻防演练人工确认后生成的基础防御规则");
+            rule.setSensitiveExtensions(".doc,.docx,.pdf,.xlsx,.sql,.pem");
+            rule.setSensitivePaths("/finance,/hr,/source-code");
+            rule.setAlertThresholdBytes(1024L * 1024L);
+            rule.setCreateTime(now);
+            beforeThreshold = rule.getAlertThresholdBytes();
+        } else {
+            beforeThreshold = rule.getAlertThresholdBytes() == null ? 1024L * 1024L : rule.getAlertThresholdBytes();
+            rule.setSensitiveExtensions(appendCsvToken(rule.getSensitiveExtensions(), ".sql"));
+            rule.setSensitiveExtensions(appendCsvToken(rule.getSensitiveExtensions(), ".pem"));
+            rule.setSensitivePaths(appendCsvToken(rule.getSensitivePaths(), "/source-code"));
+            rule.setSensitivePaths(appendCsvToken(rule.getSensitivePaths(), "/finance"));
+        }
+
+        long afterThreshold = Math.max(64L * 1024L, Math.round(beforeThreshold * (100 - thresholdReductionPct) / 100.0));
+        rule.setAlertThresholdBytes(afterThreshold);
+        rule.setUpdateTime(now);
+        securityDetectionRuleService.saveOrUpdate(rule);
+
+        Map<String, Object> trainFeedback = Map.of();
+        try {
+            trainFeedback = aiInferenceClient.trainAdversarialFeedback(Map.of(
+                "reason", "manual_defense_hardening",
+                "sample_source", "adversarial_drill",
+                "priority", "high"
+            ));
+        } catch (Exception ex) {
+            Map<String, Object> failed = new HashMap<>();
+            failed.put("queued", false);
+            failed.put("message", ex.getMessage() == null ? "train/adversarial-feedback failed" : ex.getMessage());
+            trainFeedback = failed;
+        }
+
+        Map<String, Object> assessment = buildThreatAssessment(true);
+        long defenseStrengthScore = computeDefenseStrengthScore(assessment);
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("applied", true);
+        result.put("approvalMode", "manual_confirmed");
+        result.put("ruleId", rule.getId());
+        result.put("thresholdReductionPct", thresholdReductionPct);
+        result.put("beforeAlertThresholdBytes", beforeThreshold);
+        result.put("afterAlertThresholdBytes", afterThreshold);
+        result.put("defenseStrengthScore", defenseStrengthScore);
+        result.put("trainFeedback", trainFeedback);
+        result.put("appliedAt", System.currentTimeMillis());
+        return result;
     }
 
     private Map<String, Object> buildThreatAssessment(boolean immediateCheck) {
@@ -529,6 +618,87 @@ public class AiGatewayService {
         ));
         assessment.put("recentSecurityEvents", latestEvents);
         return assessment;
+    }
+
+    private long computeDefenseStrengthScore(Map<String, Object> assessment) {
+        List<SecurityDetectionRule> enabledRules = securityDetectionRuleService.lambdaQuery()
+            .eq(SecurityDetectionRule::getEnabled, Boolean.TRUE)
+            .list();
+        int enabledRuleCount = enabledRules == null ? 0 : enabledRules.size();
+        long avgThreshold = enabledRules == null || enabledRules.isEmpty()
+            ? 1024L * 1024L
+            : Math.max(1L, Math.round(enabledRules.stream()
+                .map(SecurityDetectionRule::getAlertThresholdBytes)
+                .filter(v -> v != null && v > 0)
+                .mapToLong(Long::longValue)
+                .average()
+                .orElse(1024L * 1024L)));
+
+        Object profileObj = assessment.get("defenseProfile");
+        boolean monitorEnabled = false;
+        boolean predictEnabled = false;
+        int keywordSize = 0;
+        if (profileObj instanceof Map<?, ?> profile) {
+            monitorEnabled = toBoolean(profile.get("monitorEnabled"));
+            predictEnabled = toBoolean(profile.get("predictEnabled"));
+            keywordSize = (int) toLong(profile.get("sensitiveKeywordsSize"), 0L);
+        }
+
+        double thresholdScore = 30.0 - Math.min(20.0, Math.max(0.0, (avgThreshold - 64 * 1024.0) / (1024 * 1024.0)) * 1.2);
+        double score = 25.0
+            + Math.min(20.0, enabledRuleCount * 4.0)
+            + Math.max(0.0, thresholdScore)
+            + (monitorEnabled ? 12.0 : 0.0)
+            + (predictEnabled ? 10.0 : 0.0)
+            + Math.min(8.0, keywordSize / 3.0);
+        return Math.max(0L, Math.min(100L, Math.round(score)));
+    }
+
+    private List<Map<String, Object>> buildHardeningActions() {
+        return List.of(
+            Map.of(
+                "code", "tighten_alert_threshold",
+                "title", "收紧告警阈值",
+                "impact", "high",
+                "change", Map.of("thresholdReductionPct", 15),
+                "approvalRequired", true
+            ),
+            Map.of(
+                "code", "expand_sensitive_scope",
+                "title", "扩展敏感目录与扩展名覆盖",
+                "impact", "medium",
+                "change", Map.of("paths", List.of("/source-code", "/finance"), "extensions", List.of(".sql", ".pem")),
+                "approvalRequired", true
+            ),
+            Map.of(
+                "code", "queue_adversarial_retrain",
+                "title", "对抗样本增量训练",
+                "impact", "medium",
+                "change", Map.of("pipeline", "train/adversarial-feedback"),
+                "approvalRequired", true
+            )
+        );
+    }
+
+    private String appendCsvToken(String source, String token) {
+        String normalizedToken = token == null ? "" : token.trim();
+        if (normalizedToken.isBlank()) {
+            return source;
+        }
+        List<String> current = new ArrayList<>();
+        if (source != null && !source.isBlank()) {
+            for (String item : source.split(",")) {
+                String trimmed = item.trim();
+                if (!trimmed.isBlank()) {
+                    current.add(trimmed);
+                }
+            }
+        }
+        boolean exists = current.stream().anyMatch(item -> item.equalsIgnoreCase(normalizedToken));
+        if (!exists) {
+            current.add(normalizedToken);
+        }
+        return String.join(",", current);
     }
 
     private Map<String, Object> finalizeBattleResult(Map<String, Object> assessment,
@@ -648,33 +818,138 @@ public class AiGatewayService {
     }
 
     private List<String> buildOptimizationSuggestions(Map<String, Object> assessment, boolean pythonAvailable) {
-        List<String> suggestions = new ArrayList<>();
+        LinkedHashSet<String> suggestions = new LinkedHashSet<>();
         Object signalsObj = assessment.get("signals");
         long pending = 0L;
         long openRisk = 0L;
         long critical = 0L;
+        long highRiskAudit = 0L;
         if (signalsObj instanceof Map<?, ?> signals) {
             pending = toLong(signals.get("securityPending"), 0L);
             openRisk = toLong(signals.get("openRiskEvents"), 0L);
             critical = toLong(signals.get("securityCritical"), 0L);
+            highRiskAudit = toLong(signals.get("highRiskAudit24h"), 0L);
         }
 
+        Object profileObj = assessment.get("defenseProfile");
+        boolean monitorEnabled = false;
+        boolean predictEnabled = false;
+        int keywordSize = 0;
+        int selectorSize = 0;
+        if (profileObj instanceof Map<?, ?> profile) {
+            monitorEnabled = toBoolean(profile.get("monitorEnabled"));
+            predictEnabled = toBoolean(profile.get("predictEnabled"));
+            keywordSize = (int) toLong(profile.get("sensitiveKeywordsSize"), 0L);
+            selectorSize = (int) toLong(profile.get("siteSelectorSize"), 0L);
+        }
+
+        List<SecurityEvent> recentEvents = extractRecentSecurityEvents(assessment);
+        Map<String, Long> eventTypeCounts = countEventDimension(recentEvents, SecurityEvent::getEventType);
+        Map<String, Long> severityCounts = countEventDimension(recentEvents, SecurityEvent::getSeverity);
+        Map<String, Long> fileSuffixCounts = countFileSuffixDimension(recentEvents);
+
+        String dominantEventType = topDimension(eventTypeCounts);
+        String dominantSeverity = topDimension(severityCounts);
+        boolean hasSourceCodePath = recentEvents.stream()
+            .map(SecurityEvent::getFilePath)
+            .filter(path -> path != null && !path.isBlank())
+            .anyMatch(path -> path.contains("/source-code") || path.contains(".sql") || path.contains(".pem"));
+        boolean hasOutboundTarget = recentEvents.stream()
+            .map(SecurityEvent::getTargetAddr)
+            .filter(addr -> addr != null && !addr.isBlank())
+            .anyMatch(addr -> !addr.contains("127.0.0.1") && !addr.contains("localhost") && !addr.startsWith("10.") && !addr.startsWith("192.168."));
+
+        if (!monitorEnabled) {
+            suggestions.add("先开启隐私盾监测开关并确认同步间隔正常，当前告警态势无法形成持续闭环。");
+        }
+        if (!predictEnabled && selectorSize > 0) {
+            suggestions.add("把预测策略纳入上线门禁，优先覆盖现有 " + selectorSize + " 个站点选择器命中的页面行为。");
+        }
         if (critical > 0) {
-            suggestions.add("提升高危告警阻断阈值并启用SECOPS双人复核，优先清理critical/high待处理事件。");
+            suggestions.add("对当前 " + critical + " 条 critical/high 告警执行 SECOPS 双人复核，并收紧阻断阈值。");
         }
-        if (pending > 5) {
-            suggestions.add("为待处置告警配置自动化工单与SLA升级规则，避免pending事件累积。");
+        if (pending > 5 || highRiskAudit > 8) {
+            suggestions.add("将待处置告警与高风险审计留痕联动编排到自动工单，优先处理最近 24 小时的积压链路。");
         }
-        if (openRisk > 0) {
-            suggestions.add("将行为异常事件与影子AI发现结果进行关联分析，先处置同一员工的连续异常链路。");
+        if (openRisk > 0 && highRiskAudit > 0) {
+            suggestions.add("按员工、主机和文件路径做三向关联，先压缩同一主体在风险事件与审计日志中的连续异常链路。");
         }
-        if (!pythonAvailable) {
+        if ("EXFILTRATION".equalsIgnoreCase(dominantEventType) || hasOutboundTarget) {
+            suggestions.add("当前外传/外联特征偏强，建议收紧出站白名单、核验目标地址，并对可疑外发通道加二次确认。");
+        } else if ("SUSPICIOUS_UPLOAD".equalsIgnoreCase(dominantEventType) || "BATCH_COPY".equalsIgnoreCase(dominantEventType)) {
+            suggestions.add("上传与批量拷贝占比偏高，建议把高敏目录的文件类型白名单、速率限制和人工审批一起收紧。");
+        } else if ("FILE_STEAL".equalsIgnoreCase(dominantEventType)) {
+            suggestions.add("文件窃取信号占优，建议对高敏路径增加实时审计规则，并把关键员工终端纳入重点核查。");
+        }
+        if (hasSourceCodePath || fileSuffixCounts.containsKey(".sql") || fileSuffixCounts.containsKey(".pem")) {
+            suggestions.add("当前事件已命中源码或密钥类扩展名，建议优先扩展 /source-code、/finance 与 .sql/.pem 的敏感规则覆盖。");
+        }
+        if ("CRITICAL".equalsIgnoreCase(dominantSeverity) || "HIGH".equalsIgnoreCase(dominantSeverity)) {
+            suggestions.add("把高危事件优先回灌到 train/adversarial-feedback，先复训后扩轮，避免模型只会给出静态建议。");
+        }
+        if (pythonAvailable) {
+            suggestions.add("将最近 " + Math.min(8, recentEvents.size()) + " 条真实事件样本回灌到对抗反馈训练，更新防御基线后再复测一次。");
+        } else {
             suggestions.add("检查 ai-inference 服务连通性与超时配置，恢复后执行一次完整攻防模拟以校准策略效果。");
+        }
+        if (keywordSize > 0) {
+            suggestions.add("继续补充敏感关键词库并校验命中率，当前词库规模为 " + keywordSize + "，建议结合真实告警做增量校准。");
         }
         if (suggestions.isEmpty()) {
             suggestions.add("保持现有策略并按周执行一次攻防演练，持续监控策略版本迭代后的风险变化。");
         }
-        return suggestions;
+        return new ArrayList<>(suggestions).stream().limit(5).toList();
+    }
+
+    private List<SecurityEvent> extractRecentSecurityEvents(Map<String, Object> assessment) {
+        Object value = assessment == null ? null : assessment.get("recentSecurityEvents");
+        if (!(value instanceof List<?> list) || list.isEmpty()) {
+            return List.of();
+        }
+        List<SecurityEvent> events = new ArrayList<>();
+        for (Object item : list) {
+            if (item instanceof SecurityEvent event) {
+                events.add(event);
+            }
+        }
+        return events;
+    }
+
+    private Map<String, Long> countEventDimension(List<SecurityEvent> events, java.util.function.Function<SecurityEvent, String> extractor) {
+        if (events == null || events.isEmpty()) {
+            return Map.of();
+        }
+        return events.stream()
+            .map(extractor)
+            .filter(value -> value != null && !value.isBlank())
+            .map(value -> value.trim().toUpperCase(Locale.ROOT))
+            .collect(Collectors.groupingBy(value -> value, Collectors.counting()));
+    }
+
+    private Map<String, Long> countFileSuffixDimension(List<SecurityEvent> events) {
+        if (events == null || events.isEmpty()) {
+            return Map.of();
+        }
+        return events.stream()
+            .map(SecurityEvent::getFilePath)
+            .filter(path -> path != null && !path.isBlank())
+            .map(String::trim)
+            .map(path -> {
+                int dotIndex = path.lastIndexOf('.');
+                return dotIndex >= 0 ? path.substring(dotIndex).toLowerCase(Locale.ROOT) : "";
+            })
+            .filter(suffix -> !suffix.isBlank())
+            .collect(Collectors.groupingBy(value -> value, Collectors.counting()));
+    }
+
+    private String topDimension(Map<String, Long> counts) {
+        if (counts == null || counts.isEmpty()) {
+            return "";
+        }
+        return counts.entrySet().stream()
+            .max(Map.Entry.<String, Long>comparingByValue().thenComparing(Map.Entry::getKey))
+            .map(Map.Entry::getKey)
+            .orElse("");
     }
 
     private boolean toBoolean(Object value) {

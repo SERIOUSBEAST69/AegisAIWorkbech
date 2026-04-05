@@ -11,6 +11,7 @@ import SecurityCommand from '../views/SecurityCommand.vue';
 import RiskEventManage from '../views/RiskEventManage.vue';
 import OpsObservability from '../views/OpsObservability.vue';
 import ApprovalManage from '../views/ApprovalManage.vue';
+import ApprovalCenter from '../views/ApprovalCenter.vue';
 import GovernanceChangeManage from '../views/GovernanceChangeManage.vue';
 import SodRuleManage from '../views/SodRuleManage.vue';
 import PolicyManage from '../views/PolicyManage.vue';
@@ -34,6 +35,14 @@ function isPlatformAdmin(user) {
   return roleCode === 'ADMIN';
 }
 
+function isAdminReviewerReadOnlyPath(user, path) {
+  const roleCode = String(user?.roleCode || '').trim().toUpperCase();
+  if (roleCode !== 'ADMIN_REVIEWER') {
+    return false;
+  }
+  return path === '/user-manage' || path === '/role-manage' || path === '/permission-manage';
+}
+
 const routes = [
   { path: '/login', name: 'Login', component: Login, meta: { public: true, depth: 0 } },
   { path: '/', name: 'Home', component: Home, meta: { depth: 1 } },
@@ -46,6 +55,7 @@ const routes = [
   { path: '/operations-command', name: 'SecurityCommand', component: SecurityCommand, meta: { depth: 3 } },
   { path: '/ops-observability', name: 'OpsObservability', component: OpsObservability, meta: { depth: 3 } },
   { path: '/approval-manage', name: 'ApprovalManage', component: ApprovalManage, meta: { depth: 3 } },
+  { path: '/approval-center', name: 'ApprovalCenter', component: ApprovalCenter, meta: { depth: 3 } },
   { path: '/governance-change-manage', name: 'GovernanceChangeManage', component: GovernanceChangeManage, meta: { depth: 3 } },
   { path: '/sod-rule-manage', name: 'SodRuleManage', component: SodRuleManage, meta: { depth: 3 } },
   { path: '/policy-manage', name: 'PolicyManage', component: PolicyManage, meta: { depth: 3 } },
@@ -74,7 +84,17 @@ router.beforeEach((to, from, next) => {
   }
 
   const session = getSession();
-  if (to.meta?.permission && !hasPermissionByUser(session?.user, to.meta.permission) && !isPlatformAdmin(session?.user)) {
+  const isPermissionLogJump = to.path === '/audit-log'
+    && from.path === '/permission-manage'
+    && hasPermissionByUser(session?.user, 'permission:manage');
+  if (isPermissionLogJump) {
+    return next();
+  }
+  if (to.meta?.permission
+    && !hasPermissionByUser(session?.user, to.meta.permission)
+    && !isPlatformAdmin(session?.user)
+    && !isAdminReviewerReadOnlyPath(session?.user, to.path)
+    && !isPermissionLogJump) {
     return next('/');
   }
   if (!canAccessPath(to.path, session?.user)) {

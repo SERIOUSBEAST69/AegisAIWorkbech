@@ -108,6 +108,33 @@ EVENT_TYPES = [
     "CREDENTIAL_DUMP",
 ]
 
+CAMPAIGN_CHAINS = {
+        "prompt_exfil_chain": [
+            {"stage": "recon", "eventType": "DATA_SCRAPE", "severity": "medium"},
+            {"stage": "injection", "eventType": "SUSPICIOUS_UPLOAD", "severity": "high"},
+            {"stage": "abuse", "eventType": "CREDENTIAL_DUMP", "severity": "high"},
+            {"stage": "exfil", "eventType": "EXFILTRATION", "severity": "critical"},
+        ],
+        "session_lateral_chain": [
+            {"stage": "recon", "eventType": "DATA_SCRAPE", "severity": "medium"},
+            {"stage": "session_hijack", "eventType": "CREDENTIAL_DUMP", "severity": "high"},
+            {"stage": "lateral_move", "eventType": "BATCH_COPY", "severity": "high"},
+            {"stage": "privileged_action", "eventType": "SUSPICIOUS_UPLOAD", "severity": "critical"},
+        ],
+        "low_slow_exfil_chain": [
+            {"stage": "seed", "eventType": "FILE_STEAL", "severity": "medium"},
+            {"stage": "chunk_1", "eventType": "EXFILTRATION", "severity": "medium"},
+            {"stage": "chunk_2", "eventType": "EXFILTRATION", "severity": "high"},
+            {"stage": "chunk_3", "eventType": "EXFILTRATION", "severity": "critical"},
+        ],
+        "social_phishing_chain": [
+            {"stage": "lure", "eventType": "SUSPICIOUS_UPLOAD", "severity": "medium"},
+            {"stage": "credential_capture", "eventType": "CREDENTIAL_DUMP", "severity": "high"},
+            {"stage": "fraud_attempt", "eventType": "BATCH_COPY", "severity": "high"},
+            {"stage": "exfil", "eventType": "EXFILTRATION", "severity": "critical"},
+        ],
+}
+
 SEVERITY_WEIGHTS = {
     "critical": 0.15,
     "high": 0.30,
@@ -128,7 +155,7 @@ def weighted_choice(weights: dict) -> str:
     return items[-1]
 
 
-def generate_event(offset_seconds: Optional[int] = None) -> dict:
+def generate_event(offset_seconds: Optional[int] = None, campaign: Optional[dict] = None) -> dict:
     """生成一条模拟安全事件"""
     employee = random.choice(EMPLOYEES)
     file_path = random.choice(SENSITIVE_FILES)
@@ -139,8 +166,14 @@ def generate_event(offset_seconds: Optional[int] = None) -> dict:
     elif employee["hostname"].startswith("MAC"):
         file_path = "/Users/" + employee["id"] + file_path
 
-    severity = weighted_choice(SEVERITY_WEIGHTS)
-    event_type = random.choice(EVENT_TYPES)
+    if campaign:
+        chain_steps = CAMPAIGN_CHAINS.get(campaign["chainType"], [])
+        step = chain_steps[min(campaign["stageIndex"], len(chain_steps) - 1)] if chain_steps else None
+        severity = step["severity"] if step else weighted_choice(SEVERITY_WEIGHTS)
+        event_type = step["eventType"] if step else random.choice(EVENT_TYPES)
+    else:
+        severity = weighted_choice(SEVERITY_WEIGHTS)
+        event_type = random.choice(EVENT_TYPES)
 
     # 文件大小（字节），critical/high 事件倾向于更大的文件
     size_base = {"critical": 10_000_000, "high": 2_000_000, "medium": 500_000, "low": 100_000}
@@ -151,7 +184,7 @@ def generate_event(offset_seconds: Optional[int] = None) -> dict:
     else:
         event_dt = datetime.now()
 
-    return {
+    payload = {
         "eventType": event_type,
         "filePath": file_path,
         "targetAddr": random.choice(TARGET_ADDRS),
@@ -163,6 +196,36 @@ def generate_event(offset_seconds: Optional[int] = None) -> dict:
         "source": "openclaw-sim",
         "eventTime": event_dt.strftime("%Y-%m-%d %H:%M:%S"),
     }
+    if campaign:
+        payload.update({
+            "campaignId": campaign["campaignId"],
+            "campaignType": campaign["chainType"],
+            "campaignStage": CAMPAIGN_CHAINS[campaign["chainType"]][campaign["stageIndex"]]["stage"],
+        })
+    return payload
+
+
+def create_campaign_pool(size: int) -> list:
+    chain_types = list(CAMPAIGN_CHAINS.keys())
+    pool = []
+    for _ in range(max(1, size)):
+        chain_type = random.choice(chain_types)
+        pool.append({
+            "campaignId": f"camp_{uuid.uuid4().hex[:10]}",
+            "chainType": chain_type,
+            "stageIndex": 0,
+        })
+    return pool
+
+
+def evolve_campaign(campaign: dict):
+    max_stage = len(CAMPAIGN_CHAINS.get(campaign["chainType"], [])) - 1
+    if campaign["stageIndex"] < max_stage:
+        campaign["stageIndex"] += 1
+    else:
+        campaign["campaignId"] = f"camp_{uuid.uuid4().hex[:10]}"
+        campaign["chainType"] = random.choice(list(CAMPAIGN_CHAINS.keys()))
+        campaign["stageIndex"] = 0
 
 
 def report_events(backend_url: str, events: list, client_token: str = "", company_id: Optional[int] = None) -> Tuple[int, int]:
@@ -221,10 +284,17 @@ def run_batch_mode(backend_url: str, total: int, batch_size: int, delay: float, 
     time_span_seconds = 30 * 24 * 3600
     offsets = sorted(random.randint(0, time_span_seconds) for _ in range(total))
     offsets.reverse()  # 最久远的先生成
+    campaign_pool = create_campaign_pool(max(4, total // 40))
 
     batch = []
     for i, offset in enumerate(offsets, 1):
-        batch.append(generate_event(offset_seconds=offset))
+        use_campaign = random.random() < 0.55
+        if use_campaign:
+            campaign = random.choice(campaign_pool)
+            batch.append(generate_event(offset_seconds=offset, campaign=campaign))
+            evolve_campaign(campaign)
+        else:
+            batch.append(generate_event(offset_seconds=offset))
         if len(batch) >= batch_size or i == total:
             ok, fail = report_events(backend_url, batch, client_token=client_token, company_id=company_id)
             ok_total += ok
@@ -246,10 +316,16 @@ def run_realtime_mode(backend_url: str, events_per_second: float = 2.0, client_t
     total_ok = 0
     total_fail = 0
     interval = 1.0 / events_per_second
+    campaign_pool = create_campaign_pool(6)
 
     try:
         while True:
-            event = generate_event()
+            if random.random() < 0.6:
+                campaign = random.choice(campaign_pool)
+                event = generate_event(campaign=campaign)
+                evolve_campaign(campaign)
+            else:
+                event = generate_event()
             ok, fail = report_events(backend_url, [event], client_token=client_token, company_id=company_id)
             total_ok += ok
             total_fail += fail

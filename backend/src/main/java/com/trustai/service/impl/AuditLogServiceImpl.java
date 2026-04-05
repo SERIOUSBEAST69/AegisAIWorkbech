@@ -199,13 +199,18 @@ public class AuditLogServiceImpl extends ServiceImpl<AuditLogMapper, AuditLog> i
 	 * 使用 {@link CriteriaQuery} 构建 bool 查询，最多返回 {@value #MAX_RESULTS} 条。
 	 */
 	@Override
-	public List<AuditLogDocument> search(Long userId, String operation, Date from, Date to) {
+	public List<AuditLogDocument> search(Long userId, Long permissionId, String operation, Date from, Date to) {
 		String keyword = (operation == null) ? "" : operation.trim().toLowerCase(Locale.ROOT);
 
 		Criteria criteria = null;
 
 		if (userId != null) {
 			criteria = new Criteria("userId").is(userId);
+		}
+
+		if (permissionId != null) {
+			Criteria permissionCriteria = new Criteria("permissionId").is(permissionId);
+			criteria = (criteria == null) ? permissionCriteria : criteria.and(permissionCriteria);
 		}
 
 		if (StringUtils.hasText(keyword)) {
@@ -233,30 +238,41 @@ public class AuditLogServiceImpl extends ServiceImpl<AuditLogMapper, AuditLog> i
 
 		ElasticsearchOperations elasticsearchOperations = elasticsearchOperationsProvider.getIfAvailable();
 		if (elasticsearchOperations == null) {
-			return fallbackSearch(userId, keyword, from, to);
+			return fallbackSearch(userId, permissionId, keyword, from, to);
 		}
 
 		try {
-			return elasticsearchOperations.search(query, AuditLogDocument.class)
+			List<AuditLogDocument> esResults = elasticsearchOperations.search(query, AuditLogDocument.class)
 					.stream()
 					.map(SearchHit::getContent)
 					.collect(Collectors.toList());
+			if (!esResults.isEmpty()) {
+				return esResults;
+			}
+
+			List<AuditLogDocument> dbResults = dbFallbackSearch(userId, permissionId, keyword, from, to);
+			if (!dbResults.isEmpty()) {
+				log.warn("ES returned empty audit logs, fallback to DB returned {} rows", dbResults.size());
+				return dbResults;
+			}
+			return esResults;
 		} catch (Exception e) {
 			log.warn("ES native query failed, falling back to findAll filter", e);
 			// 降级：全量拉取后内存过滤
-			return fallbackSearch(userId, keyword, from, to);
+			return fallbackSearch(userId, permissionId, keyword, from, to);
 		}
 	}
 
-	private List<AuditLogDocument> fallbackSearch(Long userId, String normalizedOperation, Date from, Date to) {
+	private List<AuditLogDocument> fallbackSearch(Long userId, Long permissionId, String normalizedOperation, Date from, Date to) {
 		AuditLogEsRepository auditLogEsRepository = auditLogEsRepositoryProvider.getIfAvailable();
 		if (auditLogEsRepository == null) {
-			return dbFallbackSearch(userId, normalizedOperation, from, to);
+			return dbFallbackSearch(userId, permissionId, normalizedOperation, from, to);
 		}
 
 		try {
 			return StreamSupport.stream(auditLogEsRepository.findAll().spliterator(), false)
 					.filter(doc -> userId == null || userId.equals(doc.getUserId()))
+					.filter(doc -> permissionId == null || permissionId.equals(doc.getPermissionId()))
 					.filter(doc -> normalizedOperation.isEmpty()
 							|| containsIgnoreCase(doc.getOperation(), normalizedOperation)
 							|| containsIgnoreCase(doc.getInputOverview(), normalizedOperation)
@@ -267,15 +283,18 @@ public class AuditLogServiceImpl extends ServiceImpl<AuditLogMapper, AuditLog> i
 					.limit(MAX_RESULTS)
 					.collect(Collectors.toList());
 		} catch (Exception e) {
-			log.warn("ES fallback search failed (Elasticsearch 可能未启动), 返回空结果", e);
-			return List.of();
+			log.warn("ES fallback search failed (Elasticsearch 可能未启动), falling back to DB query", e);
+			return dbFallbackSearch(userId, permissionId, normalizedOperation, from, to);
 		}
 	}
 
-	private List<AuditLogDocument> dbFallbackSearch(Long userId, String normalizedOperation, Date from, Date to) {
+	private List<AuditLogDocument> dbFallbackSearch(Long userId, Long permissionId, String normalizedOperation, Date from, Date to) {
 		LambdaQueryWrapper<AuditLog> qw = new LambdaQueryWrapper<>();
 		if (userId != null) {
 			qw.eq(AuditLog::getUserId, userId);
+		}
+		if (permissionId != null) {
+			qw.eq(AuditLog::getPermissionId, permissionId);
 		}
 		if (StringUtils.hasText(normalizedOperation)) {
 			qw.and(w -> w.like(AuditLog::getOperation, normalizedOperation)
@@ -303,6 +322,8 @@ public class AuditLogServiceImpl extends ServiceImpl<AuditLogMapper, AuditLog> i
 		doc.setLogId(entity.getId());
 		doc.setUserId(entity.getUserId());
 		doc.setAssetId(entity.getAssetId());
+		doc.setPermissionId(entity.getPermissionId());
+		doc.setPermissionName(entity.getPermissionName());
 		doc.setOperation(entity.getOperation());
 		doc.setOperationTime(entity.getOperationTime());
 		doc.setIp(entity.getIp());

@@ -14,7 +14,7 @@
         <el-button @click="openAdd">新建申请</el-button>
       </el-form-item>
     </el-form>
-    <el-table :data="approvals" style="width: 100%" v-loading="loading">
+    <el-table :data="approvals" style="width: 100%" v-loading="loading" table-layout="auto">
       <el-table-column prop="id" label="ID" width="250">
         <template #default="scope">
           <div class="cell nowrap">{{ scope.row.id }}</div>
@@ -63,7 +63,7 @@
       <el-table-column label="审批设备" min-width="160" show-overflow-tooltip>
         <template #default="scope">{{ deviceById(scope.row.approverId) }}</template>
       </el-table-column>
-      <el-table-column label="操作">
+      <el-table-column label="操作" width="220" fixed="right">
         <template #default="scope">
           <el-button v-if="canApproveRow(scope.row)" size="small" @click="approve(scope.row, '通过')">通过</el-button>
           <el-button v-if="canRejectRow(scope.row)" size="small" type="danger" @click="approve(scope.row, '拒绝')">拒绝</el-button>
@@ -77,8 +77,8 @@
         background
         layout="total, sizes, prev, pager, next"
         :total="pagination.total"
-        :current-page="pagination.current"
-        :page-size="pagination.pageSize"
+        v-model:current-page="pagination.current"
+        v-model:page-size="pagination.pageSize"
         :page-sizes="[10, 20, 50]"
         @current-change="onPageChange"
         @size-change="onPageSizeChange"
@@ -103,16 +103,12 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import request from '../api/request';
 import { useUserStore } from '../store/user';
 import {
-  canApproveApprovalFlow,
-  canRejectApprovalFlow,
-  normalizeRoleCode,
+  hasRole,
 } from '../utils/roleBoundary';
+import { hasPermissionByUser } from '../utils/permission';
 
 const userStore = useUserStore();
-const canApprove = computed(() => canApproveApprovalFlow(userStore.userInfo));
-const canReject = computed(() => canRejectApprovalFlow(userStore.userInfo));
 const currentUser = computed(() => userStore.userInfo || {});
-const currentRole = computed(() => normalizeRoleCode(currentUser.value));
 const approvals = ref([]);
 const userDirectory = ref(new Map());
 const loading = ref(false);
@@ -294,6 +290,9 @@ function cleanReason(reason) {
 
 function resolveRequestType(row) {
   const reason = String(cleanReason(row?.reason || '')).trim().toUpperCase();
+  if (reason.startsWith('[GOVERNANCE]')) {
+    return 'GOVERNANCE';
+  }
   if (reason.startsWith('[BUSINESS]')) {
     return 'BUSINESS';
   }
@@ -307,40 +306,43 @@ function resolveRequestType(row) {
 }
 
 function canOperateType(row) {
-  const role = currentRole.value;
+  const user = currentUser.value;
   const type = resolveRequestType(row);
-  if (role === 'ADMIN') {
+  if (hasRole(user, 'ADMIN') || hasPermissionByUser(user, 'approval:operate')) {
     return true;
   }
-  if (role === 'DATA_ADMIN') {
-    return type === 'DATA';
+  if (type === 'DATA') {
+    return hasPermissionByUser(user, 'approval:operate:data');
   }
-  if (role === 'BUSINESS_OWNER') {
-    return type === 'BUSINESS';
+  if (type === 'GOVERNANCE') {
+    return hasPermissionByUser(user, 'approval:operate:governance');
+  }
+  if (type === 'BUSINESS') {
+    return hasPermissionByUser(user, 'approval:operate:business');
   }
   return false;
 }
 
 function canApproveRow(row) {
-  if (!canApprove.value) {
+  if (!canOperateType(row)) {
     return false;
   }
-  return canOperateType(row);
+  return true;
 }
 
 function canRejectRow(row) {
-  if (!canReject.value) {
+  if (!canOperateType(row)) {
     return false;
   }
-  return canOperateType(row);
+  return true;
 }
 
 function canDeleteRow(row) {
-  const role = currentRole.value;
-  if (role === 'ADMIN') {
+  const user = currentUser.value;
+  if (hasRole(user, 'ADMIN')) {
     return true;
   }
-  if (role === 'EMPLOYEE') {
+  if (hasRole(user, 'EMPLOYEE')) {
     return currentUser.value?.id != null && currentUser.value.id === row?.applicantId;
   }
   return canOperateType(row);

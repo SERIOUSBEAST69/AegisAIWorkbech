@@ -51,6 +51,7 @@ public class CompanySchemaInitializer implements CommandLineRunner {
     private void ensurePerformanceIndexes() {
         ensureIndex("risk_event", "idx_risk_company_status_time", "company_id, status, create_time");
         ensureIndex("audit_log", "idx_audit_user_op_time", "user_id, operation_time");
+        ensureIndex("audit_log", "idx_audit_permission_time", "permission_id, operation_time");
         ensureIndex("model_call_stat", "idx_model_stat_user_date", "user_id, date");
         ensureIndex("security_event", "idx_sec_company_status_time", "company_id, status, event_time");
         ensureIndex("security_event", "idx_sec_company_severity_time", "company_id, severity, event_time");
@@ -289,6 +290,9 @@ public class CompanySchemaInitializer implements CommandLineRunner {
         ensureColumn("role", "allow_self_register", "BOOLEAN DEFAULT FALSE");
         ensureColumn("role", "is_system", "BOOLEAN DEFAULT FALSE");
         ensureColumn("permission", "company_id", "BIGINT NOT NULL");
+        ensureColumn("permission", "status", "VARCHAR(20) DEFAULT 'active'");
+        ensureColumn("audit_log", "permission_id", "BIGINT");
+        ensureColumn("audit_log", "permission_name", "VARCHAR(255)");
         ensureColumn("ai_model", "company_id", "BIGINT");
         ensureColumn("data_asset", "company_id", "BIGINT NOT NULL");
         ensureColumn("risk_event", "company_id", "BIGINT NOT NULL");
@@ -299,6 +303,13 @@ public class CompanySchemaInitializer implements CommandLineRunner {
         ensureColumn("approval_request", "task_id", "VARCHAR(64)");
         ensureColumn("subject_request", "company_id", "BIGINT NOT NULL");
         ensureColumn("compliance_policy", "company_id", "BIGINT NOT NULL");
+        ensureColumn("compliance_policy", "policy_type", "VARCHAR(32)");
+        ensureColumn("compliance_policy", "priority", "INT DEFAULT 50");
+        ensureColumn("compliance_policy", "scope_departments", "VARCHAR(500)");
+        ensureColumn("compliance_policy", "scope_user_groups", "VARCHAR(500)");
+        ensureColumn("compliance_policy", "scope_data_types", "VARCHAR(500)");
+        ensureColumn("compliance_policy", "last_modifier", "VARCHAR(128)");
+        ensureColumn("compliance_policy", "last_modified_at", "TIMESTAMP");
         ensureColumn("client_report", "company_id", "BIGINT NOT NULL");
         ensureColumn("client_report", "ip_address", "VARCHAR(64)");
         ensureColumn("client_scan_queue", "company_id", "BIGINT NOT NULL");
@@ -388,6 +399,7 @@ public class CompanySchemaInitializer implements CommandLineRunner {
             jdbcTemplate.update("UPDATE sys_user SET account_status = CASE WHEN status = 0 THEN 'disabled' ELSE 'active' END WHERE account_status IS NULL OR account_status = ''");
             jdbcTemplate.update("UPDATE role SET company_id = 1 WHERE company_id IS NULL");
             jdbcTemplate.update("UPDATE permission SET company_id = 1 WHERE company_id IS NULL");
+            jdbcTemplate.update("UPDATE permission SET status = 'active' WHERE status IS NULL OR status = ''");
             jdbcTemplate.update("UPDATE ai_model SET company_id = 1 WHERE company_id IS NULL");
             jdbcTemplate.update("UPDATE approval_request SET company_id = 1 WHERE company_id IS NULL");
             jdbcTemplate.update("UPDATE subject_request SET company_id = 1 WHERE company_id IS NULL");
