@@ -3019,7 +3019,7 @@ onBeforeUnmount(() => {
   gap: 28px;
   padding: 34px;
   position: relative;
-  overflow: hidden;
+  overflow: visible;
   background:
     radial-gradient(circle at 8% 18%, rgba(70, 118, 255, 0.28), transparent 30%),
     radial-gradient(circle at 82% 20%, rgba(34, 208, 181, 0.18), transparent 28%),
@@ -3893,7 +3893,7 @@ onBeforeUnmount(() => {
   right: 2vw;
   bottom: 2vh;
   width: min(1540px, 97vw);
-  height: auto;
+  height: min(90vh, 1040px);
   margin-top: 0;
   padding: 18px;
   border-radius: 18px;
@@ -3904,13 +3904,16 @@ onBeforeUnmount(() => {
     linear-gradient(180deg, rgba(7, 14, 28, 0.96), rgba(9, 17, 33, 0.94));
   max-height: min(90vh, 1040px);
   overflow-x: hidden;
-  overflow-y: visible;
+  overflow-y: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .adversarial-panel.adversarial-panel-max {
   right: 0.8vw;
   bottom: 0.8vh;
   width: min(1760px, 99vw);
+  height: min(96vh, 1160px);
   max-height: min(96vh, 1160px);
 }
 
@@ -3919,25 +3922,26 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: minmax(0, 2.25fr) minmax(380px, 1fr);
   gap: 18px;
+  flex: 1 1 auto;
   min-height: 0;
 }
 
 .adversarial-stage-column,
 .adversarial-feed-column {
   display: grid;
-  align-content: start;
+  align-content: stretch;
   gap: 14px;
   min-height: 0;
 }
 
-.adversarial-feed-column {
-  max-height: none;
-  overflow: visible;
-  padding-right: 0;
+.adversarial-stage-column {
+  grid-template-rows: minmax(0, 1fr) auto;
 }
 
-.adversarial-panel.adversarial-panel-max .adversarial-feed-column {
-  max-height: none;
+.adversarial-feed-column {
+  overflow-y: visible;
+  overflow-x: hidden;
+  padding-right: 0;
 }
 
 .adversarial-head {
@@ -4029,10 +4033,11 @@ onBeforeUnmount(() => {
 }
 
 .adversarial-summary-grid {
-  margin-top: 10px;
+  margin-top: 0;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
+  align-self: end;
 }
 
 .adversarial-log-head {
@@ -4155,11 +4160,12 @@ onBeforeUnmount(() => {
     linear-gradient(135deg, rgba(7, 14, 28, 0.94), rgba(11, 23, 46, 0.92));
   overflow: hidden;
   position: relative;
-  min-height: clamp(460px, 62vh, 680px);
+  min-height: 0;
+  height: 100%;
 }
 
 .adversarial-panel.adversarial-panel-max .adversarial-cinematic-stage {
-  min-height: clamp(560px, 72vh, 820px);
+  min-height: 0;
 }
 
 .adversarial-cinematic-stage::before {
@@ -4663,7 +4669,7 @@ onBeforeUnmount(() => {
   margin: 10px 0 0;
   color: #d7e8ff;
   font-size: 12px;
-  line-height: 1.58;
+  line-height: 1.72;
   min-height: 38px;
 }
 
@@ -4671,7 +4677,7 @@ onBeforeUnmount(() => {
   margin: 6px 0 0;
   color: #9ec2ec;
   font-size: 11px;
-  line-height: 1.55;
+  line-height: 1.68;
   min-height: 18px;
 }
 
@@ -4781,13 +4787,9 @@ onBeforeUnmount(() => {
   margin-top: 0;
   display: grid;
   gap: 8px;
-  max-height: clamp(280px, 36vh, 420px);
+  max-height: none;
   overflow: visible;
-  padding-right: 4px;
-}
-
-.adversarial-panel.adversarial-panel-max .adversarial-stream {
-  max-height: clamp(360px, 48vh, 560px);
+  padding-right: 2px;
 }
 
 .adversarial-round {
@@ -4829,6 +4831,7 @@ onBeforeUnmount(() => {
   margin: 8px 0 0;
   color: #a4b7d8;
   font-size: 12px;
+  line-height: 1.68;
 }
 
 .adversarial-round em {
@@ -4836,7 +4839,7 @@ onBeforeUnmount(() => {
   color: #d9e7ff;
   font-style: normal;
   display: block;
-  line-height: 1.6;
+  line-height: 1.72;
   font-size: 12px;
 }
 
@@ -4857,7 +4860,7 @@ onBeforeUnmount(() => {
 .adversarial-recommendations p {
   margin: 6px 0 0;
   color: #9cb1d4;
-  line-height: 1.6;
+  line-height: 1.7;
   font-size: 12px;
 }
 
@@ -5020,8 +5023,10 @@ onBeforeUnmount(() => {
   }
 
   .adversarial-feed-column {
-    max-height: none;
-    overflow: visible;
+    max-height: min(42vh, 360px);
+    overflow-y: visible;
+    overflow-x: hidden;
+    padding-right: 0;
   }
 
   .adversarial-config,

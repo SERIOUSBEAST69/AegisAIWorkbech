@@ -12,6 +12,7 @@ import com.trustai.utils.R;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.util.StringUtils;
 import java.util.Date;
 import java.util.List;
 
@@ -72,18 +73,51 @@ public class RiskEventController {
             User currentUser = currentUserService.requireCurrentUser();
             String roleCode = currentUserService.currentRoleCode();
             enforceSecopsDuty(currentUser, "update", event);
-            event.setCompanyId(scoped.getCompanyId());
-            event.setHandlerId(currentUser.getId());
-            event.setCreateTime(scoped.getCreateTime());
-            event.setUpdateTime(new Date());
-            event.setProcessLog(appendTrace(event.getProcessLog(), currentUser, roleCode, scoped.getCompanyId(), "update"));
-            riskEventService.updateById(event);
+            String mergedProcessLog = StringUtils.hasText(event.getProcessLog()) ? event.getProcessLog() : scoped.getProcessLog();
+            scoped.setType(StringUtils.hasText(event.getType()) ? event.getType().trim() : scoped.getType());
+            scoped.setLevel(normalizeLevel(event.getLevel(), scoped.getLevel()));
+            scoped.setStatus(normalizeStatus(event.getStatus(), scoped.getStatus()));
+            if (event.getRelatedLogId() != null) {
+                scoped.setRelatedLogId(event.getRelatedLogId());
+            }
+            if (event.getAuditLogIds() != null) {
+                scoped.setAuditLogIds(event.getAuditLogIds());
+            }
+            scoped.setHandlerId(currentUser.getId());
+            scoped.setUpdateTime(new Date());
+            scoped.setProcessLog(appendTrace(mergedProcessLog, currentUser, roleCode, scoped.getCompanyId(), "update"));
+            riskEventService.updateById(scoped);
             keyTaskMetricService.record("risk.dispose", true);
             return R.okMsg("更新成功");
         } catch (RuntimeException ex) {
             keyTaskMetricService.record("risk.dispose", false);
             throw ex;
         }
+    }
+
+    private String normalizeLevel(String incoming, String fallback) {
+        String value = String.valueOf(incoming == null ? "" : incoming).trim().toUpperCase();
+        if ("LOW".equals(value) || "MEDIUM".equals(value) || "HIGH".equals(value) || "CRITICAL".equals(value)) {
+            return value;
+        }
+        return StringUtils.hasText(fallback) ? fallback : "MEDIUM";
+    }
+
+    private String normalizeStatus(String incoming, String fallback) {
+        String value = String.valueOf(incoming == null ? "" : incoming).trim().toUpperCase();
+        if ("OPEN".equals(value) || "PENDING".equals(value)) {
+            return "OPEN";
+        }
+        if ("PROCESSING".equals(value) || "IN_PROGRESS".equals(value)) {
+            return "PROCESSING";
+        }
+        if ("RESOLVED".equals(value) || "DONE".equals(value) || "CLOSED".equals(value)) {
+            return "RESOLVED";
+        }
+        if ("IGNORED".equals(value) || "REJECTED".equals(value) || "SKIPPED".equals(value)) {
+            return "IGNORED";
+        }
+        return StringUtils.hasText(fallback) ? fallback : "OPEN";
     }
 
     @PostMapping("/delete")
