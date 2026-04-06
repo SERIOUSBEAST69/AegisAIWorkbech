@@ -105,13 +105,21 @@
             <p class="radar-subtitle">点击建议可直接跳转到对应治理模块，完成闭环处置。</p>
           </div>
           <div class="radar-actions">
-            <el-input
+              <el-select
               v-if="canQueryOthers"
-              v-model="profileUsername"
-              placeholder="输入用户名查看画像"
-              clearable
+                v-model="profileUsername"
+                filterable
+                clearable
+                placeholder="选择员工查看画像"
               style="width: 180px"
-            />
+              >
+                <el-option
+                  v-for="item in radarUsers"
+                  :key="item.username"
+                  :label="`${item.realName || item.username} (${item.username})`"
+                  :value="item.username"
+                />
+              </el-select>
             <el-button :loading="radarLoading" @click="loadRadarProfile">刷新画像</el-button>
           </div>
         </div>
@@ -345,6 +353,7 @@ const canQueryOthers = computed(() => {
 
 const radarLoading = ref(false);
 const profileUsername = ref('');
+const radarUsers = ref([]);
 const selectedDimension = ref(null);
 const radarProfile = ref({
   totalRisk: 0,
@@ -427,6 +436,24 @@ async function loadRadarProfile() {
     ElMessage.error(err?.message || '加载风险画像失败');
   } finally {
     radarLoading.value = false;
+  }
+}
+
+async function loadRadarUsers() {
+  if (!canQueryOthers.value) {
+    radarUsers.value = [];
+    return;
+  }
+  try {
+    const data = await request.get('/ai-risk/profile/users');
+    radarUsers.value = Array.isArray(data?.users) ? data.users : [];
+    const current = String(data?.current || '').trim();
+    if (!profileUsername.value && current) {
+      profileUsername.value = current;
+    }
+  } catch (err) {
+    radarUsers.value = [];
+    ElMessage.warning(err?.message || '画像用户列表加载失败，已回退为当前用户画像');
   }
 }
 
@@ -592,7 +619,8 @@ function tagType(tag) {
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 onMounted(async () => {
-  await Promise.all([loadList(), loadWhitelist(), loadRadarProfile()]);
+  await Promise.all([loadList(), loadWhitelist(), loadRadarUsers()]);
+  await loadRadarProfile();
   window.addEventListener('resize', resizeRadar, { passive: true });
 });
 

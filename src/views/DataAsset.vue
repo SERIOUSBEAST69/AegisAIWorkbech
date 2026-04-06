@@ -150,7 +150,7 @@
                 :loading="diaRunningAssetId === scope.row.id"
                 @click="runDiaAssess(scope.row)"
               >
-                DIA评估
+                {{ diaRunningAssetId === scope.row.id ? `评估中 ${diaProgress}%` : 'DIA评估' }}
               </el-button>
               <el-button size="small" plain @click="viewDiaLatest(scope.row)">DIA结果</el-button>
               <el-button v-if="canWriteAsset" size="small" @click="editAsset(scope.row)">编辑</el-button>
@@ -226,13 +226,28 @@
         <el-button @click="showDiaDetail = false">关闭</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog
+      v-model="showDiaAssessing"
+      title="DIA影响评估执行中"
+      width="480px"
+      :close-on-click-modal="false"
+      :show-close="false"
+      append-to-body
+    >
+      <div class="dia-assess-progress">
+        <div class="dia-assess-stage">{{ diaStageText }}</div>
+        <el-progress :percentage="diaProgress" :stroke-width="16" status="warning" striped striped-flow />
+        <p>系统正在分析数据敏感度、调用暴露面和治理事件，完成后将自动刷新结果。</p>
+      </div>
+    </el-dialog>
     </template>
     <SensitiveDataGovernance v-else />
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import request from '../api/request';
@@ -259,6 +274,10 @@ const recommendedSensitivityLevel = ref('');
 const diaRunningAssetId = ref(null);
 const showDiaDetail = ref(false);
 const diaDetail = ref(null);
+const showDiaAssessing = ref(false);
+const diaProgress = ref(0);
+const diaStageText = ref('准备评估任务...');
+let diaProgressTimer = null;
 
 const query = ref({ name: '' });
 const addForm = ref({ name: '', type: '', sensitivityLevel: 'medium', location: '', description: '' });
@@ -432,18 +451,55 @@ async function viewAssetDetail(id) {
 async function runDiaAssess(row) {
   if (!row?.id || diaRunningAssetId.value === row.id) return;
   diaRunningAssetId.value = row.id;
+  startDiaProgressAnimation();
   try {
     const res = await request.post(`/data-asset/${row.id}/privacy-assess`, { framework: 'PIPL' });
+    diaProgress.value = 100;
+    diaStageText.value = '评估完成，正在刷新资产视图...';
     ElMessage.success(`DIA评估完成：${(res?.riskLevel || '-').toUpperCase()} / ${res?.impactScore ?? '-'} 分`);
     await fetchAssets();
     if (detailData.value?.id === row.id && showDetail.value) {
       detailData.value = await request.get(`/data-asset/${row.id}`);
     }
   } catch (err) {
+    diaStageText.value = '评估失败，请稍后重试';
     ElMessage.error(err?.message || 'DIA评估失败');
   } finally {
+    stopDiaProgressAnimation();
     diaRunningAssetId.value = null;
   }
+}
+
+function startDiaProgressAnimation() {
+  showDiaAssessing.value = true;
+  diaProgress.value = 6;
+  diaStageText.value = '解析资产语义与字段敏感度...';
+  if (diaProgressTimer) {
+    clearInterval(diaProgressTimer);
+  }
+  diaProgressTimer = setInterval(() => {
+    const next = Math.min(94, diaProgress.value + Math.floor(Math.random() * 8) + 2);
+    diaProgress.value = next;
+    if (next < 35) {
+      diaStageText.value = '解析资产语义与字段敏感度...';
+    } else if (next < 72) {
+      diaStageText.value = '评估跨系统调用暴露面...';
+    } else {
+      diaStageText.value = '生成风险因子与等级结论...';
+    }
+  }, 320);
+}
+
+function stopDiaProgressAnimation() {
+  if (diaProgressTimer) {
+    clearInterval(diaProgressTimer);
+    diaProgressTimer = null;
+  }
+  setTimeout(() => {
+    showDiaAssessing.value = false;
+    diaProgress.value = 0;
+    diaStageText.value = '准备评估任务...';
+  }, 320);
 }
 
 async function viewDiaLatest(row) {
@@ -514,6 +570,13 @@ async function syncCurrentUser() {
 onMounted(async () => {
   await syncCurrentUser();
   await fetchAssets();
+});
+
+onBeforeUnmount(() => {
+  if (diaProgressTimer) {
+    clearInterval(diaProgressTimer);
+    diaProgressTimer = null;
+  }
 });
 </script>
 
@@ -649,6 +712,24 @@ onMounted(async () => {
 
 .detail-span {
   grid-column: 1 / -1;
+}
+
+.dia-assess-progress {
+  display: grid;
+  gap: 14px;
+}
+
+.dia-assess-stage {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.dia-assess-progress p {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 @media (max-width: 1100px) {

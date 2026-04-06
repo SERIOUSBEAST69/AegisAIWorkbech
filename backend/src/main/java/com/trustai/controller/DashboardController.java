@@ -75,15 +75,16 @@ public class DashboardController {
     }
 
     @GetMapping("/workbench")
-    public R<WorkbenchOverviewDTO> workbench() {
+    public R<WorkbenchOverviewDTO> workbench(@RequestParam(defaultValue = "7") int days) {
         User currentUser = currentUserService.requireCurrentUser();
         Role currentRole = currentUserService.getCurrentRole(currentUser);
         Long companyId = companyScopeService.requireCompanyId();
         List<Long> companyUserIds = companyScopeService.companyUserIds();
         ZoneId zoneId = ZoneId.systemDefault();
         LocalDate today = LocalDate.now();
-        LocalDate last7Start = today.minusDays(6);
-        LocalDate previous7Start = today.minusDays(13);
+        int safeDays = Math.max(1, Math.min(30, days));
+        LocalDate last7Start = today.minusDays(safeDays - 1L);
+        LocalDate previous7Start = today.minusDays((safeDays * 2L) - 1L);
 
         Date last7Date = Date.from(last7Start.atStartOfDay(zoneId).toInstant());
         Date previous7Date = Date.from(previous7Start.atStartOfDay(zoneId).toInstant());
@@ -192,8 +193,8 @@ public class DashboardController {
             pendingSubjectRequests
         ));
         dto.setSceneTags(Arrays.asList("审计证据链", "高敏资产纳管", "模型分级准入", "主体权利履约"));
-        dto.setMetrics(buildMetrics(highSensitivityAssets, newHighSensitivityAssets, previousHighSensitivityAssets, openAlerts, recentOpenAlerts, previousOpenAlerts, aiCallsLast7, aiCallsPrevious7, todayAuditCount, yesterdayAuditCount));
-        dto.setTrend(buildTrend(last7Start, recentRiskEvents, recentAuditLogs, recentModelStats));
+        dto.setMetrics(buildMetrics(highSensitivityAssets, newHighSensitivityAssets, previousHighSensitivityAssets, openAlerts, recentOpenAlerts, previousOpenAlerts, aiCallsLast7, aiCallsPrevious7, todayAuditCount, yesterdayAuditCount, safeDays));
+        dto.setTrend(buildTrend(last7Start, recentRiskEvents, recentAuditLogs, recentModelStats, safeDays));
         dto.setRiskDistribution(buildRiskDistribution(recentRiskEvents));
         dto.setTodos(buildTodos(highRiskEvents, openAlerts, pendingSubjectRequests, enabledModels));
         dto.setFeeds(buildFeeds(recentRiskEvents, recentSubjectRequests));
@@ -215,7 +216,7 @@ public class DashboardController {
             previous7Start
         );
         Map<String, Object> bundle = new LinkedHashMap<>();
-        bundle.put("workbench", workbench().getData());
+        bundle.put("workbench", workbench(7).getData());
         bundle.put("insights", insights().getData());
         bundle.put("trustPulse", trustPulse().getData());
         bundle.put("forecast", riskForecastScheduler.getLatest());
@@ -805,7 +806,8 @@ public class DashboardController {
                                                long aiCallsLast7,
                                                long aiCallsPrevious7,
                                                long todayAuditCount,
-                                               long yesterdayAuditCount) {
+                                               long yesterdayAuditCount,
+                                               int windowDays) {
         List<WorkbenchOverviewDTO.Metric> items = new ArrayList<>();
         items.add(new WorkbenchOverviewDTO.Metric(
             "assets",
@@ -813,7 +815,7 @@ public class DashboardController {
             highSensitivityAssets,
             "项",
             calcDelta(newHighSensitivityAssets, previousHighSensitivityAssets),
-            "近7日新增高敏资产纳管规模"
+            "近" + windowDays + "日新增高敏资产纳管规模"
         ));
         items.add(new WorkbenchOverviewDTO.Metric(
             "alerts",
@@ -825,7 +827,7 @@ public class DashboardController {
         ));
         items.add(new WorkbenchOverviewDTO.Metric(
             "aiCalls",
-            "7日AI调用",
+            windowDays + "日AI调用",
             aiCallsLast7,
             "次",
             calcDelta(aiCallsLast7, aiCallsPrevious7),
@@ -845,12 +847,13 @@ public class DashboardController {
         private WorkbenchOverviewDTO.Trend buildTrend(LocalDate start,
                                       List<RiskEvent> riskEvents,
                                       List<AuditLog> auditLogs,
-                                      List<ModelCallStat> modelStats) {
+                          List<ModelCallStat> modelStats,
+                          int windowDays) {
         WorkbenchOverviewDTO.Trend trend = new WorkbenchOverviewDTO.Trend();
         trend.setRiskEventSampleCount((long) riskEvents.size());
         trend.setAuditLogSampleCount((long) auditLogs.size());
         trend.setModelStatSampleCount((long) modelStats.size());
-        trend.setTrendWindowDays(7);
+        trend.setTrendWindowDays(windowDays);
         Map<LocalDate, Long> riskByDay = riskEvents.stream()
             .filter(item -> item.getCreateTime() != null)
             .collect(Collectors.groupingBy(item -> toLocalDate(item.getCreateTime()), Collectors.counting()));
@@ -863,7 +866,7 @@ public class DashboardController {
             .collect(Collectors.groupingBy(item -> toLocalDate(item.getDate()), Collectors.summingLong(item -> item.getCostCents() == null ? 0L : item.getCostCents())));
 
         List<Long> riskSeries = new ArrayList<>();
-        for (int index = 0; index < 7; index++) {
+        for (int index = 0; index < windowDays; index++) {
             LocalDate date = start.plusDays(index);
             trend.getLabels().add(date.getMonthValue() + "/" + date.getDayOfMonth());
             long risk = riskByDay.getOrDefault(date, 0L);

@@ -43,7 +43,7 @@ const PERSONAS = {
     ],
     quickActions: [
       { title: '查看合规风险记录', description: '优先压降高危事件', route: '/risk-event-manage' },
-      { title: '查看审批流', description: '识别卡点与责任链', route: '/approval-manage' },
+      { title: '查看审批中心', description: '识别卡点与责任链', route: '/approval-center' },
     ],
     roleHints: ['exec', 'ceo', 'cxo', 'director', 'management', 'leader', 'principal', 'president', '校长', '院长', '管理层', '总经理'],
   },
@@ -144,7 +144,7 @@ const PERSONAS = {
       { step: '03', title: '推动跨部门协同', description: '把问题拆给数据、安全、研发与治理负责人，加速业务闭环。' },
     ],
     quickActions: [
-      { title: '审批管理', description: '跟进关键卡点审批', route: '/approval-manage' },
+      { title: '审批中心', description: '跟进关键卡点审批', route: '/approval-center' },
       { title: '数据资产', description: '查看可用资产与上传新数据', route: '/data-asset' },
     ],
     roleHints: ['business', 'owner', 'product', '运营', '业务', '业务负责人', '产品'],
@@ -282,7 +282,6 @@ const EXTRA_ROUTE_AUDIENCES = {
   '/ops-observability': ['secops', 'executive', 'governanceAdmin'],
   '/audit-center': ['governanceAdmin', 'secops', 'executive'],
   '/sensitive-data-governance': ['governanceAdmin', 'secops', 'dataAdmin'],
-  '/approval-manage': ['governanceAdmin', 'dataAdmin', 'businessOwner'],
   '/approval-center': ['governanceAdmin', 'secops', 'dataAdmin', 'businessOwner'],
   '/risk-event-manage': ['governanceAdmin', 'secops'],
   '/ai/risk-rating': ['governanceAdmin', 'secops', 'executive', 'dataAdmin', 'aiBuilder', 'businessOwner', 'employee'],
@@ -317,11 +316,11 @@ const ROLE_PATH_ALLOWLIST = {
     '/risk-event-manage', '/policy-manage', '/profile', '/settings',
   ],
   EXECUTIVE: [
-    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/ai/risk-rating', '/ai/anomaly', '/approval-manage',
+    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/ai/risk-rating', '/ai/anomaly', '/approval-center',
     '/policy-manage', '/audit-report', '/profile', '/settings',
   ],
   EXECUTIVE_COMPLIANCE: [
-    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/ai/risk-rating', '/ai/anomaly', '/approval-manage',
+    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/ai/risk-rating', '/ai/anomaly', '/approval-center',
     '/policy-manage', '/audit-report', '/profile', '/settings',
   ],
   DATA_ADMIN: [
@@ -342,7 +341,7 @@ const ROLE_PATH_ALLOWLIST = {
     '/policy-manage', '/ops-observability', '/profile', '/settings',
   ],
   AI_BUILDER: [
-    '/', '/data-asset', '/shadow-ai', '/ai/risk-rating', '/ai/anomaly', '/approval-manage', '/policy-manage',
+    '/', '/data-asset', '/shadow-ai', '/ai/risk-rating', '/ai/anomaly', '/approval-center', '/policy-manage',
     '/ops-observability', '/profile', '/settings',
   ],
   EMPLOYEE: ['/', '/shadow-ai', '/audit-center', '/subject-request', '/profile', '/settings'],
@@ -356,13 +355,6 @@ const PATH_PERMISSION_REQUIREMENTS = {
   '/user-manage': ['user:manage'],
   '/role-manage': ['role:manage'],
   '/permission-manage': ['permission:manage'],
-  '/approval-manage': [
-    'approval:view',
-    'approval:operate',
-    'approval:operate:data',
-    'approval:operate:business',
-    'approval:operate:governance',
-  ],
   '/approval-center': [
     'govern:change:create',
     'govern:change:review',

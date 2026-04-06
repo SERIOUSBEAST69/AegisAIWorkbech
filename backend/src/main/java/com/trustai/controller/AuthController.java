@@ -19,7 +19,6 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.ArrayList;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.Set;
@@ -63,42 +62,6 @@ public class AuthController {
         "AI_BUILDER", "AI应用开发者",
         "BUSINESS_OWNER", "业务负责人",
         "EMPLOYEE", "普通员工"
-    );
-    private static final Map<String, List<Map<String, String>>> DEMO_ACCOUNTS = Map.of(
-        "ADMIN", List.of(
-            demoAccount("主治理管理员", "admin", "admin"),
-            demoAccount("治理复核员", "admin_reviewer", "admin")
-        ),
-        "EXECUTIVE", List.of(
-            demoAccount("管理层账号A", "executive", "Passw0rd!"),
-            demoAccount("管理层账号B", "executive_2", "Passw0rd!"),
-            demoAccount("管理层账号C", "executive_3", "Passw0rd!")
-        ),
-        "SECOPS", List.of(
-            demoAccount("安全运维A", "secops", "Passw0rd!"),
-            demoAccount("安全运维B", "secops_2", "Passw0rd!"),
-            demoAccount("安全运维C", "secops_3", "Passw0rd!")
-        ),
-        "DATA_ADMIN", List.of(
-            demoAccount("数据管理员A", "dataadmin", "Passw0rd!"),
-            demoAccount("数据管理员B", "dataadmin_2", "Passw0rd!"),
-            demoAccount("数据管理员C", "dataadmin_3", "Passw0rd!")
-        ),
-        "AI_BUILDER", List.of(
-            demoAccount("AI开发者A", "aibuilder", "Passw0rd!"),
-            demoAccount("AI开发者B", "aibuilder_2", "Passw0rd!"),
-            demoAccount("AI开发者C", "aibuilder_3", "Passw0rd!")
-        ),
-        "BUSINESS_OWNER", List.of(
-            demoAccount("业务负责人A", "bizowner", "Passw0rd!"),
-            demoAccount("业务负责人B", "bizowner_2", "Passw0rd!"),
-            demoAccount("业务负责人C", "bizowner_3", "Passw0rd!")
-        ),
-        "EMPLOYEE", List.of(
-            demoAccount("员工账号A", "employee1", "Passw0rd!"),
-            demoAccount("员工账号B", "employee2", "Passw0rd!"),
-            demoAccount("员工账号C", "employee3", "Passw0rd!")
-        )
     );
 
     @Autowired private UserService userService;
@@ -186,18 +149,9 @@ public class AuthController {
             option("ai-team", "AI应用团队"),
             option("public-sector", "政企/公共机构")
         );
-        List<Map<String, Object>> demoAccounts = new ArrayList<>();
-        for (Map.Entry<String, String> role : ROLE_LABELS.entrySet()) {
-            Map<String, Object> row = new LinkedHashMap<>();
-            row.put("roleCode", role.getKey());
-            row.put("roleLabel", role.getValue());
-            row.put("accounts", DEMO_ACCOUNTS.getOrDefault(role.getKey(), List.of()));
-            demoAccounts.add(row);
-        }
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("identities", identities);
         result.put("organizations", organizations);
-        result.put("demoAccounts", demoAccounts);
         if (companyId != null && companyId > 0L) {
             result.put("companyId", companyId);
             result.put("companyName", resolveCompanyName(companyId));
@@ -678,14 +632,6 @@ public class AuthController {
         Map<String, String> item = new LinkedHashMap<>();
         item.put("code", code);
         item.put("label", label);
-        return item;
-    }
-
-    private static Map<String, String> demoAccount(String label, String username, String password) {
-        Map<String, String> item = new LinkedHashMap<>();
-        item.put("label", label);
-        item.put("username", username);
-        item.put("password", password);
         return item;
     }
 

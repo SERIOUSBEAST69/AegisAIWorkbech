@@ -49,7 +49,7 @@
               :value="item.value"
             />
           </el-select>
-          <el-button :loading="loading" type="primary" @click="$emit('refresh')">刷新中枢</el-button>
+          <el-button :loading="loading" type="primary" @click="handleRefreshHub">刷新中枢</el-button>
         </div>
       </header>
 
@@ -157,59 +157,18 @@
           <div class="radar-tip">点击任一热力项可直接下钻到证据细节。</div>
         </el-card>
 
-        <el-card class="hub-panel pulse-wall-panel" shadow="never">
-          <template #header>
-            <div class="panel-headline">中枢脉冲墙</div>
-          </template>
-          <div class="pulse-wall">
-            <div v-for="idx in 24" :key="`pulse-${idx}`" class="pulse-node" :style="{ animationDelay: `${idx * 0.08}s` }"></div>
-          </div>
-        </el-card>
       </div>
 
-      <div class="hub-bottom-grid">
-        <el-card class="hub-panel timeline-panel" shadow="never">
+      <div class="hub-bottom-grid single-panel">
+        <el-card class="hub-panel deepseek-panel" shadow="never">
           <template #header>
-            <div class="panel-headline">实时分析时间线</div>
+            <div class="panel-headline panel-headline-between">
+              <span>DeepSeek智能解读</span>
+              <el-button size="small" :loading="deepseekLoading" @click="refreshDeepseekAnalysis">刷新解读</el-button>
+            </div>
           </template>
-          <div class="timeline-list">
-            <article
-              v-for="(item, idx) in hub.timeline"
-              :key="item.id"
-              class="timeline-item"
-              :class="{ 'is-new': idx < 2 }"
-            >
-              <div class="timeline-top">
-                <strong>{{ item.title }}</strong>
-                <span>{{ item.time }}</span>
-              </div>
-              <p>{{ item.summary }}</p>
-            </article>
-            <el-empty v-if="hub.timeline.length === 0" description="暂无时序事件" :image-size="54" />
-          </div>
-        </el-card>
-
-        <el-card class="hub-panel rec-panel" shadow="never">
-          <template #header>
-            <div class="panel-headline">策略建议跳转</div>
-          </template>
-          <div class="rec-list">
-            <button
-              v-for="rec in hub.recommendations"
-              :key="rec.title"
-              class="rec-item"
-              type="button"
-              @click="$emit('jump', rec)"
-            >
-              <div class="rec-top">
-                <strong>{{ rec.title }}</strong>
-                <span>{{ rec.priority }}</span>
-              </div>
-              <p>{{ rec.action }}</p>
-              <em>前往 {{ rec.targetLabel }}</em>
-            </button>
-            <el-empty v-if="hub.recommendations.length === 0" description="暂无建议" :image-size="54" />
-          </div>
+          <div v-if="deepseekText" class="deepseek-content">{{ deepseekText }}</div>
+          <el-empty v-else description="暂无智能解读结果" :image-size="54" />
         </el-card>
       </div>
     </div>
@@ -340,17 +299,14 @@ const quickLoading = ref({
   predict: false,
   compliance: false,
 });
+const deepseekLoading = ref(false);
+const deepseekText = ref('');
 const allowedLevels = computed(() => Array.isArray(scopeOptions.value?.allowedLevels) && scopeOptions.value.allowedLevels.length
   ? scopeOptions.value.allowedLevels
   : ['company', 'department', 'user']);
 const userOptionsForScope = computed(() => {
   const all = Array.isArray(scopeOptions.value?.users) ? scopeOptions.value.users : [];
-  if (scope.value.level !== 'user') {
-    return all;
-  }
-  if (scope.value.level === 'user' && scope.value.department) {
-    return all.filter(item => String(item.department || '') === String(scope.value.department || ''));
-  }
+  if (scope.value.level !== 'user') return all;
   return all;
 });
 const alertItems = computed(() => Array.isArray(props.hub?.alertBoard?.items) ? props.hub.alertBoard.items.slice(0, 6) : []);
@@ -390,6 +346,34 @@ const radarSortedDimensions = computed(() => {
     }))
     .sort((a, b) => b.value - a.value);
 });
+function getScopeParams() {
+  const params = { scopeLevel: scope.value.level || 'company' };
+  if (scope.value.level === 'department' && scope.value.department) {
+    params.department = scope.value.department;
+  }
+  if (scope.value.level === 'user' && scope.value.username) {
+    params.username = scope.value.username;
+  }
+  return params;
+}
+
+async function refreshDeepseekAnalysis() {
+  deepseekLoading.value = true;
+  try {
+    const data = await dashboardApi.getHomeAiHubDeepseekAnalysis(getScopeParams());
+    deepseekText.value = String(data?.analysis || '').trim();
+  } catch (error) {
+    deepseekText.value = '';
+    ElMessage.error(error?.message || 'DeepSeek解读加载失败');
+  } finally {
+    deepseekLoading.value = false;
+  }
+}
+
+function handleRefreshHub() {
+  emit('refresh');
+  refreshDeepseekAnalysis();
+}
 
 function pushAssistantMessage(content, chart = []) {
   chatMessages.value.push({
@@ -592,10 +576,12 @@ function onUsernameChange() {
 
 function emitScopeChange() {
   emit('scope-change', { ...scope.value });
+  refreshDeepseekAnalysis();
 }
 
 onMounted(() => {
   loadScopeOptions();
+  refreshDeepseekAnalysis();
 });
 </script>
 
@@ -805,6 +791,10 @@ onMounted(() => {
   gap: 10px;
 }
 
+.hub-bottom-grid.single-panel {
+  grid-template-columns: 1fr;
+}
+
 .hub-panel {
   background: rgba(8, 20, 38, 0.72);
   border: 1px solid rgba(89, 132, 182, 0.24);
@@ -813,6 +803,13 @@ onMounted(() => {
 .panel-headline {
   color: #dbeafe;
   font-weight: 600;
+}
+
+.panel-headline-between {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
 }
 
 .hub-chart {
@@ -924,20 +921,11 @@ onMounted(() => {
   background: linear-gradient(90deg, #fb923c 0%, #60a5fa 100%);
 }
 
-.pulse-wall {
-  min-height: 280px;
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 8px;
-  align-content: center;
-}
-
-.pulse-node {
-  height: 18px;
-  border-radius: 7px;
-  background: linear-gradient(180deg, rgba(124, 194, 255, 0.92), rgba(58, 110, 224, 0.78));
-  box-shadow: 0 0 8px rgba(108, 179, 255, 0.35);
-  animation: pulseNodeBlink 1.6s ease-in-out infinite;
+.deepseek-content {
+  color: #dce9ff;
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre-wrap;
 }
 
 .radar-tip {
@@ -977,56 +965,6 @@ onMounted(() => {
 
 .radar-dim-item:hover {
   border-color: rgba(251, 191, 36, 0.48);
-}
-
-.timeline-list,
-.rec-list {
-  display: grid;
-  gap: 8px;
-}
-
-.timeline-item,
-.rec-item {
-  border: 1px solid rgba(121, 164, 216, 0.24);
-  border-radius: 10px;
-  background: rgba(11, 25, 45, 0.58);
-  padding: 10px;
-}
-
-.timeline-item.is-new {
-  animation: timelineFlash 1s ease-in-out;
-}
-
-.timeline-top,
-.rec-top {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  align-items: center;
-}
-
-.timeline-top strong,
-.rec-top strong {
-  color: #ecf4ff;
-}
-
-.timeline-top span,
-.rec-top span,
-.timeline-item p,
-.rec-item p,
-.rec-item em {
-  color: #99b6dc;
-  font-size: 12px;
-  font-style: normal;
-}
-
-.rec-item {
-  text-align: left;
-  cursor: pointer;
-}
-
-.rec-item:hover {
-  border-color: rgba(245, 158, 11, 0.5);
 }
 
 .ai-fab {
@@ -1218,24 +1156,6 @@ onMounted(() => {
   to { transform: rotate(360deg); }
 }
 
-@keyframes timelineFlash {
-  0% { box-shadow: 0 0 0 rgba(103, 175, 255, 0); border-color: rgba(121, 164, 216, 0.24); }
-  45% { box-shadow: 0 0 0 1px rgba(103, 175, 255, 0.58), 0 0 18px rgba(103, 175, 255, 0.32); border-color: rgba(103, 175, 255, 0.72); }
-  100% { box-shadow: 0 0 0 rgba(103, 175, 255, 0); border-color: rgba(121, 164, 216, 0.24); }
-}
-
-@keyframes pulseNodeBlink {
-  0%,
-  100% {
-    transform: scaleY(0.75);
-    opacity: 0.45;
-  }
-  50% {
-    transform: scaleY(1.08);
-    opacity: 1;
-  }
-}
-
 @media (max-width: 1200px) {
   .hub-kpi-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1252,6 +1172,7 @@ onMounted(() => {
   .matrix-grid {
     grid-template-columns: 1fr;
   }
+
 }
 
 @media (max-width: 760px) {

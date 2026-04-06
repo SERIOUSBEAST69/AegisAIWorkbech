@@ -162,7 +162,7 @@ public class DataInitializer implements CommandLineRunner {
                     idx == 0 ? "done" : "pending",
                     idx == 0 ? 36.5 : null,
                     idx == 0 ? "/reports/task-trace-baseline-" + actor.getId() + ".json" : null,
-                    idx == 0 ? "{\"summary\":{\"total\":1,\"sensitiveFields\":[\"id_card\",\"phone\"],\"ratio\":36.5},\"results\":[{\"text\":\"[seed] 可追溯扫描样本\",\"label\":\"id_card\",\"score\":0.97}]}" : null,
+                    idx == 0 ? "{\"summary\":{\"total\":1,\"sensitiveFields\":[\"id_card\",\"phone\"],\"ratio\":36.5},\"results\":[{\"text\":\"可追溯扫描样本\",\"label\":\"id_card\",\"score\":0.97}]}" : null,
                     taskTime,
                     taskTime
                 );
@@ -230,6 +230,8 @@ public class DataInitializer implements CommandLineRunner {
             Date dayStart = atStartOfDay(day);
             Date dayEnd = new Date(dayStart.getTime() + 24L * 3600_000L);
             User actor = actors.get(dayOffset % actors.size());
+            String traceUsername = String.valueOf(actor.getUsername()).replace(".demo", "");
+            String traceDevice = String.valueOf(actor.getDeviceId()).replace(".demo", "");
 
             Integer dailyAuditCount = jdbcTemplate.queryForObject(
                 "SELECT COUNT(1) FROM audit_log WHERE user_id = ? AND operation_time >= ? AND operation_time < ?",
@@ -247,8 +249,8 @@ public class DataInitializer implements CommandLineRunner {
                     log.setUserId(actor.getId());
                     log.setOperation("demo_observability_baseline");
                     log.setOperationTime(auditTime);
-                    log.setInputOverview("companyId=" + companyId + ", actor=" + actor.getUsername() + ", burst=" + i);
-                    log.setOutputOverview("seed=trend-baseline, traceUser=" + actor.getUsername());
+                    log.setInputOverview("companyId=" + companyId + ", actor=" + traceUsername + ", burst=" + i);
+                    log.setOutputOverview("trend-baseline, traceUser=" + traceUsername);
                     log.setResult("success");
                     log.setRiskLevel((i + dayOffset) % 4 == 0 ? "MEDIUM" : "LOW");
                     log.setCreateTime(auditTime);
@@ -307,11 +309,11 @@ public class DataInitializer implements CommandLineRunner {
                             "INSERT INTO ai_call_log(user_id, company_id, username, model_code, provider, input_preview, output_preview, status, duration_ms, token_usage, ip, create_time) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                             actor.getId(),
                             companyId,
-                            actor.getUsername(),
+                            traceUsername,
                             modelCode,
                             provider,
-                            "[seed] observability call by " + actor.getUsername(),
-                            "[seed] response ok",
+                            "observability call by " + traceUsername,
+                            "response ok",
                             (i + dayOffset) % 6 == 0 ? "fail" : "success",
                             700 + (dayOffset * 40L) + i * 60L,
                             220 + dayOffset * 10 + i * 20,
@@ -335,19 +337,19 @@ public class DataInitializer implements CommandLineRunner {
                     String eventType = dayOffset % 2 == 0 ? "PRIVACY_ALERT" : "ANOMALY_ALERT";
                     String severity = dayOffset % 5 == 0 ? "high" : "medium";
                     Date eventTime = new Date(dayStart.getTime() + 8L * 3600_000L);
-                    String payload = "{\"trace\":{\"username\":\"" + actor.getUsername() + "\",\"userId\":" + actor.getId() + ",\"role\":\"" + resolveRoleCode(actor.getRoleId()) + "\",\"department\":\"" + String.valueOf(actor.getDepartment()) + "\",\"position\":\"" + String.valueOf(actor.getJobTitle()) + "\",\"companyId\":" + companyId + ",\"device\":\"" + String.valueOf(actor.getDeviceId()) + "\"}}";
+                    String payload = "{\"trace\":{\"username\":\"" + traceUsername + "\",\"userId\":" + actor.getId() + ",\"role\":\"" + resolveRoleCode(actor.getRoleId()) + "\",\"department\":\"" + String.valueOf(actor.getDepartment()) + "\",\"position\":\"" + String.valueOf(actor.getJobTitle()) + "\",\"companyId\":" + companyId + ",\"device\":\"" + traceDevice + "\"}}";
                     jdbcTemplate.update(
                         "INSERT INTO governance_event(company_id, user_id, username, event_type, source_module, severity, status, title, description, source_event_id, attack_type, policy_version, payload_json, event_time, create_time, update_time) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                         companyId,
                         actor.getId(),
-                        actor.getUsername(),
+                        traceUsername,
                         eventType,
                         "behavior-monitor",
                         severity,
                         "pending",
-                        "[seed] 可追溯观测事件",
+                        "员工行为监控观测事件",
                         "用于运维观测与员工行为监控联动展示",
-                        "SEED-OBS-" + actor.getId() + "-" + dayOffset,
+                        "OBS-TRACE-" + actor.getId() + "-" + dayOffset,
                         eventType.equals("PRIVACY_ALERT") ? "data_exfil_plain" : "abnormal_access",
                         1L,
                         payload,
@@ -663,7 +665,6 @@ public class DataInitializer implements CommandLineRunner {
             new PermissionSeed("用户管理菜单", "menu:user_manage", "menu"),
             new PermissionSeed("角色管理菜单", "menu:role_manage", "menu"),
             new PermissionSeed("权限管理菜单", "menu:permission_manage", "menu"),
-            new PermissionSeed("审批管理菜单", "menu:approval_manage", "menu"),
             new PermissionSeed("审批中心菜单", "menu:approval_center", "menu"),
             new PermissionSeed("治理变更菜单", "menu:governance_change", "menu"),
             new PermissionSeed("风险事件菜单", "menu:risk_event_manage", "menu"),
@@ -746,7 +747,7 @@ public class DataInitializer implements CommandLineRunner {
         permissionParentByCode.put("sensitive:scan:view", "menu:sensitive_scan");
         permissionParentByCode.put("desense:preview:view", "menu:desense_preview");
         permissionParentByCode.put("subject:request:view", "menu:subject_request");
-        permissionParentByCode.put("approval:view", "menu:approval_manage");
+        permissionParentByCode.put("approval:view", "menu:approval_center");
         permissionParentByCode.put("govern:change:view", "menu:governance_change");
         permissionParentByCode.put("risk:event:view", "menu:risk_event_manage");
         permissionParentByCode.put("security:event:view", "menu:security_command");
@@ -793,7 +794,6 @@ public class DataInitializer implements CommandLineRunner {
             "menu:user_manage",
             "menu:role_manage",
             "menu:permission_manage",
-            "menu:approval_manage",
             "menu:approval_center",
             "menu:governance_change",
             "menu:risk_event_manage",
@@ -884,7 +884,6 @@ public class DataInitializer implements CommandLineRunner {
             "menu:ai_risk_rating",
             "menu:sensitive_scan",
             "menu:desense_preview",
-            "menu:approval_manage",
             "menu:approval_center",
             "menu:governance_change",
             "menu:risk_event_manage",

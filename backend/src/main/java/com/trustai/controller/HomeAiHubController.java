@@ -1,12 +1,17 @@
 package com.trustai.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.trustai.config.jwt.JwtUtil;
+import com.trustai.controller.AiGatewayController.ChatReq;
+import com.trustai.controller.AiGatewayController.Message;
 import com.trustai.entity.AiCallLog;
 import com.trustai.entity.AuditLog;
 import com.trustai.entity.DataAsset;
 import com.trustai.entity.GovernanceEvent;
 import com.trustai.entity.User;
+import com.trustai.service.AiGatewayService;
 import com.trustai.service.AiCallAuditService;
 import com.trustai.service.AuditLogService;
 import com.trustai.service.CompanyScopeService;
@@ -29,6 +34,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Comparator;
 import java.util.Set;
+import java.util.LinkedHashSet;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -36,6 +42,7 @@ import java.util.stream.Collectors;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -48,12 +55,18 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 public class HomeAiHubController {
 
     private static final Set<String> PRIVILEGED_ROLES = Set.of(
-        "ADMIN", "SECOPS", "EXECUTIVE", "DATA_ADMIN", "AI_BUILDER", "BUSINESS_OWNER"
+        "ADMIN", "ADMIN_REVIEWER", "ADMIN_OPS",
+        "SECOPS", "SECOPS_RESPONDER",
+        "EXECUTIVE", "EXECUTIVE_COMPLIANCE",
+        "DATA_ADMIN", "DATA_ADMIN_MAINTAINER",
+        "AI_BUILDER",
+        "BUSINESS_OWNER", "BUSINESS_OWNER_APPROVER"
     );
     private static final Set<String> THREAT_TYPES = Set.of(
         "PRIVACY_ALERT", "ANOMALY_ALERT", "SHADOW_AI_ALERT", "SECURITY_ALERT"
     );
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final ObjectMapper JSON = new ObjectMapper();
 
     private final CurrentUserService currentUserService;
     private final CompanyScopeService companyScopeService;
@@ -62,6 +75,7 @@ public class HomeAiHubController {
     private final GovernanceEventService governanceEventService;
     private final AiCallAuditService aiCallAuditService;
     private final AuditLogService auditLogService;
+    private final AiGatewayService aiGatewayService;
     private final JwtUtil jwtUtil;
     private final JdbcTemplate jdbcTemplate;
 
@@ -74,6 +88,7 @@ public class HomeAiHubController {
                                GovernanceEventService governanceEventService,
                                AiCallAuditService aiCallAuditService,
                                AuditLogService auditLogService,
+                               AiGatewayService aiGatewayService,
                                JwtUtil jwtUtil,
                                JdbcTemplate jdbcTemplate) {
         this.currentUserService = currentUserService;
@@ -83,6 +98,7 @@ public class HomeAiHubController {
         this.governanceEventService = governanceEventService;
         this.aiCallAuditService = aiCallAuditService;
         this.auditLogService = auditLogService;
+        this.aiGatewayService = aiGatewayService;
         this.jwtUtil = jwtUtil;
         this.jdbcTemplate = jdbcTemplate;
     }
@@ -97,13 +113,44 @@ public class HomeAiHubController {
         return R.ok(buildHubPayload(selection));
     }
 
+    @GetMapping("/ai-hub/deepseek-analysis")
+    @PreAuthorize("isAuthenticated()")
+    public R<Map<String, Object>> deepseekAnalysis(@RequestParam(defaultValue = "company") String scopeLevel,
+                                                   @RequestParam(required = false) String department,
+                                                   @RequestParam(required = false) String username) {
+        User viewer = currentUserService.requireCurrentUser();
+        ScopeSelection selection = resolveScope(viewer, scopeLevel, department, username);
+        Map<String, Object> hub = buildHubPayload(selection);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("generatedAt", new Date());
+        result.put("scope", hub.get("scope"));
+
+        String content = buildAnalysisPrompt(hub);
+        try {
+            String analysis = runDeepseekAnalysis(content);
+            result.put("analysis", analysis);
+            result.put("source", "deepseek-chat");
+        } catch (Exception ex) {
+            result.put("analysis", buildLocalFallbackAnalysis(hub, ex.getMessage()));
+            result.put("source", "deepseek-fallback");
+            result.put("warning", "DeepSeek调用失败，已返回本地聚合解读");
+        }
+        result.put("trace", Map.of(
+            "companyId", selection.companyId,
+            "scopeLevel", selection.scopeLevel,
+            "scopeUserCount", selection.userIds.size(),
+            "dataKpiCount", ((List<?>) hub.getOrDefault("kpis", List.of())).size()
+        ));
+        return R.ok(result);
+    }
+
     @GetMapping("/ai-hub/scope-options")
     @PreAuthorize("isAuthenticated()")
     public R<Map<String, Object>> hubScopeOptions() {
         User viewer = currentUserService.requireCurrentUser();
         Long companyId = companyScopeService.requireCompanyId();
-        String roleCode = roleCodeOf(viewer);
-        boolean privileged = PRIVILEGED_ROLES.contains(roleCode);
+        String roleCode = currentUserService.currentRoleCode();
+        boolean privileged = canUseCompanyDepartmentScope(viewer);
 
         List<User> companyUsers = loadCompanyUsers(companyId);
         if (!privileged) {
@@ -169,6 +216,8 @@ public class HomeAiHubController {
             .collect(Collectors.toList());
 
         Map<String, Object> data = new LinkedHashMap<>();
+        data.put("companyId", companyId);
+        data.put("userCount", companyUsers.size());
         data.put("allowedLevels", privileged ? List.of("company", "department", "user") : List.of("user"));
         data.put("departments", departments);
         data.put("users", users);
@@ -209,6 +258,8 @@ public class HomeAiHubController {
             fillGraphEdgeDetail(data, selection, safeKey, safeLimit, source, target);
         } else if ("radar-dimension".equals(safeKind)) {
             fillRadarDimensionDetail(data, selection, safeKey, safeLimit);
+        } else if ("pulse-node".equals(safeKind)) {
+            fillPulseNodeDetail(data, selection, safeKey, safeLimit);
         }
 
         return R.ok(data);
@@ -246,6 +297,9 @@ public class HomeAiHubController {
                 payload.put("cursor", currentCursor[0]);
                 payload.put("timelineDelta", updates);
                 payload.put("kpis", buildKpis(selection));
+                payload.put("alertBoard", buildAlertBoard(selection));
+                payload.put("scopePersona", buildScopePersona(selection));
+                payload.put("pulseWall", buildPulseWall(selection));
                 payload.put("generatedAt", new Date());
                 emitter.send(SseEmitter.event().name("delta").data(payload));
             } catch (Exception ex) {
@@ -283,10 +337,9 @@ public class HomeAiHubController {
         payload.put("kpis", buildKpis(selection));
         payload.put("alertBoard", buildAlertBoard(selection));
         payload.put("scopePersona", buildScopePersona(selection));
+        payload.put("pulseWall", buildPulseWall(selection));
         payload.put("graph", buildGraph(selection));
         payload.put("radar", Map.of("dimensions", buildRadar(selection)));
-        payload.put("timeline", loadTimeline(selection, 12));
-        payload.put("recommendations", buildRecommendations(selection));
         payload.put("cursor", latestTimelineCursor(selection));
         payload.put("generatedAt", new Date());
         return payload;
@@ -445,6 +498,94 @@ public class HomeAiHubController {
         return persona;
     }
 
+    private Map<String, Object> buildPulseWall(ScopeSelection selection) {
+        List<Map<String, Object>> nodes = new ArrayList<>();
+
+        List<DataAsset> topAssets = dataAssetService.list(
+            scopeAssetQuery(selection)
+                .select("id", "name", "sensitivity_level", "owner_id", "create_time")
+                .orderByDesc("create_time")
+                .last("LIMIT 8")
+        );
+        for (DataAsset item : topAssets) {
+            String sensitivity = String.valueOf(item.getSensitivityLevel() == null ? "L2" : item.getSensitivityLevel()).toUpperCase(Locale.ROOT);
+            String risk = ("L4".equals(sensitivity) || "L5".equals(sensitivity)) ? "high" : ("L3".equals(sensitivity) ? "medium" : "low");
+            Map<String, Object> node = new LinkedHashMap<>();
+            node.put("id", "asset-" + item.getId());
+            node.put("kind", "asset");
+            node.put("title", StringUtils.hasText(item.getName()) ? item.getName() : "未命名资产");
+            node.put("subtitle", "敏感等级 " + sensitivity);
+            node.put("riskLevel", risk);
+            node.put("activity", "medium");
+            node.put("eventTime", formatTime(item.getCreateTime()));
+            node.put("detailKind", "pulse-node");
+            node.put("detailKey", "asset:" + item.getId());
+            nodes.add(node);
+        }
+
+        List<GovernanceEvent> topEvents = governanceEventService.list(
+            scopeThreatQuery(selection)
+                .select("id", "event_type", "severity", "status", "title", "username", "event_time")
+                .orderByDesc("event_time")
+                .last("LIMIT 8")
+        );
+        for (GovernanceEvent item : topEvents) {
+            String severity = String.valueOf(item.getSeverity() == null ? "medium" : item.getSeverity()).toLowerCase(Locale.ROOT);
+            String risk = "critical".equals(severity) || "high".equals(severity) ? "high" : ("medium".equals(severity) ? "medium" : "low");
+            Map<String, Object> node = new LinkedHashMap<>();
+            node.put("id", "event-" + item.getId());
+            node.put("kind", "event");
+            node.put("title", StringUtils.hasText(item.getTitle()) ? item.getTitle() : String.valueOf(item.getEventType()));
+            node.put("subtitle", String.valueOf(item.getEventType()));
+            node.put("riskLevel", risk);
+            node.put("activity", List.of("pending", "reviewing").contains(String.valueOf(item.getStatus()).toLowerCase(Locale.ROOT)) ? "high" : "medium");
+            node.put("eventTime", formatTime(item.getEventTime()));
+            node.put("detailKind", "pulse-node");
+            node.put("detailKey", "event:" + item.getId());
+            nodes.add(node);
+        }
+
+        List<AiCallLog> topCalls = aiCallAuditService.list(
+            scopeAiCallQuery(selection)
+                .select("id", "username", "model_code", "provider", "status", "duration_ms", "create_time")
+                .orderByDesc("create_time")
+                .last("LIMIT 8")
+        );
+        for (AiCallLog item : topCalls) {
+            long duration = item.getDurationMs() == null ? 0L : item.getDurationMs();
+            String status = String.valueOf(item.getStatus() == null ? "unknown" : item.getStatus()).toLowerCase(Locale.ROOT);
+            String risk = "success".equals(status) && duration < 2000 ? "low" : ("success".equals(status) ? "medium" : "high");
+            Map<String, Object> node = new LinkedHashMap<>();
+            node.put("id", "call-" + item.getId());
+            node.put("kind", "ai_call");
+            node.put("title", StringUtils.hasText(item.getModelCode()) ? item.getModelCode() : "模型调用");
+            node.put("subtitle", String.valueOf(item.getProvider() == null ? "unknown" : item.getProvider()) + " / " + status);
+            node.put("riskLevel", risk);
+            node.put("activity", duration >= 2500 ? "high" : (duration >= 1200 ? "medium" : "low"));
+            node.put("eventTime", formatTime(item.getCreateTime()));
+            node.put("detailKind", "pulse-node");
+            node.put("detailKey", "ai:" + item.getId());
+            nodes.add(node);
+        }
+
+        nodes = nodes.stream()
+            .sorted(Comparator
+                .comparing((Map<String, Object> node) -> severityRank(String.valueOf(node.get("riskLevel")))).reversed()
+                .thenComparing(node -> String.valueOf(node.get("eventTime")), Comparator.reverseOrder()))
+            .limit(24)
+            .collect(Collectors.toList());
+
+        if (nodes.isEmpty()) {
+            nodes = buildAggregatePulseFallback(selection);
+        }
+
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("nodes", nodes);
+        data.put("total", nodes.size());
+        data.put("generatedAt", new Date());
+        return data;
+    }
+
     private Map<String, Object> buildGraph(ScopeSelection selection) {
         long assets = dataAssetService.count(scopeAssetQuery(selection));
         long threats = governanceEventService.count(scopeThreatQuery(selection));
@@ -565,8 +706,7 @@ public class HomeAiHubController {
                                         String department,
                                         String username) {
         Long companyId = companyScopeService.requireCompanyId();
-        String roleCode = roleCodeOf(viewer);
-        boolean privileged = PRIVILEGED_ROLES.contains(roleCode);
+        boolean privileged = canUseCompanyDepartmentScope(viewer);
 
         String safeScope = normalizeScope(scopeLevel);
         if (!privileged) {
@@ -892,6 +1032,142 @@ public class HomeAiHubController {
         }).collect(Collectors.toList()));
     }
 
+    private void fillPulseNodeDetail(Map<String, Object> data,
+                                     ScopeSelection selection,
+                                     String key,
+                                     int limit) {
+        String safeKey = String.valueOf(key == null ? "" : key).trim();
+        String[] parts = safeKey.split(":", 2);
+        if (parts.length != 2) {
+            data.put("title", "脉冲节点明细");
+            data.put("description", "节点标识无效");
+            return;
+        }
+
+        String kind = parts[0].toLowerCase(Locale.ROOT);
+        String rawId = parts[1];
+        if ("asset".equals(kind)) {
+            DataAsset item = dataAssetService.getOne(
+                scopeAssetQuery(selection)
+                    .eq("id", rawId)
+                    .last("LIMIT 1")
+            );
+            if (item == null) {
+                data.put("title", "资产节点明细");
+                data.put("description", "目标资产不存在或超出权限范围");
+                return;
+            }
+            data.put("title", "资产节点明细");
+            data.put("description", "资产节点关联的近期待处置风险事件");
+            List<GovernanceEvent> rows = governanceEventService.list(
+                scopeThreatQuery(selection)
+                    .eq("asset_id", item.getId())
+                    .select("id", "event_type", "severity", "status", "title", "username", "event_time")
+                    .orderByDesc("event_time")
+                    .last("LIMIT " + limit)
+            );
+            data.put("records", rows.stream().map(event -> {
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("id", event.getId());
+                row.put("eventType", event.getEventType());
+                row.put("severity", event.getSeverity());
+                row.put("status", event.getStatus());
+                row.put("title", event.getTitle());
+                row.put("username", event.getUsername());
+                row.put("eventTime", formatTime(event.getEventTime()));
+                return row;
+            }).collect(Collectors.toList()));
+            return;
+        }
+
+        if ("event".equals(kind)) {
+            GovernanceEvent item = governanceEventService.getOne(
+                scopeThreatQuery(selection)
+                    .eq("id", rawId)
+                    .last("LIMIT 1")
+            );
+            data.put("title", "风险事件节点明细");
+            data.put("description", "单事件完整视图");
+            if (item == null) {
+                data.put("records", List.of());
+                return;
+            }
+            data.put("records", List.of(Map.of(
+                "id", item.getId(),
+                "eventType", String.valueOf(item.getEventType()),
+                "severity", String.valueOf(item.getSeverity()),
+                "status", String.valueOf(item.getStatus()),
+                "title", String.valueOf(item.getTitle()),
+                "username", String.valueOf(item.getUsername()),
+                "eventTime", formatTime(item.getEventTime())
+            )));
+            return;
+        }
+
+        if ("ai".equals(kind)) {
+            AiCallLog item = aiCallAuditService.getOne(
+                scopeAiCallQuery(selection)
+                    .eq("id", rawId)
+                    .last("LIMIT 1")
+            );
+            data.put("title", "模型调用节点明细");
+            data.put("description", "模型调用审计详情");
+            if (item == null) {
+                data.put("records", List.of());
+                return;
+            }
+            data.put("records", List.of(Map.of(
+                "id", item.getId(),
+                "username", String.valueOf(item.getUsername()),
+                "modelCode", String.valueOf(item.getModelCode()),
+                "provider", String.valueOf(item.getProvider()),
+                "status", String.valueOf(item.getStatus()),
+                "durationMs", item.getDurationMs() == null ? 0L : item.getDurationMs(),
+                "createTime", formatTime(item.getCreateTime())
+            )));
+            return;
+        }
+
+        if ("aggregate".equals(kind)) {
+            String normalized = String.valueOf(rawId == null ? "" : rawId).toLowerCase(Locale.ROOT);
+            if ("asset".equals(normalized) || "risk".equals(normalized) || "audit".equals(normalized) || "ai".equals(normalized)) {
+                fillGraphNodeDetail(data, selection, normalized, limit);
+                return;
+            }
+        }
+
+        data.put("title", "脉冲节点明细");
+        data.put("description", "不支持的节点类型");
+    }
+
+    private List<Map<String, Object>> buildAggregatePulseFallback(ScopeSelection selection) {
+        List<Map<String, Object>> nodes = new ArrayList<>();
+        long assetCount = dataAssetService.count(scopeAssetQuery(selection));
+        long riskCount = governanceEventService.count(scopeThreatQuery(selection));
+        long aiCount = aiCallAuditService.count(scopeAiCallQuery(selection));
+        long auditCount = auditLogService.count(scopeAuditQuery(selection));
+
+        nodes.add(aggregatePulseNode("asset", "资产聚合节点", "当前视角资产总量 " + assetCount, assetCount >= 50 ? "medium" : "low"));
+        nodes.add(aggregatePulseNode("risk", "风险聚合节点", "当前视角风险总量 " + riskCount, riskCount >= 20 ? "high" : (riskCount >= 5 ? "medium" : "low")));
+        nodes.add(aggregatePulseNode("ai", "调用聚合节点", "当前视角模型调用总量 " + aiCount, aiCount >= 100 ? "medium" : "low"));
+        nodes.add(aggregatePulseNode("audit", "审计聚合节点", "当前视角审计总量 " + auditCount, auditCount >= 100 ? "medium" : "low"));
+        return nodes;
+    }
+
+    private Map<String, Object> aggregatePulseNode(String code, String title, String subtitle, String riskLevel) {
+        Map<String, Object> node = new LinkedHashMap<>();
+        node.put("id", "agg-" + code);
+        node.put("kind", "aggregate");
+        node.put("title", title);
+        node.put("subtitle", subtitle);
+        node.put("riskLevel", riskLevel);
+        node.put("activity", "medium");
+        node.put("eventTime", formatTime(new Date()));
+        node.put("detailKind", "pulse-node");
+        node.put("detailKey", "aggregate:" + code);
+        return node;
+    }
+
     private QueryWrapper<DataAsset> scopeAssetQuery(ScopeSelection selection) {
         QueryWrapper<DataAsset> query = new QueryWrapper<DataAsset>().eq("company_id", selection.companyId);
         if (!"company".equals(selection.scopeLevel)) {
@@ -969,6 +1245,114 @@ public class HomeAiHubController {
             user.getRoleId()
         ).stream().findFirst().orElse("EMPLOYEE");
         return String.valueOf(code == null ? "EMPLOYEE" : code).toUpperCase(Locale.ROOT);
+    }
+
+    private boolean canUseCompanyDepartmentScope(User viewer) {
+        if (viewer == null) {
+            return false;
+        }
+        if (!Objects.equals(viewer.getCompanyId(), 1L)) {
+            return false;
+        }
+        String role = roleCodeOf(viewer);
+        return "ADMIN".equals(role) || currentUserService.hasAnyRole("ADMIN");
+    }
+
+    private String buildAnalysisPrompt(Map<String, Object> hub) {
+        try {
+            String hubJson = JSON.writerWithDefaultPrettyPrinter().writeValueAsString(hub);
+            return "你是AegisAI治理中枢分析助手。请基于以下真实聚合数据输出简洁结论："
+                + "1) 三条核心风险判断；2) 两条优先处置建议；3) 一条可量化追踪指标。"
+                + "要求：严禁编造不存在字段，直接引用数据中的指标或事件。\\n\\n"
+                + hubJson;
+        } catch (Exception ex) {
+            return "请基于当前治理中枢数据输出风险判断与处置建议。";
+        }
+    }
+
+    private String runDeepseekAnalysis(String prompt) {
+        try {
+            ChatReq req = new ChatReq();
+            req.setProvider("deepseek");
+            req.setModel("deepseek-chat");
+            Message userPrompt = new Message();
+            userPrompt.setRole("user");
+            userPrompt.setContent(prompt);
+            req.setMessages(List.of(userPrompt));
+            req.setAccessReason("home_ai_hub_analysis");
+
+            Map<String, Object> response = aiGatewayService.chat(req);
+            return extractAiRawText(response);
+        } catch (AccessDeniedException denied) {
+            throw denied;
+        } catch (Exception ex) {
+            throw new IllegalStateException("DeepSeek 分析调用失败: " + ex.getMessage(), ex);
+        }
+    }
+
+    private String extractAiRawText(Map<String, Object> response) {
+        String raw = String.valueOf(response == null ? "" : response.getOrDefault("raw", ""));
+        if (!StringUtils.hasText(raw)) {
+            return "模型未返回可解析内容";
+        }
+        try {
+            JsonNode root = JSON.readTree(raw);
+            JsonNode text = root.path("choices").path(0).path("message").path("content");
+            if (text.isTextual() && StringUtils.hasText(text.asText())) {
+                return text.asText();
+            }
+        } catch (Exception ignore) {
+        }
+        return raw;
+    }
+
+    private String buildLocalFallbackAnalysis(Map<String, Object> hub, String cause) {
+        List<Map<String, Object>> kpis = castListMap(hub.get("kpis"));
+        String risk = kpiValue(kpis, "riskEvents");
+        String pending = String.valueOf(castMap(hub.get("alertBoard")).getOrDefault("pendingCount", 0));
+        String score = kpiValue(kpis, "governanceScore");
+        return "核心判断：当前风险事件总量 " + risk + "，待处置告警 " + pending + "，治理脉冲分 " + score + "。"
+            + "建议优先收敛待处置与高风险链路，并在下一周期对比脉冲分变化。"
+            + (StringUtils.hasText(cause) ? (" 失败原因: " + cause) : "");
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> castListMap(Object value) {
+        if (value instanceof List<?> list) {
+            return (List<Map<String, Object>>) list;
+        }
+        return List.of();
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> castMap(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            return (Map<String, Object>) map;
+        }
+        return Map.of();
+    }
+
+    private String kpiValue(List<Map<String, Object>> kpis, String key) {
+        return kpis.stream()
+            .filter(item -> key.equals(String.valueOf(item.get("key"))))
+            .map(item -> String.valueOf(item.getOrDefault("value", 0)))
+            .findFirst()
+            .orElse("0");
+    }
+
+    private boolean isPrivilegedViewer() {
+        return currentUserService.hasAnyRole(PRIVILEGED_ROLES.toArray(new String[0]));
+    }
+
+    private int severityRank(String riskLevel) {
+        String normalized = String.valueOf(riskLevel == null ? "" : riskLevel).toLowerCase(Locale.ROOT);
+        if ("critical".equals(normalized) || "high".equals(normalized)) {
+            return 3;
+        }
+        if ("medium".equals(normalized)) {
+            return 2;
+        }
+        return 1;
     }
 
     private Map<String, Object> kpi(String key, String label, Object value, String note) {

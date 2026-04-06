@@ -21,6 +21,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -39,6 +40,10 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 public class SecurityCockpitController {
 
     private static final DateTimeFormatter HOUR_LABEL_FORMATTER = DateTimeFormatter.ofPattern("MM-dd HH:00");
+    private static final Pattern IPV4_PATTERN = Pattern.compile("^(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)(\\.(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)){3}$");
+    private static final Set<String> HEATMAP_DEPARTMENT_EXCLUDES = Set.of(
+        "模型平台组", "业务一线一组", "业务一线二组", "业务一线四组", "未分配部门"
+    );
 
     private final CurrentUserService currentUserService;
     private final CompanyScopeService companyScopeService;
@@ -123,11 +128,21 @@ public class SecurityCockpitController {
 
         List<Map<String, Object>> rows = jdbcTemplate.query(sql, (rs, rowNum) -> {
             Map<String, Object> row = new LinkedHashMap<>();
-            row.put("department", rs.getString("department"));
+            row.put("department", sanitizeDepartmentLabel(rs.getString("department")));
             row.put("eventCount", rs.getLong("eventCount"));
             row.put("riskScore", rs.getDouble("riskScore"));
             return row;
         }, params.toArray());
+
+        rows = rows.stream()
+            .filter(item -> {
+                String department = String.valueOf(item.getOrDefault("department", "")).trim();
+                long eventCount = Long.parseLong(String.valueOf(item.getOrDefault("eventCount", 0)));
+                return StringUtils.hasText(department)
+                    && eventCount > 0
+                    && !HEATMAP_DEPARTMENT_EXCLUDES.contains(department);
+            })
+            .toList();
 
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("days", safeDays);
@@ -286,6 +301,7 @@ public class SecurityCockpitController {
             Map<String, Object> node = new LinkedHashMap<>();
             node.put("id", "ip:" + entry.getKey());
             node.put("label", entry.getKey());
+            node.put("displayLabel", buildSourceDisplayLabel(entry.getKey()));
             node.put("type", "source");
             node.put("value", entry.getValue());
             node.put("risk", "medium");
@@ -295,6 +311,7 @@ public class SecurityCockpitController {
             Map<String, Object> node = new LinkedHashMap<>();
             node.put("id", "target:" + entry.getKey());
             node.put("label", entry.getKey());
+            node.put("displayLabel", buildTargetDisplayLabel(entry.getKey()));
             node.put("type", "target");
             node.put("value", entry.getValue());
             node.put("risk", "low");
@@ -356,13 +373,19 @@ public class SecurityCockpitController {
                     payload.put("generatedAt", new Date());
                     emitter.send(SseEmitter.event().name("alerts").data(payload));
                 } else {
-                    emitter.send(SseEmitter.event().name("ping").data(Map.of("ts", System.currentTimeMillis())));
+                    emitter.send(SseEmitter.event().name("ping").data(Map.of("ts", System.currentTimeMillis(), "cursor", cursor[0])));
                 }
             } catch (Exception ex) {
                 emitter.completeWithError(ex);
             }
         };
 
+        try {
+            emitter.send(SseEmitter.event().name("ready").data(Map.of("cursor", cursor[0], "ts", System.currentTimeMillis())).reconnectTime(3000));
+        } catch (Exception ex) {
+            emitter.completeWithError(ex);
+            return emitter;
+        }
         publish.run();
         var future = sseScheduler.scheduleAtFixedRate(publish, 5, 5, TimeUnit.SECONDS);
 
@@ -620,6 +643,67 @@ public class SecurityCockpitController {
             return filePath.trim();
         }
         return "unknown";
+    }
+
+    private String buildTargetDisplayLabel(String target) {
+        String value = StringUtils.hasText(target) ? target.trim() : "unknown";
+        if ("unknown".equalsIgnoreCase(value)) {
+            return "目标对象 · 未识别";
+        }
+        if (value.startsWith("http://") || value.startsWith("https://")) {
+            String compact = value.replaceFirst("^https?://", "");
+            int slash = compact.indexOf('/');
+            if (slash > -1) {
+                compact = compact.substring(0, slash);
+            }
+            return "目标域名 · " + truncateLabel(compact, 14);
+        }
+        if (value.startsWith("/") || value.contains("\\")) {
+            String fileName = value.replace('\\', '/');
+            int index = fileName.lastIndexOf('/');
+            String compact = index > -1 ? fileName.substring(index + 1) : fileName;
+            return "目标文件 · " + truncateLabel(compact, 14);
+        }
+        if (value.contains(".")) {
+            return "目标对象 · " + truncateLabel(value, 14);
+        }
+        if (IPV4_PATTERN.matcher(value).matches()) {
+            return "目标IP · " + value;
+        }
+        return "目标对象 · " + truncateLabel(value, 14);
+    }
+
+    private String buildSourceDisplayLabel(String sourceIp) {
+        String value = StringUtils.hasText(sourceIp) ? sourceIp.trim() : "unknown";
+        if ("unknown".equalsIgnoreCase(value)) {
+            return "来源IP · 未识别";
+        }
+        if (IPV4_PATTERN.matcher(value).matches()) {
+            String[] parts = value.split("\\.");
+            String suffix = parts.length >= 2 ? (parts[parts.length - 2] + "." + parts[parts.length - 1]) : value;
+            return "来源IP · *.*." + suffix;
+        }
+        return "来源对象 · " + truncateLabel(value, 12);
+    }
+
+    private String truncateLabel(String value, int maxLen) {
+        if (!StringUtils.hasText(value)) {
+            return "-";
+        }
+        String raw = value.trim();
+        if (raw.length() <= maxLen) {
+            return raw;
+        }
+        return raw.substring(0, Math.max(1, maxLen - 1)) + "…";
+    }
+
+    private String sanitizeDepartmentLabel(String value) {
+        String raw = StringUtils.hasText(value) ? value : "未分配部门";
+        return raw
+            .replaceAll("(?i)\\[?demo(?:[-_ ]?seed)?\\]?", "")
+            .replaceAll("(?i)test", "")
+            .replaceAll("\\s{2,}", " ")
+            .trim();
     }
 
     private int severityWeight(String severity) {

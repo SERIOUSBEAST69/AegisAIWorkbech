@@ -182,7 +182,7 @@ const searchableItems = [
   { id: 3, type: '功能', title: '脱敏策略校验', description: '测试和验证数据脱敏效果', icon: View, path: '/desense-preview', category: 'functions' },
   { id: 4, type: '功能', title: '影子AI发现', description: '发现组织内未经批准的AI工具', icon: Aim, path: '/shadow-ai', category: 'functions' },
   { id: 5, type: '页面', title: '审计日志', description: '查看所有操作的审计记录', icon: Histogram, path: '/audit-log', category: 'pages' },
-  { id: 6, type: '页面', title: '审批流处理', description: '管理和处理各类审批请求', icon: DocumentChecked, path: '/approval-manage', category: 'pages' },
+  { id: 6, type: '页面', title: '审批中心待办', description: '集中处理审批与治理请求', icon: DocumentChecked, path: '/approval-center', category: 'pages' },
   { id: 7, type: '功能', title: 'AI服务风险评级', description: '评估AI服务的安全风险等级', icon: Warning, path: '/ai/risk-rating', category: 'functions' },
   { id: 8, type: '功能', title: '员工AI行为监控', description: '监控和分析员工使用AI的行为', icon: ChatLineRound, path: '/ai/anomaly', category: 'functions' },
   { id: 9, type: '页面', title: '用户管理', description: '管理组织用户账号', icon: UserFilled, path: '/user-manage', category: 'pages' },

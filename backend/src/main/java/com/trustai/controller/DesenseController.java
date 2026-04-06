@@ -13,12 +13,17 @@ import org.springframework.web.bind.annotation.*;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import jakarta.validation.constraints.NotNull;
 
 @RestController
 @RequestMapping("/api/desense")
 @Validated
 public class DesenseController {
+
+    private static final Pattern ID_CARD_18 = Pattern.compile("\\b([1-9]\\d{5})(\\d{8})(\\d{3}[0-9Xx])\\b");
+    private static final Pattern ID_CARD_15 = Pattern.compile("\\b([1-9]\\d{5})(\\d{5})(\\d{4})\\b");
 
     @Autowired
     private DesensitizeRuleService ruleService;
@@ -85,25 +90,49 @@ public class DesenseController {
     private String applyMask(String sample, String mask) {
         if (sample == null) return "";
         if (mask == null || mask.isEmpty()) return sample;
-        String trimmed = sample.trim();
+        char maskChar = mask.charAt(0);
+        String masked = maskIdCards(sample, maskChar);
+
+        String trimmed = masked.trim();
         int leftKeep = 2;
         int rightKeep = 2;
-        if (trimmed.matches("^\\d{17}[\\dXx]$")) {
-            leftKeep = 6;
-            rightKeep = 4;
-        } else if (trimmed.matches("^1\\d{10}$")) {
+        if (trimmed.matches("^1\\d{10}$")) {
             leftKeep = 3;
             rightKeep = 4;
         } else if (trimmed.matches("^[^@\\s]{3,}@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$")) {
             leftKeep = 2;
             rightKeep = 2;
+        } else if (trimmed.matches("^[1-9]\\d{5}(19|20)\\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\\d|3[01])\\d{3}[0-9Xx]$")
+            || trimmed.matches("^[1-9]\\d{14}$")) {
+            leftKeep = 6;
+            rightKeep = 4;
         }
-        if (sample.length() <= leftKeep + rightKeep) return mask.repeat(sample.length());
+
+        if (masked.length() <= leftKeep + rightKeep) return String.valueOf(maskChar).repeat(masked.length());
         StringBuilder sb = new StringBuilder();
-        sb.append(sample, 0, leftKeep);
-        for (int i = leftKeep; i < sample.length() - rightKeep; i++) sb.append(mask.charAt(0));
-        sb.append(sample, sample.length() - rightKeep, sample.length());
+        sb.append(masked, 0, leftKeep);
+        for (int i = leftKeep; i < masked.length() - rightKeep; i++) sb.append(maskChar);
+        sb.append(masked, masked.length() - rightKeep, masked.length());
         return sb.toString();
+    }
+
+    private String maskIdCards(String text, char maskChar) {
+        Matcher m18 = ID_CARD_18.matcher(text);
+        StringBuffer sb18 = new StringBuffer();
+        while (m18.find()) {
+            String replacement = m18.group(1) + String.valueOf(maskChar).repeat(m18.group(2).length()) + m18.group(3);
+            m18.appendReplacement(sb18, replacement);
+        }
+        m18.appendTail(sb18);
+
+        Matcher m15 = ID_CARD_15.matcher(sb18.toString());
+        StringBuffer sb15 = new StringBuffer();
+        while (m15.find()) {
+            String replacement = m15.group(1) + String.valueOf(maskChar).repeat(m15.group(2).length()) + m15.group(3);
+            m15.appendReplacement(sb15, replacement);
+        }
+        m15.appendTail(sb15);
+        return sb15.toString();
     }
 
     public static class PreviewReq {

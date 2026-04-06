@@ -52,10 +52,32 @@ export function openCockpitAlertStream({ lastEventId = 0, limit = 30, onAlerts, 
   });
   const source = new EventSource(`/api/security-cockpit/alerts/stream?${params.toString()}`);
 
+  source.addEventListener('open', event => {
+    onAlerts && onAlerts({ type: 'open', nativeEvent: event });
+  });
+
+  source.addEventListener('ready', event => {
+    try {
+      const payload = JSON.parse(event.data || '{}');
+      onAlerts && onAlerts({ type: 'ready', ...payload });
+    } catch (err) {
+      onError && onError(err);
+    }
+  });
+
   source.addEventListener('alerts', event => {
     try {
       const payload = JSON.parse(event.data || '{}');
-      onAlerts && onAlerts(payload);
+      onAlerts && onAlerts({ type: 'alerts', ...payload });
+    } catch (err) {
+      onError && onError(err);
+    }
+  });
+
+  source.addEventListener('ping', event => {
+    try {
+      const payload = JSON.parse(event.data || '{}');
+      onAlerts && onAlerts({ type: 'ping', ...payload });
     } catch (err) {
       onError && onError(err);
     }

@@ -641,16 +641,15 @@ function setLane(lane) {
 async function loadAll() {
   loading.value = true;
   try {
-    const [approvalResult, riskResult] = await Promise.allSettled([
-      request.get('/approval/list'),
+    const [riskResult] = await Promise.allSettled([
       request.get('/risk-event/list'),
     ]);
 
-    approvals.value = approvalResult.status === 'fulfilled' ? (approvalResult.value || []) : [];
+    approvals.value = [];
     risks.value = riskResult.status === 'fulfilled' ? (riskResult.value || []) : [];
     shares.value = [];
 
-    const failed = [approvalResult, riskResult].filter(item => item.status === 'rejected');
+    const failed = [riskResult].filter(item => item.status === 'rejected');
     const hardFailure = failed.find(item => item.status === 'rejected' && item.reason?.code !== 40300);
     if (hardFailure && hardFailure.status === 'rejected') {
       throw hardFailure.reason;
@@ -676,26 +675,7 @@ async function withAction(key, action) {
 }
 
 function submitApproval() {
-  const assetId = String(approvalForm.value.assetId || '').trim();
-  const reason = String(approvalForm.value.reason || '').trim();
-  if (!assetId || !reason) {
-    ElMessage.warning('请填写资产ID和审批原因');
-    return;
-  }
-  submitLoading.value = 'approval';
-  request.post('/approval/apply', { assetId, reason })
-    .then(async () => {
-      ElMessage.success('审批申请已提交');
-      approvalForm.value = { assetId: '', reason: '' };
-      composerLane.value = 'approval';
-      await loadAll();
-    })
-    .catch(error => {
-      ElMessage.error(error?.message || '审批申请提交失败');
-    })
-    .finally(() => {
-      submitLoading.value = '';
-    });
+  ElMessage.warning('审批流管理已下线，请前往治理审批中心提交申请');
 }
 
 function submitShare() {
@@ -729,19 +709,13 @@ function submitRisk() {
 }
 
 function approveRequest(id, status) {
-  return withAction(`approval-${id}-${status}`, async () => {
-    const endpoint = status === '拒绝' ? '/approval/reject' : '/approval/approve';
-    await request.post(endpoint, { requestId: id, status });
-    ElMessage.success('审批流已更新');
-  });
+  ElMessage.warning('审批流管理已下线，请在治理审批中心处理');
+  return Promise.resolve();
 }
 
 function deleteApproval(id) {
-  return withAction(`approval-delete-${id}`, async () => {
-    await ElMessageBox.confirm('确认删除该审批申请吗？', '提示', { type: 'warning' });
-    await request.post('/approval/delete', { id });
-    ElMessage.success('审批申请已删除');
-  });
+  ElMessage.warning('审批流管理已下线，请在治理审批中心处理');
+  return Promise.resolve();
 }
 
 function updateRisk(item, status) {

@@ -72,13 +72,17 @@ public class AiCallController {
 
     @GetMapping("/monitor/summary")
     @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','EXECUTIVE','SECOPS','DATA_ADMIN','AI_BUILDER','BUSINESS_OWNER','EMPLOYEE')")
-    public R<?> monitorSummary() {
+    public R<?> monitorSummary(@RequestParam(defaultValue = "30") int days,
+                               @RequestParam(defaultValue = "false") boolean includeMeta) {
         try {
             Long companyId = currentUserService.requireCurrentUser().getCompanyId();
+            int safeDays = Math.max(1, Math.min(30, days));
+            LocalDateTime from = LocalDateTime.now().minusDays(safeDays);
             List<AiCallLog> logs = aiCallAuditService.list(new QueryWrapper<AiCallLog>()
                 .eq(companyId != null, "company_id", companyId)
+                .ge("create_time", from)
                 .orderByDesc("create_time")
-                .last("limit 500"));
+                .last("limit 5000"));
             Map<String, MonitorRow> map = new HashMap<>();
             for (AiCallLog log : logs) {
                 MonitorRow row = map.computeIfAbsent(log.getModelCode(), k -> new MonitorRow(k, log.getProvider()));
@@ -86,11 +90,21 @@ public class AiCallController {
                 if ("success".equalsIgnoreCase(log.getStatus())) row.success++;
                 if (log.getDurationMs() != null) row.totalDuration += log.getDurationMs();
             }
+            String source = "ai_call_log";
             if (map.isEmpty()) {
                 map.putAll(buildFallbackFromModelStat(companyId));
+                source = "model_call_stat";
             }
             List<MonitorRow> result = new ArrayList<>(map.values());
             result.forEach(MonitorRow::finish);
+            if (includeMeta) {
+                Map<String, Object> payload = new LinkedHashMap<>();
+                payload.put("windowDays", safeDays);
+                payload.put("sampleCount", logs.size());
+                payload.put("source", source);
+                payload.put("models", result);
+                return R.ok(payload);
+            }
             return R.ok(result);
         } catch (Exception e) {
             throw new BizException(50000, "监控摘要加载失败：" + e.getMessage());

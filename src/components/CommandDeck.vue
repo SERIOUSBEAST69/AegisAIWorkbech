@@ -166,7 +166,7 @@ const routeMeta = {
   '/audit-log': { description: '追踪关键审计证据链', icon: Histogram },
   '/audit-report': { description: '查看和导出审计报告', icon: Document },
   '/sensitive-scan': { description: '排查敏感信息暴露风险', icon: Search },
-  '/approval-manage': { description: '处理共享与审批流卡点', icon: DocumentChecked },
+  '/approval-center': { description: '处理共享与治理审批卡点', icon: DocumentChecked },
   '/risk-event-manage': { description: '优先处理高风险告警事件', icon: Warning },
   '/subject-request': { description: '处理主体权利履约工单', icon: UserFilled },
   '/policy-manage': { description: '配置平台策略与门禁', icon: Document },
@@ -179,7 +179,7 @@ const routeMeta = {
 
 const actionTemplates = [
   { id: 'action-risk', title: '进入风险编排', route: '/risk-event-manage', icon: Warning, description: '优先处理高风险告警事件' },
-  { id: 'action-approval', title: '处理审批积压', route: '/approval-manage', icon: DocumentChecked, description: '进入审批流待办列表' },
+  { id: 'action-approval', title: '处理审批积压', route: '/approval-center', icon: DocumentChecked, description: '进入审批中心待办列表' },
   { id: 'action-threat', title: '打开威胁监测', route: '/threat-monitor', icon: Monitor, description: '关注实时威胁变化' },
   { id: 'action-audit', title: '查看审计证据链', route: '/audit-log', icon: Histogram, description: '进入审计日志快速回放' },
   { id: 'action-desense', title: '执行脱敏预览', route: '/desense-preview', icon: View, description: '核验最新脱敏策略效果' },

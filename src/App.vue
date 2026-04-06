@@ -580,7 +580,7 @@ const handleDropdown = (command) => {
 .app-main { 
   padding: 0;
   position: relative;
-  overflow: hidden;
+  overflow: visible;
   isolation: isolate;
 }
 

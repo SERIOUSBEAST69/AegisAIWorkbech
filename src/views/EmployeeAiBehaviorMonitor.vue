@@ -158,66 +158,6 @@
 
       </el-tab-pane>
 
-      <el-tab-pane label="员工画像闭环" name="profile">
-        <div class="stats-grid">
-          <div class="stat-card card-glass">
-            <div class="stat-title">隐私告警</div>
-            <div class="stat-value">{{ profileData.counters?.privacy || 0 }}</div>
-          </div>
-          <div class="stat-card card-glass">
-            <div class="stat-title">行为异常</div>
-            <div class="stat-value danger">{{ profileData.counters?.anomaly || 0 }}</div>
-          </div>
-          <div class="stat-card card-glass">
-            <div class="stat-title">影子AI</div>
-            <div class="stat-value">{{ profileData.counters?.shadowAi || 0 }}</div>
-          </div>
-          <div class="stat-card card-glass">
-            <div class="stat-title">安全威胁</div>
-            <div class="stat-value">{{ profileData.counters?.security || 0 }}</div>
-          </div>
-        </div>
-
-        <div class="panel card-glass">
-          <div class="panel-head">
-            <h3>员工事件画像</h3>
-            <div class="panel-actions">
-              <el-input
-                v-if="canQueryOthers"
-                v-model="profileQueryUser"
-                placeholder="输入用户名筛选"
-                style="width: 180px"
-                clearable
-              />
-              <el-button :loading="profileLoading" @click="loadProfile">刷新</el-button>
-            </div>
-          </div>
-
-          <div v-if="profileLoading" class="empty">加载中...</div>
-          <div v-else>
-            <p class="profile-target">当前画像用户：{{ profileData.username || '-' }}</p>
-
-            <el-table :data="profileData.events || []" style="margin-bottom: 12px">
-              <el-table-column prop="eventType" label="类型" width="130">
-                <template #default="{ row }">{{ profileEventType(row.eventType) }}</template>
-              </el-table-column>
-              <el-table-column prop="severity" label="级别" width="100" />
-              <el-table-column prop="title" label="标题" min-width="190" />
-              <el-table-column prop="sourceModule" label="模块" width="120" />
-              <el-table-column prop="status" label="状态" width="100" />
-              <el-table-column prop="eventTime" label="时间" min-width="160" />
-            </el-table>
-
-            <h4 class="subhead">攻防验证记录</h4>
-            <el-table :data="profileData.adversarialRecords || []">
-              <el-table-column prop="scenario" label="场景" min-width="160" />
-              <el-table-column prop="policyVersion" label="策略版本" width="110" />
-              <el-table-column prop="effectivenessAnalysis" label="有效性分析" min-width="260" />
-              <el-table-column prop="createTime" label="时间" min-width="160" />
-            </el-table>
-          </div>
-        </div>
-      </el-tab-pane>
     </el-tabs>
   </div>
 </template>
@@ -226,7 +166,6 @@
 import { computed, onMounted, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import request from '../api/request';
-import { alertCenterApi } from '../api/alertCenter';
 import { privacyApi } from '../api/privacy';
 import { useUserStore } from '../store/user';
 import { canUsePrivacyOps, hasAnyRole, isExecutive as isExecutiveRole } from '../utils/roleBoundary';
@@ -256,15 +195,6 @@ const privacySummary = ref({ total: 0, today: 0, extensionCount: 0, clipboardCou
 const privacyTotal = ref(0);
 const privacyQuery = ref({ page: 1, pageSize: 10 });
 
-const profileLoading = ref(false);
-const profileQueryUser = ref('');
-const profileData = ref({
-  userId: null,
-  username: '',
-  counters: { privacy: 0, anomaly: 0, shadowAi: 0, security: 0 },
-  events: [],
-  adversarialRecords: [],
-});
 const governanceSnapshot = ref({
   anomaly: 0,
   privacy: 0,
@@ -587,41 +517,6 @@ function handleTabChange(name) {
   if (name === 'privacy') {
     loadPrivacyEvents();
   }
-  if (name === 'profile') {
-    loadProfile();
-  }
-}
-
-function profileEventType(type) {
-  const mapping = {
-    PRIVACY_ALERT: '隐私告警',
-    ANOMALY_ALERT: '行为异常',
-    SHADOW_AI_ALERT: '影子AI',
-    SECURITY_ALERT: '安全威胁',
-  };
-  return mapping[type] || type || '-';
-}
-
-async function loadProfile() {
-  profileLoading.value = true;
-  try {
-    const params = { limit: 40 };
-    if (canQueryOthers.value && profileQueryUser.value.trim()) {
-      params.username = profileQueryUser.value.trim();
-    }
-    const data = await alertCenterApi.userHistory(params);
-    profileData.value = {
-      userId: data?.userId,
-      username: data?.username || profileQueryUser.value || '-',
-      counters: data?.counters || { privacy: 0, anomaly: 0, shadowAi: 0, security: 0 },
-      events: Array.isArray(data?.events) ? data.events : [],
-      adversarialRecords: Array.isArray(data?.adversarialRecords) ? data.adversarialRecords : [],
-    };
-  } catch (error) {
-    ElMessage.error(error?.message || '加载员工画像失败');
-  } finally {
-    profileLoading.value = false;
-  }
 }
 
 async function loadGovernanceSnapshot() {
@@ -647,7 +542,7 @@ async function loadGovernanceSnapshot() {
 
 onMounted(async () => {
   await ensureUserDirectory();
-  await Promise.all([loadAnomalyStatus(), loadAnomaly(), loadProfile(), loadGovernanceSnapshot()]);
+  await Promise.all([loadAnomalyStatus(), loadAnomaly(), loadGovernanceSnapshot()]);
 });
 </script>
 
@@ -814,17 +709,6 @@ onMounted(async () => {
   display: flex;
   justify-content: flex-end;
   margin-top: 12px;
-}
-
-.profile-target {
-  margin: 0 0 10px;
-  color: var(--color-text-muted);
-  font-size: 13px;
-}
-
-.subhead {
-  margin: 8px 0;
-  font-size: 14px;
 }
 
 @media (max-width: 900px) {

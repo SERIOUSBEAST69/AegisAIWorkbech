@@ -132,6 +132,8 @@ services:
     restart: always
     ports:
       - "8080:8080"
+    env_file:
+      - .env.local
     environment:
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/aegisai?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
       SPRING_DATASOURCE_USERNAME: root

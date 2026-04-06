@@ -4,6 +4,7 @@ const ROLE_DEFAULT_PERMISSIONS = {
   ADMIN: ['audit:log:view', 'audit:export', 'audit:report:view', 'audit:report:generate'],
   ADMIN_REVIEWER: ['audit:log:view', 'audit:report:view'],
   SECOPS: ['audit:log:view', 'audit:export', 'audit:report:view'],
+  SECOPS_TRIAGE: ['audit:log:view'],
   SECOPS_RESPONDER: ['audit:log:view'],
   EXECUTIVE: ['audit:report:view'],
   EXECUTIVE_COMPLIANCE: ['audit:report:view'],
@@ -19,6 +20,7 @@ const ROLE_DEFAULT_PERMISSIONS = {
 const ROLE_PARENT_ALIAS = {
   ADMIN_REVIEWER: 'ADMIN',
   ADMIN_OPS: 'ADMIN',
+  SECOPS_TRIAGE: 'SECOPS',
   SECOPS_RESPONDER: 'SECOPS',
   EXECUTIVE_COMPLIANCE: 'EXECUTIVE',
   DATA_ADMIN_MAINTAINER: 'DATA_ADMIN',

@@ -34,7 +34,7 @@
       <el-col :xs="24" :sm="24" :md="24" :lg="12">
         <el-card class="chart-card" shadow="never">
           <template #header>
-            <div class="card-header">风险趋势（近7天）</div>
+            <div class="card-header">风险趋势（近{{ riskTrendDays }}天）</div>
           </template>
           <div v-if="hasRiskTrendData" ref="riskTrendChartRef" class="chart-canvas"></div>
           <el-empty v-else :description="riskTrendStateText" :image-size="72" />
@@ -54,7 +54,7 @@
       <el-col :xs="24" :sm="24" :md="12" :lg="6">
         <el-card class="chart-card" shadow="never">
           <template #header>
-            <div class="card-header">AI使用分析（近30天）</div>
+            <div class="card-header">AI使用分析（近{{ aiUsageWindowDays }}天）</div>
           </template>
           <div v-if="hasAiUsageData" ref="aiUsageChartRef" class="chart-canvas"></div>
           <el-empty v-else :description="aiUsageStateText" :image-size="72" />
@@ -130,7 +130,7 @@ const healthRunning = ref(false);
 const healthReport = ref(null);
 const riskTrend = ref({ labels: [], riskSeries: [], auditSeries: [], aiCallSeries: [], forecastNextDay: 0 });
 const alertStats = ref({});
-const aiUsage = ref({ models: [] });
+const aiUsage = ref({ models: [], windowDays: 30, sampleCount: 0, source: '' });
 const moduleFailure = ref({ riskTrend: false, alertStats: false, aiUsage: false });
 
 const riskTrendChartRef = ref(null);
@@ -162,9 +162,12 @@ const evidenceText = computed(() => {
   const days = Number(trend.trendWindowDays || 7);
   const riskSamples = Number(trend.riskEventSampleCount || 0);
   const auditSamples = Number(trend.auditLogSampleCount || 0);
-  const modelSamples = Number(trend.modelStatSampleCount || 0);
+  const modelSamples = Number(aiUsage.value?.sampleCount || trend.modelStatSampleCount || 0);
   return `数据窗${days}天 · 风险样本${riskSamples} · 审计样本${auditSamples} · 调用样本${modelSamples}`;
 });
+
+const riskTrendDays = computed(() => Number(riskTrend.value?.trendWindowDays || 7));
+const aiUsageWindowDays = computed(() => Number(aiUsage.value?.windowDays || 30));
 
 const riskTrendStateText = computed(() => {
   if (moduleFailure.value.riskTrend) return '风险趋势接口暂不可用';
@@ -371,14 +374,17 @@ async function loadAll() {
   loading.value = true;
   try {
     const [workbenchResult, alertsResult, aiSummaryResult] = await Promise.allSettled([
-      request.get('/dashboard/workbench'),
+      request.get('/dashboard/workbench', { params: { days: 30 } }),
       request.get('/alert-center/stats'),
-      request.get('/ai/monitor/summary')
+      request.get('/ai/monitor/summary', { params: { days: 30, includeMeta: true } })
     ]);
 
     const workbench = workbenchResult.status === 'fulfilled' ? workbenchResult.value : {};
     const alerts = alertsResult.status === 'fulfilled' ? alertsResult.value : {};
-    const aiSummary = aiSummaryResult.status === 'fulfilled' ? aiSummaryResult.value : [];
+    const aiSummaryPayload = aiSummaryResult.status === 'fulfilled' ? aiSummaryResult.value : [];
+    const aiSummaryModels = Array.isArray(aiSummaryPayload)
+      ? aiSummaryPayload
+      : (Array.isArray(aiSummaryPayload?.models) ? aiSummaryPayload.models : []);
     moduleFailure.value = {
       riskTrend: workbenchResult.status === 'rejected',
       alertStats: alertsResult.status === 'rejected',
@@ -398,7 +404,10 @@ async function loadAll() {
     };
     alertStats.value = alerts || {};
     aiUsage.value = {
-      models: Array.isArray(aiSummary) ? aiSummary : []
+      models: aiSummaryModels,
+      windowDays: Number(aiSummaryPayload?.windowDays || 30),
+      sampleCount: Number(aiSummaryPayload?.sampleCount || 0),
+      source: String(aiSummaryPayload?.source || '')
     };
 
     await nextTick();

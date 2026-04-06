@@ -639,9 +639,9 @@ import { useRouter } from 'vue-router';
 function createEmptyOverview() {
   return {
     operator: {
-      displayName: '访客',
-      roleName: '待识别身份',
-      department: '可信AI治理中心',
+      displayName: 'Guest',
+      roleName: 'Unidentified Role',
+      department: 'Trusted AI Governance Center',
       avatar: ''
     },
     headline: 'Aegis Workbench 可信AI数据治理与隐私合规工作台',
@@ -1671,28 +1671,13 @@ const homeAiHubData = computed(() => {
     value: Math.max(0, Math.min(100, Number(item?.score || 0))),
   }));
 
-  const timeline = (overview.value?.feeds || []).slice(0, 6).map((item, idx) => ({
-    id: item?.id || `feed-${idx}`,
-    title: item?.title || '治理事件',
-    summary: item?.description || item?.content || '状态已同步',
-    time: item?.time || item?.createTime || '-',
-  }));
-
-  const recommendations = governanceOverviewSignals.value.slice(0, 5).map(item => ({
-    title: item?.title || '策略建议',
-    priority: item?.tone === 'danger' ? 'P0' : (item?.tone === 'warning' ? 'P1' : 'P2'),
-    action: item?.action || '建议持续跟进',
-    targetLabel: routeLabelFromSignal(item),
-    route: routePathFromSignal(item),
-    query: routeQueryFromSignal(item),
-  }));
-
   return {
     kpis,
     graph: { nodes: graphNodes, edges: graphEdges },
     radar: { dimensions: radarDimensions },
-    timeline,
-    recommendations,
+    alertBoard: { items: [] },
+    scopePersona: { stats: [] },
+    pulseWall: { nodes: [] },
   };
 });
 const adversarialWinnerText = computed(() => {
@@ -2154,8 +2139,9 @@ async function refreshHomeAiHub() {
         kpis: Array.isArray(data.kpis) ? data.kpis : [],
         graph: data.graph || { nodes: [], edges: [] },
         radar: data.radar || { dimensions: [] },
-        timeline: Array.isArray(data.timeline) ? data.timeline : [],
-        recommendations: Array.isArray(data.recommendations) ? data.recommendations : [],
+        alertBoard: data.alertBoard || { items: [] },
+        scopePersona: data.scopePersona || { stats: [] },
+        pulseWall: data.pulseWall || { nodes: [] },
       };
       homeAiHubCursor.value = Number(data.cursor || 0);
     }
@@ -2169,21 +2155,12 @@ async function refreshHomeAiHub() {
 function mergeHomeAiHubDelta(payload) {
   if (!payload || !homeAiHubRemote.value) return;
   const current = homeAiHubRemote.value;
-  const timelineDelta = Array.isArray(payload.timelineDelta) ? payload.timelineDelta : [];
-  const mergedTimeline = [...timelineDelta, ...(current.timeline || [])];
-  const dedup = [];
-  const seen = new Set();
-  for (const item of mergedTimeline) {
-    const key = String(item?.id || '');
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    dedup.push(item);
-    if (dedup.length >= 24) break;
-  }
   homeAiHubRemote.value = {
     ...current,
-    timeline: dedup,
     kpis: Array.isArray(payload.kpis) && payload.kpis.length ? payload.kpis : current.kpis,
+    alertBoard: payload.alertBoard || current.alertBoard || { items: [] },
+    scopePersona: payload.scopePersona || current.scopePersona || { stats: [] },
+    pulseWall: payload.pulseWall || current.pulseWall || { nodes: [] },
   };
   homeAiHubCursor.value = Math.max(homeAiHubCursor.value, Number(payload.cursor || 0));
 }
@@ -2226,8 +2203,9 @@ function startHomeAiHubStream() {
           kpis: Array.isArray(payload.kpis) ? payload.kpis : [],
           graph: payload.graph || { nodes: [], edges: [] },
           radar: payload.radar || { dimensions: [] },
-          timeline: Array.isArray(payload.timeline) ? payload.timeline : [],
-          recommendations: Array.isArray(payload.recommendations) ? payload.recommendations : [],
+          alertBoard: payload.alertBoard || { items: [] },
+          scopePersona: payload.scopePersona || { stats: [] },
+          pulseWall: payload.pulseWall || { nodes: [] },
         };
         homeAiHubCursor.value = Number(payload.cursor || homeAiHubCursor.value || 0);
       },
@@ -2814,7 +2792,7 @@ onBeforeUnmount(() => {
   border-radius: 18px;
   padding: 12px;
   overflow-x: hidden;
-  overflow-y: auto;
+  overflow-y: visible;
 }
 
 .workbench-home::before {
@@ -2995,8 +2973,8 @@ onBeforeUnmount(() => {
 .trace-record-list {
   display: grid;
   gap: 8px;
-  max-height: 50vh;
-  overflow: auto;
+  max-height: none;
+  overflow: visible;
 }
 
 .trace-record-item {
@@ -3913,33 +3891,33 @@ onBeforeUnmount(() => {
   position: fixed;
   right: 2vw;
   bottom: 2vh;
-  width: min(1420px, 96vw);
-  height: min(88vh, 980px);
+  width: min(1540px, 97vw);
+  height: auto;
   margin-top: 0;
-  padding: 16px;
+  padding: 18px;
   border-radius: 18px;
   border: 1px solid rgba(110, 162, 255, 0.24);
   background:
     radial-gradient(circle at 18% 16%, rgba(64, 121, 255, 0.16), transparent 34%),
     radial-gradient(circle at 82% 14%, rgba(63, 218, 196, 0.1), transparent 28%),
     linear-gradient(180deg, rgba(7, 14, 28, 0.96), rgba(9, 17, 33, 0.94));
-  max-height: min(88vh, 980px);
-  overflow: auto;
+  max-height: min(90vh, 1040px);
+  overflow-x: hidden;
+  overflow-y: visible;
 }
 
 .adversarial-panel.adversarial-panel-max {
   right: 0.8vw;
   bottom: 0.8vh;
-  width: min(1680px, 99vw);
-  height: min(96vh, 1080px);
-  max-height: min(96vh, 1080px);
+  width: min(1760px, 99vw);
+  max-height: min(96vh, 1160px);
 }
 
 .adversarial-layout {
-  margin-top: 10px;
+  margin-top: 12px;
   display: grid;
-  grid-template-columns: minmax(0, 1.6fr) minmax(320px, 1fr);
-  gap: 12px;
+  grid-template-columns: minmax(0, 2.25fr) minmax(380px, 1fr);
+  gap: 18px;
   min-height: 0;
 }
 
@@ -3947,18 +3925,18 @@ onBeforeUnmount(() => {
 .adversarial-feed-column {
   display: grid;
   align-content: start;
-  gap: 10px;
+  gap: 14px;
   min-height: 0;
 }
 
 .adversarial-feed-column {
-  max-height: calc(min(88vh, 980px) - 175px);
-  overflow: auto;
-  padding-right: 2px;
+  max-height: none;
+  overflow: visible;
+  padding-right: 0;
 }
 
 .adversarial-panel.adversarial-panel-max .adversarial-feed-column {
-  max-height: calc(min(96vh, 1080px) - 180px);
+  max-height: none;
 }
 
 .adversarial-head {
@@ -4174,14 +4152,13 @@ onBeforeUnmount(() => {
     radial-gradient(circle at 26% 40%, rgba(255, 116, 76, 0.18), transparent 42%),
     radial-gradient(circle at 78% 28%, rgba(74, 188, 255, 0.2), transparent 40%),
     linear-gradient(135deg, rgba(7, 14, 28, 0.94), rgba(11, 23, 46, 0.92));
-  padding: 14px;
   overflow: hidden;
   position: relative;
-  min-height: clamp(350px, 48vh, 520px);
+  min-height: clamp(460px, 62vh, 680px);
 }
 
 .adversarial-panel.adversarial-panel-max .adversarial-cinematic-stage {
-  min-height: clamp(460px, 62vh, 680px);
+  min-height: clamp(560px, 72vh, 820px);
 }
 
 .adversarial-cinematic-stage::before {
@@ -4802,13 +4779,14 @@ onBeforeUnmount(() => {
   margin-top: 0;
   display: grid;
   gap: 8px;
-  max-height: 360px;
-  overflow: auto;
-  padding-right: 2px;
+  max-height: clamp(280px, 36vh, 420px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 4px;
 }
 
 .adversarial-panel.adversarial-panel-max .adversarial-stream {
-  max-height: 440px;
+  max-height: clamp(360px, 48vh, 560px);
 }
 
 .adversarial-round {

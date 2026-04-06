@@ -11,18 +11,28 @@ import com.trustai.service.CurrentUserService;
 import com.trustai.service.SensitiveScanEngine;
 import com.trustai.service.SensitiveScanTaskService;
 import com.trustai.utils.R;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
-import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.NotBlank;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/sensitive-scan")
@@ -31,6 +41,8 @@ import java.util.Map;
 public class SensitiveScanController {
 
     private static final String SOURCE_TYPE_FILE = "file";
+    private static final long MAX_UPLOAD_SIZE = 200L * 1024L * 1024L;
+    private static final Set<String> SUPPORTED_EXTENSIONS = Set.of("xlsx", "csv", "json", "db", "parquet");
 
     @Autowired
     private SensitiveScanTaskService taskService;
@@ -47,7 +59,7 @@ public class SensitiveScanController {
 
     @PostMapping("/create")
     @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','SECOPS_RESPONDER','DATA_ADMIN')")
-    public R<SensitiveScanTask> create(@RequestBody @Validated CreateReq req) {
+    public R<SensitiveScanTask> create(@RequestBody @Validated CreateReq req, HttpServletRequest httpRequest) {
         User currentUser = currentUserService.requireCurrentUser();
         Long companyId = companyScopeService.requireCompanyId();
         SensitiveScanTask task = new SensitiveScanTask();
@@ -56,11 +68,57 @@ public class SensitiveScanController {
         task.setUserId(currentUser.getId());
         task.setSourceType(req.getSourceType());
         task.setSourcePath(req.getSourcePath());
-        task.setTraceJson(buildTraceJson(currentUser, companyId));
+        task.setTraceJson(buildTraceJson(currentUser, companyId, httpRequest));
         task.setStatus("pending");
         task.setCreateTime(new Date());
         taskService.save(task);
         return R.ok(task);
+    }
+
+    @PostMapping("/upload")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','SECOPS_RESPONDER','DATA_ADMIN')")
+    public R<Map<String, Object>> upload(@RequestParam("file") MultipartFile file,
+                                         HttpServletRequest request) {
+        if (file == null || file.isEmpty()) {
+            return R.error(40000, "上传文件为空");
+        }
+        String originalName = file.getOriginalFilename();
+        if (originalName == null || originalName.trim().isEmpty()) {
+            return R.error(40000, "文件名无效");
+        }
+        if (file.getSize() > MAX_UPLOAD_SIZE) {
+            return R.error(40000, "文件大小超过限制(200MB)");
+        }
+
+        String cleanName = Paths.get(originalName).getFileName().toString().replaceAll("\\s+", "_");
+        int dot = cleanName.lastIndexOf('.');
+        if (dot < 0 || dot == cleanName.length() - 1) {
+            return R.error(40000, "文件后缀不合法");
+        }
+        String ext = cleanName.substring(dot + 1).toLowerCase(Locale.ROOT);
+        if (!SUPPORTED_EXTENSIONS.contains(ext)) {
+            return R.error(40000, "仅支持 .xlsx/.csv/.json/.db/.parquet 文件");
+        }
+
+        String storedName = UUID.randomUUID().toString().replace("-", "") + "_" + cleanName;
+        Path uploadDir = Paths.get("data", "upload");
+        Path absolute = uploadDir.resolve(storedName).normalize();
+        try {
+            Files.createDirectories(uploadDir);
+            Files.copy(file.getInputStream(), absolute, StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException ex) {
+            log.error("Sensitive scan file upload failed", ex);
+            return R.error(50000, "上传失败，请稍后重试");
+        }
+
+        String sourcePath = "/data/upload/" + storedName;
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("sourceType", SOURCE_TYPE_FILE);
+        payload.put("sourcePath", sourcePath);
+        payload.put("fileName", cleanName);
+        payload.put("size", file.getSize());
+        payload.put("deviceIp", resolveClientIp(request));
+        return R.ok(payload);
     }
 
     @GetMapping("/list")
@@ -102,6 +160,10 @@ public class SensitiveScanController {
     public R<SensitiveScanTask> run(@RequestBody @Validated IdReq req) {
         SensitiveScanTask task = requireScopedTask(req.getId());
         if (task == null) return R.error(40000, "任务不存在");
+
+        task.setStatus("running");
+        task.setUpdateTime(new Date());
+        taskService.updateById(task);
 
         // 优先尝试从文件路径中提取真实内容用于 BERT 扫描；
         // 若无法提取（非文件路径或文件不存在），则以路径字符串本身作为样本
@@ -171,7 +233,7 @@ public class SensitiveScanController {
         return taskService.getOne(qw);
     }
 
-    private String buildTraceJson(User user, Long companyId) {
+    private String buildTraceJson(User user, Long companyId, HttpServletRequest request) {
         Map<String, Object> trace = new LinkedHashMap<>();
         trace.put("username", user == null ? "-" : user.getUsername());
         trace.put("userId", user == null ? "-" : user.getId());
@@ -180,11 +242,26 @@ public class SensitiveScanController {
         trace.put("position", user == null ? "-" : user.getJobTitle());
         trace.put("companyId", companyId == null ? "-" : companyId);
         trace.put("device", user == null ? "-" : user.getDeviceId());
+        trace.put("deviceIp", resolveClientIp(request));
         try {
             return MAPPER.writeValueAsString(trace);
         } catch (Exception ignored) {
             return "{}";
         }
+    }
+
+    private String resolveClientIp(HttpServletRequest request) {
+        if (request == null) {
+            return "-";
+        }
+        String[] headers = {"X-Forwarded-For", "X-Real-IP", "Proxy-Client-IP", "WL-Proxy-Client-IP"};
+        for (String header : headers) {
+            String value = request.getHeader(header);
+            if (value != null && !value.isBlank() && !"unknown".equalsIgnoreCase(value)) {
+                return value.split(",")[0].trim();
+            }
+        }
+        return request.getRemoteAddr() == null ? "-" : request.getRemoteAddr();
     }
 
     public static class IdReq { @NotNull private Long id; public Long getId(){return id;} public void setId(Long id){this.id=id;} }

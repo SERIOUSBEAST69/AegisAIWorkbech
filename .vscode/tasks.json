@@ -731,6 +731,11 @@
 			"type": "shell",
 			"command": "npx playwright test role-isolation.spec.js --config=playwright.config.js --reporter=line",
 			"isBackground": false
+		},
+		{
+			"label": "api-deepseek-source-check",
+			"type": "shell",
+			"command": "$payload=@{ username='admin'; password='admin' } | ConvertTo-Json; $login=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body $payload; $token=$login.data.token; if (-not $token) { throw 'login failed' }; $h=@{ Authorization=('Bearer ' + $token) }; $deep=Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/api/dashboard/ai-hub/deepseek-analysis?scopeLevel=company' -Headers $h; [pscustomobject]@{ code=$deep.code; source=$deep.data.source; model=$deep.data.model; len=([string]$deep.data.analysis).Length; msg=$deep.msg } | ConvertTo-Json -Depth 6"
 		}
 	]
 }

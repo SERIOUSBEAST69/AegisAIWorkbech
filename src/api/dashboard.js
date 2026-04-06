@@ -134,6 +134,10 @@ export const dashboardApi = {
     return request.get('/dashboard/ai-hub/detail', { params: params || {} });
   },
 
+  async getHomeAiHubDeepseekAnalysis(params) {
+    return request.get('/dashboard/ai-hub/deepseek-analysis', { params: params || {} });
+  },
+
   openHomeAiHubStream({ scopeLevel = 'company', department = '', username = '', cursor = 0, onSnapshot, onDelta, onError }) {
     const token = getAuthHeaderToken();
     if (!token) {

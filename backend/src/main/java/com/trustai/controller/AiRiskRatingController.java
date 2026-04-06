@@ -274,6 +274,45 @@ public class AiRiskRatingController {
         return R.ok(data);
     }
 
+    @GetMapping("/profile/users")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','EXECUTIVE','SECOPS','DATA_ADMIN','AI_BUILDER','BUSINESS_OWNER','EMPLOYEE')")
+    public R<Map<String, Object>> riskRadarUsers() {
+        User current = currentUserService.requireCurrentUser();
+        Long companyId = companyScopeService.requireCompanyId();
+        boolean canQueryOthers = currentUserService.hasAnyRole("ADMIN", "SECOPS", "EXECUTIVE", "DATA_ADMIN", "AI_BUILDER", "BUSINESS_OWNER");
+
+        List<Map<String, Object>> users = jdbcTemplate.query(
+            "SELECT u.id, u.username, COALESCE(NULLIF(TRIM(u.real_name), ''), u.username) AS real_name, "
+                + "COALESCE(NULLIF(TRIM(u.department), ''), '-') AS department, COALESCE(r.code, '') AS role_code "
+                + "FROM sys_user u "
+                + "LEFT JOIN role r ON r.id = u.role_id "
+                + "WHERE u.company_id = ? AND COALESCE(u.account_status, 'active') = 'active' "
+                + "ORDER BY u.username ASC LIMIT 500",
+            (rs, rowNum) -> {
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("id", rs.getLong("id"));
+                row.put("username", rs.getString("username"));
+                row.put("realName", rs.getString("real_name"));
+                row.put("department", rs.getString("department"));
+                row.put("roleCode", rs.getString("role_code"));
+                return row;
+            },
+            companyId
+        );
+
+        if (!canQueryOthers) {
+            users = users.stream()
+                .filter(item -> String.valueOf(item.get("username")).equalsIgnoreCase(String.valueOf(current.getUsername())))
+                .toList();
+        }
+
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("users", users);
+        data.put("current", current.getUsername());
+        data.put("canQueryOthers", canQueryOthers);
+        return R.ok(data);
+    }
+
     @PostMapping("/whitelist/request")
     @PreAuthorize("@currentUserService.hasRole('DATA_ADMIN')")
     public R<Map<String, Object>> submitWhitelistRequest(@RequestBody(required = false) Map<String, Object> payload) {

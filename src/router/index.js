@@ -49,7 +49,6 @@ const routes = [
   { path: '/operations-command', name: 'SecurityCommand', component: SecurityCommand, meta: { depth: 3 } },
   { path: '/ops-observability', name: 'OpsObservability', component: OpsObservability, meta: { depth: 3 } },
   { path: '/approval-center', name: 'ApprovalCenter', component: ApprovalCenterHub, meta: { depth: 3 } },
-  { path: '/approval-manage', redirect: to => ({ path: '/approval-center', query: to.query }) },
   { path: '/policy-manage', name: 'PolicyManage', component: PolicyManage, meta: { depth: 3 } },
   { path: '/risk-event-manage', name: 'RiskEventManage', component: RiskEventManage, meta: { depth: 3 } },
   { path: '/sensitive-data-governance', redirect: to => ({ path: '/data-asset', query: { ...to.query, tab: 'sensitive' } }) },

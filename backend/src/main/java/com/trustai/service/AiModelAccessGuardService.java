@@ -93,8 +93,12 @@ public class AiModelAccessGuardService {
         boolean highRiskModel = isHighRisk(model.getRiskLevel());
         boolean mediumOrHighRisk = highRiskModel || isMediumRisk(model.getRiskLevel());
 
-        // ── 隐私盾：扫描用户输入文本，阻断含个人隐私的请求 ──────────────────
-        List<String> inputDetected = detectPrivacyFields(inputText);
+        boolean trustedSystemAnalysis = "home_ai_hub_analysis".equalsIgnoreCase(
+            String.valueOf(accessReason == null ? "" : accessReason).trim()
+        );
+
+        // 系统内置聚合分析提示词是后端生成的结构化数据，不按用户自由输入执行隐私拦截。
+        List<String> inputDetected = trustedSystemAnalysis ? List.of() : detectPrivacyFields(inputText);
         if (!inputDetected.isEmpty()) {
             String detail = "检测到用户输入含个人隐私字段：" + String.join("、", inputDetected);
             block("PRIVACY_INPUT_BLOCKED", "HIGH", model.getModelCode(), assetId, detail);

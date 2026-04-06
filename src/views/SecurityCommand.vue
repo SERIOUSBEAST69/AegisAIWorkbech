@@ -161,6 +161,9 @@ let topologyChart = null;
 let streamHandle = null;
 let reconnectTimer = null;
 let pollTimer = null;
+let streamWatchdogTimer = null;
+let reconnectAttempt = 0;
+let lastStreamSignalAt = 0;
 let streamCursor = 0;
 
 async function reloadAll() {
@@ -299,7 +302,9 @@ function renderTopology() {
 
   const nodes = (topology.value.nodes || []).map(item => ({
     id: item.id,
-    name: item.label,
+    name: item.displayLabel || item.label,
+    rawLabel: item.label,
+    roleType: item.type,
     value: Number(item.value || 1),
     symbolSize: Math.min(48, 12 + Number(item.value || 1) * 2),
     itemStyle: {
@@ -312,6 +317,7 @@ function renderTopology() {
     source: edge.source,
     target: edge.target,
     value: Number(edge.count || 1),
+    risk: edge.risk,
     lineStyle: {
       width: Math.min(6, 1 + Number(edge.count || 1) * 0.4),
       color: edge.risk === 'critical' || edge.risk === 'high' ? '#ef4444' : '#facc15',
@@ -320,7 +326,16 @@ function renderTopology() {
   }));
 
   topologyChart.setOption({
-    tooltip: { trigger: 'item' },
+    tooltip: {
+      trigger: 'item',
+      formatter: params => {
+        if (params?.dataType === 'edge') {
+          return `传播链路<br/>次数: ${Number(params?.data?.value || 0)}<br/>风险: ${severityText(params?.data?.risk)}`;
+        }
+        const role = params?.data?.roleType === 'source' ? '来源IP' : '目标对象';
+        return `${role}<br/>${params?.data?.name || '-'}<br/>关联告警: ${Number(params?.data?.value || 0)}`;
+      },
+    },
     animationDurationUpdate: 700,
     series: [{
       type: 'graph',
@@ -366,7 +381,15 @@ function startStream() {
       lastEventId: streamCursor,
       limit: 30,
       onAlerts: payload => {
+        touchStreamSignal();
         streamConnected.value = true;
+        if (payload?.type === 'open' || payload?.type === 'ready' || payload?.type === 'ping') {
+          if (payload?.cursor != null) {
+            streamCursor = Math.max(streamCursor, Number(payload.cursor || 0));
+          }
+          reconnectAttempt = 0;
+          return;
+        }
         const items = Array.isArray(payload?.items) ? payload.items : [];
         if (items.length === 0) return;
         streamCursor = Math.max(streamCursor, Number(payload?.cursor || 0));
@@ -379,12 +402,14 @@ function startStream() {
           seen.add(id);
           return true;
         }).slice(0, 80);
+        reconnectAttempt = 0;
       },
       onError: () => {
         streamConnected.value = false;
         scheduleReconnect();
       },
     });
+    startStreamWatchdog();
   } catch (err) {
     streamConnected.value = false;
     scheduleReconnect();
@@ -393,10 +418,12 @@ function startStream() {
 
 function scheduleReconnect() {
   if (reconnectTimer) return;
+  reconnectAttempt += 1;
+  const delay = Math.min(15000, 3000 + reconnectAttempt * 1000);
   reconnectTimer = window.setTimeout(() => {
     reconnectTimer = null;
     startStream();
-  }, 4000);
+  }, delay);
 }
 
 function stopStream() {
@@ -409,6 +436,29 @@ function stopStream() {
     window.clearTimeout(reconnectTimer);
     reconnectTimer = null;
   }
+  if (streamWatchdogTimer) {
+    window.clearInterval(streamWatchdogTimer);
+    streamWatchdogTimer = null;
+  }
+}
+
+function touchStreamSignal() {
+  lastStreamSignalAt = Date.now();
+}
+
+function startStreamWatchdog() {
+  touchStreamSignal();
+  if (streamWatchdogTimer) {
+    window.clearInterval(streamWatchdogTimer);
+  }
+  streamWatchdogTimer = window.setInterval(() => {
+    if (!streamHandle) return;
+    const idleMs = Date.now() - lastStreamSignalAt;
+    if (idleMs > 20000) {
+      streamConnected.value = false;
+      scheduleReconnect();
+    }
+  }, 5000);
 }
 
 function normalizeStatus(value) {

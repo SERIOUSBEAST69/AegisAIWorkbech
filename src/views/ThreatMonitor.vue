@@ -161,20 +161,20 @@
             <el-table-column label="操作" width="160" fixed="right">
               <template #default="{ row }">
                 <el-button
-                  v-if="canBlacklistEvent(row) && (row.status === 'pending' || row.status === 'reviewing')"
+                  v-if="canBlacklistEvent(row) && canHandlePendingRow(row)"
                   size="small"
                   type="danger"
                   :loading="actionLoading === row.id + '-block'"
                   @click="blockEvent(row)"
                 >阻拦</el-button>
                 <el-button
-                  v-if="canMarkFalsePositive(row) && (row.status === 'pending' || row.status === 'reviewing')"
+                  v-if="canMarkFalsePositive(row) && canHandlePendingRow(row)"
                   size="small"
                   :loading="actionLoading === row.id + '-ignore'"
                   @click="ignoreEvent(row)"
                 >忽略</el-button>
-                <el-tag v-if="row.status === 'blocked'" type="danger" size="small">已阻拦</el-tag>
-                <el-tag v-if="row.status === 'ignored'" type="info" size="small">已忽略</el-tag>
+                <el-tag v-if="normalizeStatus(row.status) === 'blocked'" type="danger" size="small">已阻拦</el-tag>
+                <el-tag v-if="normalizeStatus(row.status) === 'ignored'" type="info" size="small">已忽略</el-tag>
               </template>
             </el-table-column>
           </el-table>
@@ -194,7 +194,7 @@
         </el-card>
       </el-tab-pane>
 
-      <el-tab-pane label="告警闭环" name="alertCenter">
+      <el-tab-pane v-if="!isAdminUser" label="告警闭环" name="alertCenter">
         <el-card class="card-glass" style="margin-top: 0">
           <div class="toolbar-row">
             <el-select
@@ -270,13 +270,13 @@
               <template #default="{ row }">
                 <el-button size="small" @click="openRelated(row)">关联事件</el-button>
                 <el-button
-                  v-if="canBlacklistEvent(row) && (row.status === 'pending' || row.status === 'reviewing')"
+                  v-if="canBlacklistEvent(row) && canHandlePendingRow(row)"
                   size="small"
                   type="danger"
                   @click="openDispose(row, 'blocked')"
                 >阻断并验证</el-button>
                 <el-button
-                  v-if="canMarkFalsePositive(row) && (row.status === 'pending' || row.status === 'reviewing')"
+                  v-if="canMarkFalsePositive(row) && canHandlePendingRow(row)"
                   size="small"
                   @click="openDispose(row, 'ignored')"
                 >标记误报</el-button>
@@ -703,11 +703,40 @@ function dedupeEvents(rows, signatureBuilder, limit = 15) {
     }
     seen.add(signature);
     unique.push(row);
-    if (unique.length >= limit) {
+    if (limit > 0 && unique.length >= limit) {
       break;
     }
   }
   return unique;
+}
+
+function normalizeStatus(value) {
+  const raw = String(value ?? '').trim().toLowerCase();
+  if (raw === 'blocked' || raw === 'resolved' || raw === 'closed' || raw === 'done') return 'blocked';
+  if (raw === 'ignored' || raw === 'false_positive' || raw === 'false-positive') return 'ignored';
+  if (raw === 'reviewing' || raw === 'in_review' || raw === 'in-review') return 'reviewing';
+  if (raw === 'open' || raw === 'todo' || raw === 'new') return 'pending';
+  return raw || 'pending';
+}
+
+function normalizeSeverity(value) {
+  const raw = String(value ?? '').trim().toLowerCase();
+  if (raw === 'critical') return 'critical';
+  if (raw === 'high') return 'high';
+  if (raw === 'medium' || raw === 'moderate') return 'medium';
+  return 'low';
+}
+
+function normalizeThreatRow(row) {
+  const item = { ...(row || {}) };
+  item.status = normalizeStatus(item.status);
+  item.severity = normalizeSeverity(item.severity);
+  return item;
+}
+
+function canHandlePendingRow(row) {
+  const status = normalizeStatus(row?.status);
+  return status === 'pending' || status === 'reviewing';
 }
 
 async function refreshEvents() {
@@ -722,8 +751,9 @@ async function refreshEvents() {
     if (filter.value.keyword) params.keyword = filter.value.keyword;
 
     const data = await request.get('/security/events', { params });
-    events.value = dedupeEvents(data.list || [], threatEventSignature, 15);
-    pagination.value.total = events.value.length;
+    const normalized = (data.list || []).map(normalizeThreatRow);
+    events.value = dedupeEvents(normalized, threatEventSignature, 0);
+    pagination.value.total = Number(data.total ?? events.value.length);
   } catch (e) {
     ElMessage.error('加载事件失败：' + (e.message || '未知错误'));
   } finally {
@@ -897,7 +927,11 @@ const activeTab = ref('events');
 
 // ── 总刷新 ────────────────────────────────────────────────────────────────────
 async function refresh() {
-  await Promise.all([refreshEvents(), refreshCenterEvents(), fetchStats()]);
+  const tasks = [refreshEvents(), fetchStats()];
+  if (!isAdminUser.value) {
+    tasks.push(refreshCenterEvents());
+  }
+  await Promise.all(tasks);
 }
 
 async function refreshCenterEvents() {
@@ -912,8 +946,9 @@ async function refreshCenterEvents() {
     if (centerFilter.value.keyword) params.keyword = centerFilter.value.keyword;
 
     const data = await alertCenterApi.list(params);
-    centerEvents.value = dedupeEvents(data.list || [], centerEventSignature, 15);
-    centerPagination.value.total = centerEvents.value.length;
+    const normalized = (data.list || []).map(normalizeThreatRow);
+    centerEvents.value = dedupeEvents(normalized, centerEventSignature, 0);
+    centerPagination.value.total = Number(data.total ?? centerEvents.value.length);
   } catch (e) {
     ElMessage.error('加载告警闭环失败：' + (e.message || '未知错误'));
   } finally {
@@ -1110,19 +1145,19 @@ function goHomeAdversarial() {
 
 // ── 格式化工具 ────────────────────────────────────────────────────────────────
 function severityTagType(s) {
-  return { critical: 'danger', high: 'warning', medium: '', low: 'info' }[s] ?? '';
+  return { critical: 'danger', high: 'warning', medium: '', low: 'info' }[normalizeSeverity(s)] ?? '';
 }
 
 function severityLabel(s) {
-  return { critical: '严重', high: '高危', medium: '中危', low: '低危' }[s] ?? s;
+  return { critical: '严重', high: '高危', medium: '中危', low: '低危' }[normalizeSeverity(s)] ?? s;
 }
 
 function statusTagType(s) {
-  return { pending: 'warning', blocked: 'danger', ignored: 'info', reviewing: '' }[s] ?? '';
+  return { pending: 'warning', blocked: 'danger', ignored: 'info', reviewing: '' }[normalizeStatus(s)] ?? '';
 }
 
 function statusLabel(s) {
-  return { pending: '待处理', blocked: '已阻拦', ignored: '已忽略', reviewing: '审查中' }[s] ?? s;
+  return { pending: '待处理', blocked: '已阻拦', ignored: '已忽略', reviewing: '审查中' }[normalizeStatus(s)] ?? s;
 }
 
 function eventTypeLabel(t) {
@@ -1161,8 +1196,9 @@ function truncate(str, len) {
 }
 
 function rowStyle({ row }) {
-  if (row.severity === 'critical') return { background: 'rgba(255,50,50,0.06)' };
-  if (row.severity === 'high') return { background: 'rgba(255,150,50,0.05)' };
+  const severity = normalizeSeverity(row?.severity);
+  if (severity === 'critical') return { background: 'rgba(255,50,50,0.06)' };
+  if (severity === 'high') return { background: 'rgba(255,150,50,0.05)' };
   return {};
 }
 
@@ -1171,6 +1207,9 @@ onMounted(() => {
   if (!canViewThreatMonitor.value) {
     ElMessage.error('当前身份无权访问实时威胁监控模块');
     return;
+  }
+  if (isAdminUser.value && activeTab.value === 'alertCenter') {
+    activeTab.value = 'events';
   }
   refresh().catch(() => {});
   if (canManageThreatRules.value) {

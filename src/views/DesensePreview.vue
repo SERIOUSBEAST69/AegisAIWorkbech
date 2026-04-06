@@ -92,7 +92,9 @@ function applyPhoneMask(text) {
 }
 
 function applyIdCardMask(text) {
-  return text.replace(/(\d{6})\d{8}(\d{3}[\dXx])/g, '$1********$2');
+  return text
+    .replace(/(\d{6})(\d{5})(\d{4})\b/g, (_, left, middle, right) => `${left}${'*'.repeat(middle.length)}${right}`)
+    .replace(/(\d{6})(\d{8})(\d{4}|\d{3}[Xx])\b/g, (_, left, middle, right) => `${left}${'*'.repeat(middle.length)}${right}`);
 }
 
 function applyEmailMask(text) {

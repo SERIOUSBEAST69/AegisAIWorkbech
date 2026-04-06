@@ -158,28 +158,6 @@
                         <button type="button" class="link-button clickable" @click="onForgot">忘记密码?</button>
                       </div>
 
-                      <div class="identity-support" aria-label="supported-identities">
-                        <span class="identity-support-label">演示账号快速选择</span>
-                        <div class="identity-select-row">
-                          <select v-model="selectedDemoRole" class="field-input field-select" @change="onDemoRoleChange">
-                            <option value="">选择身份</option>
-                            <option v-for="item in demoRoleOptions" :key="`demo-role-${item.roleCode}`" :value="item.roleCode">
-                              {{ item.roleLabel }}
-                            </option>
-                          </select>
-                          <select
-                            v-model="selectedDemoUsername"
-                            class="field-input field-select"
-                            :disabled="!selectedDemoRole || demoAccountsForSelectedRole.length === 0"
-                            @change="onDemoAccountChange"
-                          >
-                            <option value="">选择账号</option>
-                            <option v-for="account in demoAccountsForSelectedRole" :key="`demo-user-${account.username}`" :value="account.username">
-                              {{ account.label }} · {{ account.username }}
-                            </option>
-                          </select>
-                        </div>
-                      </div>
                     </template>
 
 
@@ -404,34 +382,7 @@ function normalizeOptions(options, fallback) {
 const registrationOptions = reactive({
   identities: [...DEFAULT_IDENTITIES],
   organizations: [...DEFAULT_ORGANIZATIONS],
-  demoAccounts: [],
 });
-
-const selectedDemoRole = ref('');
-const selectedDemoUsername = ref('');
-
-const demoRoleOptions = computed(() => registrationOptions.demoAccounts || []);
-const demoAccountsForSelectedRole = computed(() => {
-  const role = demoRoleOptions.value.find(item => item.roleCode === selectedDemoRole.value);
-  return role?.accounts || [];
-});
-
-function onDemoRoleChange() {
-  selectedDemoUsername.value = '';
-  const first = demoAccountsForSelectedRole.value[0];
-  if (first) {
-    selectedDemoUsername.value = first.username;
-    onDemoAccountChange();
-  }
-}
-
-function onDemoAccountChange() {
-  const account = demoAccountsForSelectedRole.value.find(item => item.username === selectedDemoUsername.value);
-  if (!account) return;
-  passwordForm.username = account.username;
-  passwordForm.password = account.password;
-  globalError.value = '';
-}
 
 const currentFlowMeta = computed(() => accessFlows.find(item => item.value === flowType.value) || accessFlows[0]);
 const currentModeMeta = computed(() => accessModes.find(item => item.value === activeMode.value) || accessModes[0]);
@@ -1088,9 +1039,6 @@ onMounted(async () => {
     }
     registrationOptions.identities = normalizeOptions(result?.identities, DEFAULT_IDENTITIES);
     registrationOptions.organizations = normalizeOptions(result?.organizations, DEFAULT_ORGANIZATIONS);
-    registrationOptions.demoAccounts = Array.isArray(result?.demoAccounts) && result.demoAccounts.length > 0
-      ? result.demoAccounts
-      : [];
     if (Array.isArray(roleOptions) && roleOptions.length > 0) {
       registrationOptions.identities = normalizeOptions(roleOptions, registrationOptions.identities);
     }
@@ -1099,7 +1047,6 @@ onMounted(async () => {
   } catch {
     registrationOptions.identities = [...DEFAULT_IDENTITIES];
     registrationOptions.organizations = [...DEFAULT_ORGANIZATIONS];
-    registrationOptions.demoAccounts = [];
     registerForm.roleCode = '';
     registerForm.roleId = null;
   }

@@ -4,11 +4,14 @@ import { assessOutboundRisk } from '../utils/clientRiskGuard';
 
 const service = axios.create({
   baseURL: '/api',
-  timeout: 12000,
+  timeout: 22000,
   headers: {
     'Content-Type': 'application/json;charset=utf-8'
   }
 });
+
+const TRANSIENT_RETRY_MAX = 2;
+const TRANSIENT_RETRY_BASE_MS = 450;
 
 function createClientError(message, extra = {}) {
   const error = new Error(message || '请求失败');
@@ -18,6 +21,40 @@ function createClientError(message, extra = {}) {
 
 function rejectWith(message, extra = {}) {
   return Promise.reject(createClientError(message, extra));
+}
+
+function wait(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function isIdempotentRequest(config) {
+  const method = String(config?.method || 'get').toLowerCase();
+  return method === 'get' || method === 'head' || method === 'options';
+}
+
+function shouldRetryTransientError(err) {
+  if (!err || !err.config || !isIdempotentRequest(err.config)) {
+    return false;
+  }
+  const status = Number(err?.response?.status || 0);
+  if (err.code === 'ECONNABORTED' || !err.response) {
+    return true;
+  }
+  return status === 502 || status === 503 || status === 504;
+}
+
+async function retryTransientRequest(err) {
+  const config = err?.config;
+  if (!config) return Promise.reject(err);
+  const retryCount = Number(config.__retryCount || 0);
+  if (retryCount >= TRANSIENT_RETRY_MAX) {
+    return Promise.reject(err);
+  }
+  config.__retryCount = retryCount + 1;
+  config.timeout = Math.max(Number(config.timeout || 0), 22000);
+  const delay = TRANSIENT_RETRY_BASE_MS * Math.pow(2, retryCount);
+  await wait(delay);
+  return service(config);
 }
 
 function redirectToLogin() {
@@ -143,6 +180,9 @@ service.interceptors.response.use(
         blockedByClientRisk: true,
         risk: err.risk || null,
       });
+    }
+    if (shouldRetryTransientError(err)) {
+      return retryTransientRequest(err);
     }
     if (err.code === 'ECONNABORTED') {
       return rejectWith('请求超时，请稍后重试', { timeout: true });

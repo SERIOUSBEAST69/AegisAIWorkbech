@@ -1239,6 +1239,15 @@ public class AiGatewayService {
                                     "messages", msgs.stream().map(m -> Map.of("role", m.getRole(), "content", m.getContent())).collect(Collectors.toList()))),
                             (b, key) -> b.header("Authorization", "Bearer " + key)
                     );
+                case "deepseek":
+                    return new ProviderConfig(
+                        String.valueOf(System.getenv().getOrDefault("DEEPSEEK_API_URL", "https://api.deepseek.com/chat/completions")),
+                        System.getenv("DEEPSEEK_API_KEY"),
+                        (model, msgs) -> MAPPER.writeValueAsString(Map.of(
+                            "model", model,
+                            "messages", msgs.stream().map(m -> Map.of("role", m.getRole(), "content", m.getContent())).collect(Collectors.toList()))),
+                        (b, key) -> b.header("Authorization", "Bearer " + key)
+                    );
                 default:
                     return null;
             }

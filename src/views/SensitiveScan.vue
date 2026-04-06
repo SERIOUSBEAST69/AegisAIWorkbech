@@ -9,17 +9,52 @@
         style="margin-bottom:12px"
         title="用途说明：用于发现数据样本中的敏感字段（身份证、手机号等）。权限策略：治理管理员可全量管理，数据管理员仅管理本人提交任务。"
       />
-      <el-form :inline="true" @submit.prevent ref="formRef" :model="form" :rules="rules">
-        <el-form-item label="来源类型" prop="sourceType">
-          <el-select v-model="form.sourceType" style="width:140px">
-            <el-option label="文件" value="file" />
-            <el-option label="数据库" value="db" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="路径/表" prop="sourcePath">
-          <el-input v-model="form.sourcePath" placeholder="/data/users.xlsx 或 db.table" />
-        </el-form-item>
-        <el-button type="primary" :loading="saving" @click="create">创建任务</el-button>
+      <el-form @submit.prevent ref="formRef" :model="form" :rules="rules" class="scan-entry-form">
+        <div class="scan-entry-grid">
+          <el-form-item label="文件上传（默认）" prop="uploadToken" class="entry-item">
+            <div class="upload-entry-box">
+              <el-upload
+                class="upload-box"
+                drag
+                :show-file-list="false"
+                :before-upload="beforeUpload"
+                :http-request="uploadFile"
+                accept=".xlsx,.csv,.json,.db,.parquet"
+              >
+                <el-icon class="el-icon--upload"><upload-filled /></el-icon>
+                <div class="el-upload__text">拖拽文件到此处或 <em>点击上传</em></div>
+                <template #tip>
+                  <div class="el-upload__tip">支持 .xlsx/.csv/.json/.db/.parquet，单文件不超过 200MB</div>
+                </template>
+              </el-upload>
+              <div class="upload-meta" v-if="uploadedFile">
+                <p>文件：{{ uploadedFile.fileName }}</p>
+                <p>来源路径：{{ form.sourcePath }}</p>
+                <p>设备IP：{{ uploadedFile.deviceIp || '-' }}</p>
+              </div>
+            </div>
+          </el-form-item>
+
+          <el-form-item label="手动路径/表名（可选）" prop="sourcePath" class="entry-item">
+            <div class="manual-entry-box">
+              <el-select v-model="form.sourceType" style="width: 120px; margin-bottom: 10px">
+                <el-option label="文件" value="file" />
+                <el-option label="数据库" value="db" />
+              </el-select>
+              <el-input
+                v-model="manualSourcePath"
+                placeholder="例如: /data/existing/orders.parquet 或 db.schema.table"
+                clearable
+                @input="onManualPathInput"
+              />
+              <p class="entry-tip">上传文件与手动路径二选一必填。输入手动路径后将覆盖上传路径。</p>
+            </div>
+          </el-form-item>
+        </div>
+
+        <div class="action-row">
+          <el-button type="primary" :loading="saving" :disabled="!canCreateTask" @click="create">创建任务</el-button>
+        </div>
       </el-form>
       <el-table :data="list" style="margin-top:16px" v-loading="loading">
         <el-table-column prop="id" label="ID" width="250">
@@ -39,7 +74,9 @@
           <template #default="scope">{{ traceValue(scope.row.traceJson, 'role') || '-' }}</template>
         </el-table-column>
         <el-table-column label="设备/IP" min-width="150" show-overflow-tooltip>
-          <template #default="scope">{{ traceValue(scope.row.traceJson, 'device') || '-' }}</template>
+          <template #default="scope">
+            {{ traceValue(scope.row.traceJson, 'deviceIp') || traceValue(scope.row.traceJson, 'device') || '-' }}
+          </template>
         </el-table-column>
         <el-table-column label="敏感占比(%)" width="110">
           <template #default="scope">
@@ -143,8 +180,9 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
+import { UploadFilled } from '@element-plus/icons-vue';
 import request from '../api/request';
 
 const FIELD_LABELS = {
@@ -157,7 +195,9 @@ const FIELD_LABELS = {
   unknown: '未识别',
 };
 
-const form = ref({ sourceType: 'file', sourcePath: '' });
+const form = ref({ sourceType: 'file', sourcePath: '', uploadToken: '' });
+const manualSourcePath = ref('');
+const uploadedFile = ref(null);
 const list = ref([]);
 const loading = ref(false);
 const saving = ref(false);
@@ -165,8 +205,13 @@ const formRef = ref();
 const pagination = ref({ page: 1, pageSize: 10, total: 0 });
 const rules = {
   sourceType: [{ required: true, message: '请选择来源类型', trigger: 'change' }],
-  sourcePath: [{ required: true, message: '请输入路径/表', trigger: 'blur' }]
+  sourcePath: [{ required: true, message: '请上传文件或输入路径/表名', trigger: 'blur' }]
 };
+
+const SUPPORTED_EXTENSIONS = ['xlsx', 'csv', 'json', 'db', 'parquet'];
+const MAX_SIZE = 200 * 1024 * 1024;
+
+const canCreateTask = computed(() => String(form.value.sourcePath || '').trim().length > 0);
 
 // 报告对话框
 const reportVisible = ref(false);
@@ -229,13 +274,21 @@ function formatTime(value) {
 }
 
 async function create() {
+  if (!canCreateTask.value) {
+    ElMessage.warning('请先上传文件或输入路径/表名');
+    return;
+  }
   if (!formRef.value) return;
   formRef.value.validate(async valid => {
     if (!valid) return;
     saving.value = true;
     try {
-      await request.post('/sensitive-scan/create', form.value);
+      await request.post('/sensitive-scan/create', {
+        sourceType: form.value.sourceType,
+        sourcePath: form.value.sourcePath,
+      });
       ElMessage.success('创建成功');
+      resetEntryForm();
       fetchList();
     } catch (err) {
       ElMessage.error(err?.message || '创建失败');
@@ -243,6 +296,76 @@ async function create() {
       saving.value = false;
     }
   });
+}
+
+function beforeUpload(file) {
+  const name = String(file?.name || '');
+  const dot = name.lastIndexOf('.');
+  const ext = dot > -1 ? name.slice(dot + 1).toLowerCase() : '';
+  if (!SUPPORTED_EXTENSIONS.includes(ext)) {
+    ElMessage.error('仅支持 .xlsx/.csv/.json/.db/.parquet 文件');
+    return false;
+  }
+  if (file.size > MAX_SIZE) {
+    ElMessage.error('文件大小不能超过 200MB');
+    return false;
+  }
+  if (/\.\./.test(name) || /[\\/:*?"<>|]/.test(name)) {
+    ElMessage.error('文件名不合法，请重命名后上传');
+    return false;
+  }
+  return true;
+}
+
+async function uploadFile(option) {
+  const formData = new FormData();
+  formData.append('file', option.file);
+  try {
+    const data = await request.post('/sensitive-scan/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    const sourcePath = String(data?.sourcePath || '');
+    if (!sourcePath) {
+      throw new Error('上传成功但未返回有效路径');
+    }
+    form.value.sourceType = 'file';
+    form.value.sourcePath = sourcePath;
+    form.value.uploadToken = sourcePath;
+    manualSourcePath.value = '';
+    uploadedFile.value = {
+      fileName: String(data?.fileName || option.file?.name || ''),
+      sourcePath,
+      deviceIp: String(data?.deviceIp || '-'),
+      size: Number(data?.size || 0),
+    };
+    option.onSuccess && option.onSuccess(data);
+    ElMessage.success('上传成功，可直接创建扫描任务');
+  } catch (err) {
+    option.onError && option.onError(err);
+    ElMessage.error(err?.message || '文件上传失败');
+  }
+}
+
+function onManualPathInput(value) {
+  const safeValue = String(value || '').trim();
+  if (!safeValue) {
+    if (!uploadedFile.value) {
+      form.value.sourcePath = '';
+      form.value.uploadToken = '';
+    }
+    return;
+  }
+  form.value.sourcePath = safeValue;
+  form.value.uploadToken = 'manual';
+  uploadedFile.value = null;
+}
+
+function resetEntryForm() {
+  form.value.sourceType = 'file';
+  form.value.sourcePath = '';
+  form.value.uploadToken = '';
+  manualSourcePath.value = '';
+  uploadedFile.value = null;
 }
 
 async function run(id) {
@@ -295,6 +418,58 @@ fetchList();
 .page-grid { display: grid; gap: 16px; }
 .card-header { font-weight: 600; margin-bottom: 12px; }
 
+.scan-entry-form {
+  display: grid;
+  gap: 10px;
+}
+
+.scan-entry-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+}
+
+.entry-item {
+  margin-bottom: 0;
+}
+
+.upload-entry-box,
+.manual-entry-box {
+  width: 100%;
+  min-height: 206px;
+  border: 1px solid rgba(131, 173, 245, 0.32);
+  border-radius: 12px;
+  background: rgba(10, 22, 42, 0.56);
+  padding: 12px;
+}
+
+.upload-box {
+  width: 100%;
+}
+
+.upload-meta {
+  margin-top: 10px;
+  border-top: 1px dashed rgba(131, 173, 245, 0.28);
+  padding-top: 10px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.upload-meta p {
+  margin: 4px 0;
+}
+
+.entry-tip {
+  margin: 10px 0 0;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.action-row {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .ratio-high { color: var(--color-danger); font-weight: 700; }
 .ratio-medium { color: var(--color-warning); font-weight: 600; }
 .ratio-low { color: var(--color-success); }
@@ -340,6 +515,12 @@ fetchList();
   font-weight: 600;
   color: var(--color-text-secondary);
   margin: 0 0 10px;
+}
+
+@media (max-width: 980px) {
+  .scan-entry-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>
 
