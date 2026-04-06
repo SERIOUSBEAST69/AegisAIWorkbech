@@ -1,0 +1,138 @@
+﻿{
+    "generatedAt":  "2026-04-05T22:11:10",
+    "baseUrl":  "http://localhost:8080",
+    "operator":  "admin",
+    "totalChecks":  6,
+    "passedChecks":  6,
+    "failedChecks":  0,
+    "passed":  true,
+    "checks":  [
+                   {
+                       "name":  "readiness_report",
+                       "method":  "GET",
+                       "path":  "/api/award/readiness/report",
+                       "ok":  true,
+                       "httpStatus":  200,
+                       "code":  20000,
+                       "msg":  "success",
+                       "durationMs":  6048,
+                       "extract":  {
+                                       "implemented":  8,
+                                       "total":  8,
+                                       "score":  30.0,
+                                       "status":  "quarantine",
+                                       "errorBudget":  0.0
+                                   }
+                   },
+                   {
+                       "name":  "auto_remediate_dry_run",
+                       "method":  "POST",
+                       "path":  "/api/award/readiness/auto-remediate",
+                       "ok":  true,
+                       "httpStatus":  200,
+                       "code":  20000,
+                       "msg":  "success",
+                       "durationMs":  35,
+                       "extract":  {
+                                       "runId":  null,
+                                       "dryRun":  true,
+                                       "actionsCount":  72,
+                                       "actionsSample":  [
+                                                             {
+                                                                 "notification":  "SECOPS + ADMIN auto-notified",
+                                                                 "eventType":  "PRIVACY_ALERT",
+                                                                 "eventId":  136,
+                                                                 "action":  "BLOCK_AND_TICKET"
+                                                             },
+                                                             {
+                                                                 "notification":  "SECOPS + ADMIN auto-notified",
+                                                                 "eventType":  "PRIVACY_ALERT",
+                                                                 "eventId":  149,
+                                                                 "action":  "BLOCK_AND_TICKET"
+                                                             },
+                                                             {
+                                                                 "notification":  "SECOPS + ADMIN auto-notified",
+                                                                 "eventType":  "PRIVACY_ALERT",
+                                                                 "eventId":  194,
+                                                                 "action":  "BLOCK_AND_TICKET"
+                                                             },
+                                                             {
+                                                                 "notification":  "SECOPS + ADMIN auto-notified",
+                                                                 "eventType":  "PRIVACY_ALERT",
+                                                                 "eventId":  217,
+                                                                 "action":  "BLOCK_AND_TICKET"
+                                                             },
+                                                             {
+                                                                 "notification":  "SECOPS + ADMIN auto-notified",
+                                                                 "eventType":  "PRIVACY_ALERT",
+                                                                 "eventId":  306,
+                                                                 "action":  "BLOCK_AND_TICKET"
+                                                             }
+                                                         ],
+                                       "blockersCount":  0
+                                   }
+                   },
+                   {
+                       "name":  "auto_remediate_last",
+                       "method":  "GET",
+                       "path":  "/api/award/readiness/auto-remediate/last",
+                       "ok":  true,
+                       "httpStatus":  200,
+                       "code":  20000,
+                       "msg":  "success",
+                       "durationMs":  15,
+                       "extract":  {
+                                       "runId":  null,
+                                       "status":  null,
+                                       "dryRun":  true,
+                                       "startedAt":  null
+                                   }
+                   },
+                   {
+                       "name":  "model_explainability",
+                       "method":  "GET",
+                       "path":  "/api/ai/model-explainability",
+                       "ok":  true,
+                       "httpStatus":  200,
+                       "code":  20000,
+                       "msg":  "success",
+                       "durationMs":  20,
+                       "extract":  {
+                                       "fairness":  {
+                                                        "accuracyDisparity":  0.0,
+                                                        "alert":  false,
+                                                        "groupStats":  [
+
+                                                                       ],
+                                                        "threshold":  0.15
+                                                    }
+                                   }
+                   },
+                   {
+                       "name":  "model_release_traffic_stats",
+                       "method":  "GET",
+                       "path":  "/api/ai/model-release/traffic-stats",
+                       "ok":  true,
+                       "httpStatus":  200,
+                       "code":  20000,
+                       "msg":  "success",
+                       "durationMs":  16,
+                       "extract":  {
+                                       "totalRequests":  0
+                                   }
+                   },
+                   {
+                       "name":  "ai_risk_list",
+                       "method":  "GET",
+                       "path":  "/api/ai-risk/list",
+                       "ok":  true,
+                       "httpStatus":  200,
+                       "code":  20000,
+                       "msg":  "success",
+                       "durationMs":  51,
+                       "extract":  {
+                                       "total":  9
+                                   }
+                   }
+               ]
+}

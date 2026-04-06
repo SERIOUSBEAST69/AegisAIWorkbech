@@ -1,6 +1,6 @@
 <template>
-  <el-card>
-    <h2>风险事件管理</h2>
+  <el-card class="risk-event-page">
+    <h2>合规风险记录</h2>
     <el-form :inline="true" @submit.prevent>
       <el-form-item label="事件类型">
         <el-input v-model="query.type" placeholder="输入事件类型" />
@@ -30,7 +30,8 @@
         <el-button @click="resetQuery">重置</el-button>
       </el-form-item>
     </el-form>
-    <el-table :data="pagedEvents" style="width: 100%" v-loading="loading" empty-text="暂无风险事件">
+    <div class="risk-table-wrap">
+    <el-table :data="pagedEvents" class="page-table" table-layout="fixed" style="width: 100%" v-loading="loading" empty-text="暂无合规风险记录">
       <el-table-column prop="id" label="ID" width="250">
         <template #default="scope">
           <div class="cell nowrap">{{ scope.row.id }}</div>
@@ -47,7 +48,7 @@
           <el-tag :type="statusTagType(scope.row)">{{ statusText(scope.row) }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="事件时间" min-width="170">
+      <el-table-column label="事件时间" width="190">
         <template #default="scope">{{ formatTime(scope.row.createTime) }}</template>
       </el-table-column>
       <el-table-column label="规则/关联日志" min-width="190" show-overflow-tooltip>
@@ -56,11 +57,11 @@
       <el-table-column label="事件详情" min-width="260" show-overflow-tooltip>
         <template #default="scope">{{ eventDetail(scope.row) }}</template>
       </el-table-column>
-      <el-table-column prop="handlerId" label="处置人ID" />
-      <el-table-column label="处置账号" min-width="130">
+      <el-table-column prop="handlerId" label="处置人ID" width="110" />
+      <el-table-column label="处置账号" min-width="100">
         <template #default="scope">{{ handlerName(scope.row) }}</template>
       </el-table-column>
-      <el-table-column label="处置角色" min-width="120">
+      <el-table-column label="处置角色" min-width="100">
         <template #default="scope">{{ handlerRole(scope.row) }}</template>
       </el-table-column>
       <el-table-column label="处置部门" min-width="120">
@@ -75,25 +76,26 @@
       <el-table-column label="处置设备/IP" min-width="160" show-overflow-tooltip>
         <template #default="scope">{{ traceValue(scope.row.processLog, 'device') || traceValue(scope.row.processLog, 'ip') || '-' }}</template>
       </el-table-column>
-      <el-table-column label="更新时间" min-width="170">
+      <el-table-column label="更新时间" width="190">
         <template #default="scope">{{ formatTime(scope.row.updateTime) }}</template>
       </el-table-column>
-      <el-table-column label="操作" min-width="420" fixed="right">
+      <el-table-column label="操作" width="240" fixed="right">
         <template #default="scope">
-          <el-button size="small" @click="openDetail(scope.row)">详情</el-button>
-          <template v-if="canHandleRiskEvent">
-            <el-button size="small" type="warning" @click="markStatus(scope.row, 'PROCESSING')">标记处理中</el-button>
-            <el-button size="small" type="success" @click="markStatus(scope.row, 'RESOLVED')">标记已处置</el-button>
-            <el-button size="small" type="info" @click="markStatus(scope.row, 'IGNORED')">标记已忽略</el-button>
-          </template>
-          <template v-if="canHandleRiskEvent">
-            <el-button size="small" @click="editEvent(scope.row)">编辑</el-button>
-            <el-button size="small" type="danger" @click="deleteEvent(scope.row.id)">删除</el-button>
-          </template>
-          <span v-else class="cell">仅查看</span>
+          <div class="action-wrap">
+            <el-button size="small" @click="openDetail(scope.row)">详情</el-button>
+            <template v-if="canShowOpenActions(scope.row)">
+              <el-button size="small" type="primary" @click="markStatus(scope.row, 'PROCESSING')">处理</el-button>
+              <el-button size="small" type="danger" plain @click="markStatus(scope.row, 'IGNORED')">驳回</el-button>
+            </template>
+            <template v-else-if="canShowProcessingActions(scope.row)">
+              <el-button size="small" type="primary" @click="markStatus(scope.row, 'RESOLVED')">处理</el-button>
+              <el-button size="small" type="danger" plain @click="markStatus(scope.row, 'IGNORED')">驳回</el-button>
+            </template>
+          </div>
         </template>
       </el-table-column>
     </el-table>
+    </div>
     <div style="display:flex;justify-content:flex-end;margin-top:16px;">
       <el-pagination
         background
@@ -107,7 +109,7 @@
       />
     </div>
 
-    <el-drawer v-model="showDetail" title="风险事件详情" size="48%">
+    <el-drawer v-model="showDetail" title="合规风险记录详情" :size="isNarrowScreen ? '96%' : '48%'">
       <el-descriptions v-if="detailRow" :column="2" border>
         <el-descriptions-item label="事件ID">{{ detailRow.id }}</el-descriptions-item>
         <el-descriptions-item label="事件类型">{{ detailRow.type || '-' }}</el-descriptions-item>
@@ -127,7 +129,7 @@
       </el-descriptions>
     </el-drawer>
 
-    <el-dialog v-model="showAdd" title="新增风险事件">
+    <el-dialog v-model="showAdd" title="新增合规风险记录">
       <el-form :model="addForm" :rules="rules" ref="addFormRef">
         <el-alert title="处置人将自动记录为当前操作账号" type="info" :closable="false" show-icon style="margin-bottom: 16px;" />
         <el-form-item label="类型" prop="type"><el-input v-model="addForm.type" /></el-form-item>
@@ -154,7 +156,7 @@
         <el-button type="primary" :loading="saving" @click="addEvent">保存</el-button>
       </template>
     </el-dialog>
-    <el-dialog v-model="showEdit" title="编辑风险事件">
+    <el-dialog v-model="showEdit" title="编辑合规风险记录">
       <el-form :model="editForm" :rules="rules" ref="editFormRef">
         <el-alert title="保存后将自动刷新处置人为当前操作账号" type="info" :closable="false" show-icon style="margin-bottom: 16px;" />
         <el-form-item label="类型" prop="type"><el-input v-model="editForm.type" /></el-form-item>
@@ -184,7 +186,7 @@
   </el-card>
 </template>
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import request from '../api/request';
 import { useUserStore } from '../store/user';
@@ -206,6 +208,7 @@ const query = ref({ type: '', level: '', status: '', keyword: '' });
 const pagination = ref({ current: 1, pageSize: 10, total: 0 });
 const addFormRef = ref();
 const editFormRef = ref();
+const isNarrowScreen = ref(false);
 const pagedEvents = computed(() => {
   const start = (pagination.value.current - 1) * pagination.value.pageSize;
   return filteredEvents.value.slice(start, start + pagination.value.pageSize);
@@ -237,17 +240,57 @@ const rules = {
   level: [{ required: true, message: '风险等级不能为空', trigger: 'blur' }],
   status: [{ required: true, message: '状态不能为空', trigger: 'blur' }]
 };
+
+function sortByLatestTime(rows) {
+  return [...rows].sort((a, b) => {
+    const ta = new Date(String(a?.updateTime || a?.createTime || '').replace(' ', 'T')).getTime();
+    const tb = new Date(String(b?.updateTime || b?.createTime || '').replace(' ', 'T')).getTime();
+    return (Number.isNaN(tb) ? 0 : tb) - (Number.isNaN(ta) ? 0 : ta);
+  });
+}
+
+function riskSignature(row) {
+  return [
+    String(row?.type || '').toLowerCase(),
+    normalizeLevel(row?.level),
+    normalizeStatus(row),
+    String(eventRuleText(row) || '').toLowerCase(),
+    String(eventDetail(row) || '').toLowerCase(),
+  ].join('|');
+}
+
+function dedupeTraceableRiskEvents(rows, limit = 15) {
+  const seen = new Set();
+  const unique = [];
+  for (const row of sortByLatestTime(Array.isArray(rows) ? rows : [])) {
+    const signature = riskSignature(row);
+    if (seen.has(signature)) {
+      continue;
+    }
+    seen.add(signature);
+    unique.push(row);
+    if (limit > 0 && unique.length >= limit) {
+      break;
+    }
+  }
+  return unique;
+}
+
+function syncViewport() {
+  isNarrowScreen.value = typeof window !== 'undefined' ? window.innerWidth < 992 : false;
+}
+
 async function fetchEvents() {
   if (!canViewRiskEvent.value) {
     events.value = [];
-    ElMessage.warning('当前身份无权查看风险事件');
+    ElMessage.warning('当前身份无权查看合规风险记录');
     return;
   }
   loading.value = true;
   try {
     await ensureUserDirectory();
     const res = await request.get('/risk-event/list', { params: query.value });
-    events.value = Array.isArray(res) ? res : [];
+    events.value = dedupeTraceableRiskEvents(Array.isArray(res) ? res : [], 0);
     pagination.value.total = filteredEvents.value.length;
     pagination.value.current = 1;
   } catch (err) {
@@ -324,7 +367,7 @@ function resetQuery() {
 
 function openAdd() {
   if (!canHandleRiskEvent.value) {
-    ElMessage.warning('当前身份仅可查看风险事件，不能新增');
+    ElMessage.warning('当前身份仅可查看合规风险记录，不能新增');
     return;
   }
   addForm.value = { type: '', level: 'MEDIUM', status: 'OPEN', processLog: '' };
@@ -332,7 +375,7 @@ function openAdd() {
 }
 async function addEvent() {
   if (!canHandleRiskEvent.value) {
-    ElMessage.warning('当前身份仅可查看风险事件，不能新增');
+    ElMessage.warning('当前身份仅可查看合规风险记录，不能新增');
     return;
   }
   if (!addFormRef.value) return;
@@ -353,7 +396,7 @@ async function addEvent() {
 }
 function editEvent(row) {
   if (!canHandleRiskEvent.value) {
-    ElMessage.warning('当前身份仅可查看风险事件，不能编辑');
+    ElMessage.warning('当前身份仅可查看合规风险记录，不能编辑');
     return;
   }
   editForm.value = {
@@ -419,7 +462,7 @@ function statusText(row) {
   if (normalized === 'OPEN') return '待处理';
   if (normalized === 'PROCESSING') return '处理中';
   if (normalized === 'RESOLVED') return '已处置';
-  return '已忽略';
+  return '已驳回';
 }
 
 function statusTagType(row) {
@@ -510,7 +553,7 @@ function formatTime(value) {
 }
 async function updateEvent() {
   if (!canHandleRiskEvent.value) {
-    ElMessage.warning('当前身份仅可查看风险事件，不能编辑');
+    ElMessage.warning('当前身份仅可查看合规风险记录，不能编辑');
     return;
   }
   if (!editFormRef.value) return;
@@ -536,11 +579,11 @@ async function updateEvent() {
 
 async function markStatus(row, status) {
   if (!canHandleRiskEvent.value) {
-    ElMessage.warning('当前身份仅可查看风险事件，不能处置');
+    ElMessage.warning('当前身份仅可查看合规风险记录，不能处置');
     return;
   }
   try {
-    const label = status === 'PROCESSING' ? '处理中' : status === 'RESOLVED' ? '已处置' : '已忽略';
+    const label = status === 'PROCESSING' ? '处理中' : status === 'RESOLVED' ? '已处置' : '已驳回';
     await ElMessageBox.confirm(`确认将该事件标记为${label}吗？`, '提示', { type: 'warning' });
     const nextLog = cleanProcessLog(row?.processLog);
     const appended = nextLog ? `${nextLog}；状态更新为${label}` : `状态更新为${label}`;
@@ -560,7 +603,7 @@ async function markStatus(row, status) {
 }
 async function deleteEvent(id) {
   if (!canHandleRiskEvent.value) {
-    ElMessage.warning('当前身份仅可查看风险事件，不能删除');
+    ElMessage.warning('当前身份仅可查看合规风险记录，不能删除');
     return;
   }
   try {
@@ -572,5 +615,74 @@ async function deleteEvent(id) {
     if (err !== 'cancel') ElMessage.error(err?.message || '删除失败');
   }
 }
+
+function canShowOpenActions(row) {
+  if (!canHandleRiskEvent.value) return false;
+  return normalizeStatus(row) === 'OPEN';
+}
+
+function canShowProcessingActions(row) {
+  if (!canHandleRiskEvent.value) return false;
+  return normalizeStatus(row) === 'PROCESSING';
+}
+
 fetchEvents();
+
+onMounted(() => {
+  syncViewport();
+  window.addEventListener('resize', syncViewport, { passive: true });
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', syncViewport);
+});
 </script>
+
+<style scoped>
+.risk-event-page :deep(.el-table__body-wrapper) {
+  overflow-x: auto;
+}
+
+.risk-table-wrap {
+  overflow-x: auto;
+}
+
+.risk-event-page :deep(.el-table) {
+  min-width: 1860px;
+}
+
+.risk-event-page :deep(.el-table__row) {
+  height: 56px;
+}
+
+.risk-event-page :deep(.el-table .cell) {
+  line-height: 1.4;
+  font-size: 13px;
+}
+
+.risk-event-page :deep(.el-table__body-wrapper) {
+  padding-bottom: 14px;
+}
+
+.risk-event-page :deep(.el-table__fixed-right) {
+  bottom: 14px;
+  z-index: 4;
+  background: rgba(7, 12, 22, 0.98);
+  box-shadow: -8px 0 18px rgba(0, 0, 0, 0.22);
+}
+
+.risk-event-page :deep(.el-table__fixed-right-patch) {
+  height: 14px;
+}
+
+.risk-event-page :deep(.el-table__fixed-right .el-table__fixed-body-wrapper) {
+  bottom: 14px;
+}
+
+.action-wrap {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  align-items: center;
+}
+</style>

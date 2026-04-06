@@ -138,15 +138,15 @@ const menuLayerColors = ['#08101b', '#12315f', '#274f97', '#88bfff'];
 const menuDescriptions = {
   '/': '总控视窗',
   '/operations-command': '治理关键动作',
-  '/data-asset': '资产全景分布',
-  '/sensitive-data-governance': '敏感扫描与脱敏治理',
-  '/shadow-ai': '影子AI发现与治理',
-  '/threat-monitor': 'AI数据防泄漏态势与阻断',
-  '/ai/risk-rating': 'AI服务风险评级',
+  '/data-asset': '资产与敏感治理一体化',
+  '/sensitive-data-governance': '已并入数据资产与敏感治理',
+  '/shadow-ai': '影子AI发现与风险评级',
+  '/threat-monitor': 'AI数据防泄漏实时威胁告警',
+  '/ai/risk-rating': '已并入影子AI发现与风险评级',
   '/ai/anomaly': '员工AI行为监控',
   '/audit-center': '审计日志与报告中枢',
   '/approval-center': '待办审批与我发起',
-  '/risk-event-manage': '风险事件编排',
+  '/risk-event-manage': '合规风险记录',
   '/subject-request': '履约请求处理',
   '/policy-manage': '治理规则配置',
   '/user-manage': '组织与账号',
@@ -155,13 +155,27 @@ const menuDescriptions = {
 };
 
 const staggeredMenuItems = computed(() => (
-  visibleMenuSections.value.flatMap(section =>
-    section.items.map(item => ({
+  visibleMenuSections.value.flatMap(section => {
+    if (section.key === 'system') {
+      const children = section.items.map(item => ({
+        ...item,
+        section: section.title,
+        description: menuDescriptions[item.path] || `进入 ${item.label}`,
+      }));
+      return [{
+        path: '/user-manage',
+        label: '系统管理',
+        section: section.title,
+        description: '统一维护用户、角色、权限与策略配置',
+        children,
+      }];
+    }
+    return section.items.map(item => ({
       ...item,
       section: section.title,
       description: menuDescriptions[item.path] || `进入 ${item.label}`,
-    }))
-  )
+    }));
+  })
 ));
 const staggeredQuickLinks = computed(() => ([
   { label: '个人资料', command: 'profile' },

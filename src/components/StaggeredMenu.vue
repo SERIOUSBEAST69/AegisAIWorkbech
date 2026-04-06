@@ -65,7 +65,7 @@
             </section>
 
             <ul class="sm-panel-list" :data-numbering="displayItemNumbering || undefined">
-              <li v-for="(item, index) in items" :key="`${item.path || item.label}-${index}`" class="sm-panel-item-wrap">
+              <li v-for="(item, index) in items" :key="`${item.path || item.label}-${index}`" class="sm-panel-item-wrap" :class="{ 'sm-panel-item-wrap-has-children': Array.isArray(item.children) && item.children.length }">
                 <button type="button" class="sm-panel-item clickable" :class="{ 'sm-panel-item-active': isItemActive(item) }" :style="getItemRhythm(index)" @click="handleItemClick(item)">
                   <span class="sm-panel-item-aura" aria-hidden="true"></span>
                   <span class="sm-panel-item-meta">{{ item.section }}</span>
@@ -80,6 +80,17 @@
                   <span v-if="item.description" class="sm-panel-item-description">{{ item.description }}</span>
                   <span class="sm-panel-item-arrow" aria-hidden="true">North East</span>
                 </button>
+                <div v-if="Array.isArray(item.children) && item.children.length" class="sm-submenu">
+                  <button
+                    v-for="(child, childIdx) in item.children"
+                    :key="`${child.path || child.label}-${childIdx}`"
+                    type="button"
+                    class="sm-submenu-item clickable"
+                    @click.stop="handleChildItemClick(child)"
+                  >
+                    <span>{{ child.label }}</span>
+                  </button>
+                </div>
               </li>
             </ul>
 
@@ -368,6 +379,14 @@ function closeMenu() {
 }
 
 function handleItemClick(item) {
+  if (Array.isArray(item?.children) && item.children.length) {
+    return;
+  }
+  emit('select', item);
+  closeMenu();
+}
+
+function handleChildItemClick(item) {
   emit('select', item);
   closeMenu();
 }
@@ -609,7 +628,7 @@ onBeforeUnmount(() => {
 
 .staggered-menu-panel {
   width: var(--sm-panel-width);
-  overflow: hidden;
+  overflow: visible;
   background: linear-gradient(180deg, rgba(7, 12, 22, 0.98), rgba(3, 6, 12, 0.98));
   box-shadow: -40px 0 120px rgba(0, 0, 0, 0.54);
   z-index: 62;
@@ -642,7 +661,7 @@ onBeforeUnmount(() => {
   height: 100%;
   overflow-y: auto;
   overscroll-behavior: contain;
-  contain: layout paint;
+  contain: layout;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
 }
@@ -726,6 +745,17 @@ onBeforeUnmount(() => {
 
 .sm-panel-item-wrap {
   overflow: hidden;
+  position: relative;
+}
+
+.sm-panel-item-wrap-has-children {
+  overflow: visible;
+  z-index: 8;
+}
+
+.sm-panel-item-wrap-has-children:hover,
+.sm-panel-item-wrap-has-children:focus-within {
+  z-index: 120;
 }
 
 .sm-panel-item {
@@ -879,6 +909,51 @@ onBeforeUnmount(() => {
 .sm-panel-list:hover .sm-panel-item:hover .sm-panel-item-arrow {
   opacity: 1;
   transform: translateX(0);
+}
+
+.sm-submenu {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 10px);
+  transform: translateY(-6px);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 312px;
+  padding: 16px;
+  border-radius: 14px;
+  background: rgba(9, 18, 31, 0.98);
+  border: 1px solid rgba(169, 196, 255, 0.24);
+  box-shadow: 0 16px 32px rgba(2, 6, 12, 0.42);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.22s ease, transform 0.22s ease;
+  z-index: 60;
+}
+
+.sm-panel-item-wrap:hover .sm-submenu,
+.sm-panel-item-wrap:focus-within .sm-submenu {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.sm-submenu-item {
+  border: 1px solid rgba(169, 196, 255, 0.18);
+  background: rgba(255, 255, 255, 0.03);
+  color: #d8e7ff;
+  text-align: left;
+  border-radius: 10px;
+  padding: 13px 14px;
+  font-size: 16px;
+  line-height: 1.5;
+  transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+}
+
+.sm-submenu-item:hover {
+  background: rgba(95, 135, 255, 0.22);
+  border-color: rgba(149, 186, 255, 0.42);
+  transform: translateX(-2px);
 }
 
 /* Active menu item styles */

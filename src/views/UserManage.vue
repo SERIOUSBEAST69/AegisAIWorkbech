@@ -1,5 +1,5 @@
 <template>
-  <el-card>
+  <el-card class="mgmt-table-exempt">
     <h2>用户管理</h2>
 
     <el-form :inline="true" @submit.prevent>
@@ -79,7 +79,7 @@
         <el-form-item label="真实姓名" prop="realName"><el-input v-model="addForm.realName" /></el-form-item>
         <el-form-item label="角色分配" prop="roleIds">
           <el-select v-model="addForm.roleIds" multiple filterable collapse-tags style="width: 100%" placeholder="可留空，后续由管理员分配">
-            <el-option v-for="role in roleOptions" :key="role.id" :label="`${role.name} (${role.code})`" :value="role.id" />
+            <el-option v-for="role in roleOptions" :key="role.id" :label="`${safeRoleText(role.name, role.code)} (${String(role.code || '').trim() || 'NO_CODE'})`" :value="role.id" />
           </el-select>
         </el-form-item>
         <el-form-item label="部门"><el-input v-model="addForm.department" /></el-form-item>
@@ -95,7 +95,7 @@
         <el-form-item label="真实姓名" prop="realName"><el-input v-model="editForm.realName" /></el-form-item>
         <el-form-item label="角色分配" prop="roleIds">
           <el-select v-model="editForm.roleIds" multiple filterable collapse-tags style="width: 100%" placeholder="可留空，后续由管理员分配">
-            <el-option v-for="role in roleOptions" :key="role.id" :label="`${role.name} (${role.code})`" :value="role.id" />
+            <el-option v-for="role in roleOptions" :key="role.id" :label="`${safeRoleText(role.name, role.code)} (${String(role.code || '').trim() || 'NO_CODE'})`" :value="role.id" />
           </el-select>
         </el-form-item>
         <el-form-item label="部门"><el-input v-model="editForm.department" /></el-form-item>
@@ -119,13 +119,59 @@
         <div><strong>用户：</strong>{{ recommendPayload.username || '-' }}</div>
         <div><strong>部门/岗位：</strong>{{ recommendPayload.department || '-' }} / {{ recommendPayload.jobTitle || '-' }}</div>
         <div><strong>样本：</strong>近 {{ recommendPayload.basedOnDays || 90 }} 天，用户 {{ recommendPayload.sampleUsers || 0 }} 人，行为 {{ recommendPayload.sampleOperations || 0 }} 项</div>
-        <el-table :data="recommendPayload.recommendedRoles || []" size="small" empty-text="暂无推荐角色">
-          <el-table-column prop="roleCode" label="角色编码" min-width="120" />
-          <el-table-column prop="roleName" label="角色名称" min-width="140" />
-          <el-table-column prop="confidence" label="置信度" width="100" />
-          <el-table-column prop="supportUsers" label="支持样本" width="100" />
-          <el-table-column prop="score" label="分值" width="100" />
-        </el-table>
+
+        <div class="recommend-block">
+          <div class="recommend-title">
+            <span>已拥有角色</span>
+            <span class="recommend-title-tip">当前权限基线</span>
+          </div>
+          <el-table :data="ownedRoleRows()" size="small" empty-text="暂无已拥有角色">
+            <el-table-column prop="roleCode" label="角色编码" min-width="120" />
+            <el-table-column prop="roleName" label="角色名称" min-width="140">
+              <template #default="scope">
+                <el-tag type="info" effect="plain">{{ safeRoleText(scope.row.roleName, scope.row.roleCode) }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="supportUsers" label="支持样本" width="100" />
+            <el-table-column label="置信度" width="100">
+              <template #default="scope">{{ formatConfidence(scope.row.confidence) }}</template>
+            </el-table-column>
+            <el-table-column label="分值" width="100">
+              <template #default="scope">{{ formatScore(scope.row.score) }}</template>
+            </el-table-column>
+            <el-table-column prop="reason" label="说明" min-width="260" show-overflow-tooltip />
+          </el-table>
+        </div>
+
+        <div class="recommend-block">
+          <div class="recommend-title">
+            <span>推荐角色</span>
+            <span class="recommend-title-tip">建议补充权限</span>
+          </div>
+          <el-table :data="suggestedRoleRows()" size="small" empty-text="暂无推荐角色">
+            <el-table-column prop="roleCode" label="角色编码" min-width="120" />
+            <el-table-column prop="roleName" label="角色名称" min-width="140">
+              <template #default="scope">
+                <el-tag type="success">{{ safeRoleText(scope.row.roleName, scope.row.roleCode) }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="source" label="来源" width="130">
+              <template #default="scope">
+                {{ scope.row.source === 'department-fallback' ? '部门匹配' : '行为匹配' }}
+              </template>
+            </el-table-column>
+            <el-table-column label="置信度" width="100">
+              <template #default="scope">{{ formatConfidence(scope.row.confidence) }}</template>
+            </el-table-column>
+            <el-table-column label="支持样本" width="100">
+              <template #default="scope">{{ Number(scope.row.supportUsers || 0) }}</template>
+            </el-table-column>
+            <el-table-column label="分值" width="100">
+              <template #default="scope">{{ formatScore(scope.row.score) }}</template>
+            </el-table-column>
+            <el-table-column prop="reason" label="推荐理由" min-width="260" show-overflow-tooltip />
+          </el-table>
+        </div>
       </div>
       <template #footer>
         <el-button @click="showRoleRecommend = false">关闭</el-button>
@@ -165,8 +211,8 @@ const editFormRef = ref();
 const sessionUser = getSession()?.user || {};
 const currentUsername = String(sessionUser?.username || '').trim().toLowerCase();
 const currentRoleCode = String(sessionUser?.roleCode || sessionUser?.role || '').trim().toUpperCase();
-const canApproveUser = currentRoleCode === 'ADMIN';
-const canWriteUser = currentRoleCode === 'ADMIN';
+const canApproveUser = ['admin', 'admin_reviewer'].includes(currentUsername) || currentRoleCode === 'ADMIN_REVIEWER';
+const canWriteUser = ['admin', 'admin_ops'].includes(currentUsername) || currentRoleCode === 'ADMIN_OPS';
 
 const addForm = ref({
   username: '',
@@ -227,19 +273,79 @@ function statusTagType(status) {
 }
 
 function roleLabels(user) {
+  const roleCodes = Array.isArray(user?.roleCodes) ? user.roleCodes : [];
+  const roleNames = Array.isArray(user?.roleNames) ? user.roleNames : [];
+  if (roleCodes.length > 0) {
+    return roleCodes.map((code, idx) => {
+      const name = String(roleNames[idx] || '').trim();
+      return name ? `${name} (${code})` : String(code || '').trim();
+    }).filter(Boolean);
+  }
+
   const ids = Array.isArray(user?.roleIds) && user.roleIds.length > 0
     ? user.roleIds
     : (user?.roleId ? [user.roleId] : []);
   const labels = ids
     .map(id => roleIndex.value[id])
     .filter(Boolean)
-    .map(role => `${role.name} (${role.code})`);
+    .map(role => `${safeRoleText(role.name, role.code)} (${String(role.code || '').trim() || 'NO_CODE'})`);
   if (labels.length > 0) {
     return labels;
   }
   const username = String(user?.username || '').trim().toLowerCase();
   const presetLabel = presetRoleLabelByUsername[username];
   return presetLabel ? [presetLabel] : ['待分配'];
+}
+
+function safeRoleText(name, code) {
+  const raw = String(name || '').trim();
+  if (raw && raw !== '?' && raw !== '？' && !/^\?+$/.test(raw)) {
+    return raw;
+  }
+  const upperCode = String(code || '').trim().toUpperCase();
+  const map = {
+    ADMIN: '治理管理员',
+    ADMIN_REVIEWER: '治理复核员',
+    ADMIN_OPS: '治理运维',
+    SECOPS: '安全运维',
+    DATA_ADMIN: '数据管理员',
+    AI_BUILDER: 'AI应用开发者',
+    BUSINESS_OWNER: '业务负责人',
+    EXECUTIVE: '管理层',
+    EMPLOYEE: '普通员工',
+  };
+  if (map[upperCode]) {
+    return map[upperCode];
+  }
+  return upperCode ? `角色(${upperCode})` : '未命名角色';
+}
+
+function formatConfidence(value) {
+  const num = Number(value || 0);
+  const safe = Number.isFinite(num) ? Math.max(0, Math.min(1, num)) : 0;
+  return `${Math.round(safe * 100)}%`;
+}
+
+function formatScore(value) {
+  const num = Number(value || 0);
+  const safe = Number.isFinite(num) ? Math.max(0, Math.min(100, num)) : 0;
+  return safe.toFixed(1);
+}
+
+function ownedRoleRows() {
+  const current = Array.isArray(recommendPayload.value?.ownedRoles)
+    ? recommendPayload.value.ownedRoles
+    : (Array.isArray(recommendPayload.value?.recommendedRoles)
+      ? recommendPayload.value.recommendedRoles.filter(item => item?.source === 'current-role')
+      : []);
+  return current;
+}
+
+function suggestedRoleRows() {
+  const rows = Array.isArray(recommendPayload.value?.recommendedRoles)
+    ? recommendPayload.value.recommendedRoles
+    : [];
+  return rows.filter(item => item?.source !== 'current-role');
 }
 
 function displayRealName(user) {
@@ -487,3 +593,22 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', syncViewport);
 });
 </script>
+
+<style scoped>
+.recommend-block {
+  display: grid;
+  gap: 8px;
+}
+
+.recommend-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+}
+
+.recommend-title-tip {
+  font-size: 12px;
+  color: #909399;
+}
+</style>

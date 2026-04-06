@@ -24,6 +24,13 @@
       </div>
     </section>
 
+    <el-tabs v-model="activeTab" class="asset-tabs" @tab-change="handleTabChange">
+      <el-tab-pane label="数据资产" name="asset" />
+      <el-tab-pane label="敏感数据治理" name="sensitive" />
+    </el-tabs>
+
+    <template v-if="activeTab === 'asset'">
+
     <section class="asset-grid">
       <el-card v-if="canWriteAsset" class="upload-card">
         <template #header>
@@ -219,17 +226,24 @@
         <el-button @click="showDiaDetail = false">关闭</el-button>
       </template>
     </el-dialog>
+    </template>
+    <SensitiveDataGovernance v-else />
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import request from '../api/request';
 import { useUserStore } from '../store/user';
 import { hasRole } from '../utils/roleBoundary';
+import SensitiveDataGovernance from './SensitiveDataGovernance.vue';
 
 const userStore = useUserStore();
+const route = useRoute();
+const router = useRouter();
+const activeTab = ref(route.query?.tab === 'sensitive' ? 'sensitive' : 'asset');
 const assets = ref([]);
 const loading = ref(false);
 const uploading = ref(false);
@@ -270,6 +284,15 @@ const rules = {
   type: [{ required: true, message: '类型不能为空', trigger: 'blur' }],
   sensitivityLevel: [{ required: true, message: '敏感等级不能为空', trigger: 'blur' }],
 };
+
+function handleTabChange(tabName) {
+  const normalized = tabName === 'sensitive' ? 'sensitive' : 'asset';
+  router.replace({ query: { ...route.query, tab: normalized } });
+}
+
+watch(() => route.query?.tab, (tab) => {
+  activeTab.value = tab === 'sensitive' ? 'sensitive' : 'asset';
+});
 
 async function fetchAssets() {
   if (loading.value) return;

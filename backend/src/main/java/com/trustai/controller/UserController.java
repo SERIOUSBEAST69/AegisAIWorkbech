@@ -99,6 +99,29 @@ public class UserController {
         Map.entry("employee2", List.of("EMPLOYEE_REQUESTER_FULL", "EMPLOYEE")),
         Map.entry("employee3", List.of("EMPLOYEE_OBSERVER", "EMPLOYEE"))
     );
+    private static final Map<String, String> USERNAME_REAL_NAME = Map.ofEntries(
+        Map.entry("admin", "张政"),
+        Map.entry("admin_reviewer", "李审言"),
+        Map.entry("admin_ops", "王运维"),
+        Map.entry("executive", "陈明远"),
+        Map.entry("executive_2", "赵景行"),
+        Map.entry("executive_3", "孙知衡"),
+        Map.entry("secops", "周锐"),
+        Map.entry("secops_2", "吴凯"),
+        Map.entry("secops_3", "郑航"),
+        Map.entry("dataadmin", "钱思源"),
+        Map.entry("dataadmin_2", "冯嘉禾"),
+        Map.entry("dataadmin_3", "谢亦宁"),
+        Map.entry("aibuilder", "韩启明"),
+        Map.entry("aibuilder_2", "林彦博"),
+        Map.entry("aibuilder_3", "蒋若凡"),
+        Map.entry("bizowner", "许承业"),
+        Map.entry("bizowner_2", "邓文轩"),
+        Map.entry("bizowner_3", "曹远航"),
+        Map.entry("employee1", "郭一帆"),
+        Map.entry("employee2", "彭子轩"),
+        Map.entry("employee3", "梁可欣")
+    );
 
     @Autowired private UserService userService;
     @Autowired private PasswordEncoder passwordEncoder;
@@ -222,6 +245,7 @@ public class UserController {
         Set<String> targetOps = opSetByUser.getOrDefault(target.getId(), Set.of());
         Map<Long, Double> roleScore = new HashMap<>();
         Map<Long, Integer> supporters = new HashMap<>();
+        Map<Long, Set<String>> roleOps = new HashMap<>();
         for (User peer : companyUsers) {
             if (peer.getId() == null || Objects.equals(peer.getId(), target.getId())) {
                 continue;
@@ -241,9 +265,11 @@ public class UserController {
             if (String.valueOf(target.getJobTitle()).equalsIgnoreCase(String.valueOf(peer.getJobTitle()))) {
                 score += 0.08d;
             }
+            score = Math.max(0d, Math.min(1d, score));
             for (Long roleId : peerRoleIds) {
                 roleScore.put(roleId, roleScore.getOrDefault(roleId, 0d) + score);
                 supporters.put(roleId, supporters.getOrDefault(roleId, 0) + 1);
+                roleOps.computeIfAbsent(roleId, key -> new HashSet<>()).addAll(peerOps);
             }
         }
 
@@ -251,24 +277,59 @@ public class UserController {
             .filter(role -> role.getId() != null)
             .collect(java.util.stream.Collectors.toMap(Role::getId, role -> role, (a, b) -> a));
 
-        List<Map<String, Object>> recommended = roleScore.entrySet().stream()
-            .filter(entry -> roleMap.containsKey(entry.getKey()))
-            .sorted((a, b) -> Double.compare(b.getValue(), a.getValue()))
-            .limit(3)
-            .map(entry -> {
-                Role role = roleMap.get(entry.getKey());
-                int support = supporters.getOrDefault(entry.getKey(), 0);
-                double confidence = Math.min(0.99d, support <= 0 ? 0.0d : (entry.getValue() / support));
+        List<Long> currentRoleIds = resolveUserRoleIds(target);
+        Set<Long> currentRoleIdSet = new HashSet<>(currentRoleIds);
+
+        List<Map<String, Object>> ownedRoles = currentRoleIds.stream()
+            .filter(roleMap::containsKey)
+            .map(roleId -> {
+                Role role = roleMap.get(roleId);
+                Set<String> roleProfileOps = roleOps.getOrDefault(roleId, Set.of());
+                int matchedOps = sharedOpsCount(targetOps, roleProfileOps);
+                int support = Math.max(1, supporters.getOrDefault(roleId, 0));
+                double behaviorMatch = targetOps.isEmpty() ? 0.60d : ((double) matchedOps / Math.max(1, targetOps.size()));
+                double confidence = clamp01(behaviorMatch);
+                double score = Math.round(confidence * 1000.0d) / 10.0d;
                 Map<String, Object> row = new LinkedHashMap<>();
                 row.put("roleId", role.getId());
                 row.put("roleCode", role.getCode());
                 row.put("roleName", role.getName());
-                row.put("confidence", Math.round(confidence * 1000.0d) / 1000.0d);
+                row.put("confidence", confidence);
                 row.put("supportUsers", support);
-                row.put("score", Math.round(entry.getValue() * 1000.0d) / 1000.0d);
+                row.put("score", score);
+                row.put("source", "current-role");
+                row.put("reason", "近90天有" + matchedOps + "次操作与该角色权限画像匹配，建议保留");
                 return row;
             })
             .toList();
+
+        List<Map<String, Object>> recommendedBySimilarity = roleScore.entrySet().stream()
+            .filter(entry -> roleMap.containsKey(entry.getKey()))
+            .filter(entry -> !currentRoleIdSet.contains(entry.getKey()))
+            .sorted((a, b) -> Double.compare(b.getValue(), a.getValue()))
+            .limit(5)
+            .map(entry -> {
+                Role role = roleMap.get(entry.getKey());
+                int support = supporters.getOrDefault(entry.getKey(), 0);
+                double avgSimilarity = support <= 0 ? 0.0d : (entry.getValue() / support);
+                double confidence = clamp01(avgSimilarity);
+                double score = Math.round(confidence * 1000.0d) / 10.0d;
+                int matchedOps = sharedOpsCount(targetOps, roleOps.getOrDefault(entry.getKey(), Set.of()));
+                int deptMatch = support;
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("roleId", role.getId());
+                row.put("roleCode", role.getCode());
+                row.put("roleName", role.getName());
+                row.put("confidence", confidence);
+                row.put("supportUsers", support);
+                row.put("score", score);
+                row.put("source", "behavior-similarity");
+                row.put("reason", "近90天有" + matchedOps + "次操作与该角色权限匹配，部门同类样本" + deptMatch + "人，建议开通");
+                return row;
+            })
+            .toList();
+
+        List<Map<String, Object>> recommended = new ArrayList<>(recommendedBySimilarity);
 
         if (recommended.isEmpty()) {
             Map<Long, Integer> deptRoleCount = new HashMap<>();
@@ -281,17 +342,21 @@ public class UserController {
             }
             recommended = deptRoleCount.entrySet().stream()
                 .filter(entry -> roleMap.containsKey(entry.getKey()))
+                .filter(entry -> !currentRoleIdSet.contains(entry.getKey()))
                 .sorted((a, b) -> Integer.compare(b.getValue(), a.getValue()))
-                .limit(3)
+                .limit(5)
                 .map(entry -> {
                     Role role = roleMap.get(entry.getKey());
+                    double confidence = clamp01(0.35d + Math.min(0.45d, entry.getValue() * 0.06d));
                     Map<String, Object> row = new LinkedHashMap<>();
                     row.put("roleId", role.getId());
                     row.put("roleCode", role.getCode());
                     row.put("roleName", role.getName());
-                    row.put("confidence", 0.3d);
+                    row.put("confidence", confidence);
                     row.put("supportUsers", entry.getValue());
-                    row.put("score", entry.getValue());
+                    row.put("score", Math.round(confidence * 1000.0d) / 10.0d);
+                    row.put("source", "department-fallback");
+                    row.put("reason", "与当前部门岗位匹配度" + Math.round(confidence * 100) + "% ，建议开通");
                     return row;
                 })
                 .toList();
@@ -302,7 +367,15 @@ public class UserController {
         payload.put("username", target.getUsername());
         payload.put("department", target.getDepartment());
         payload.put("jobTitle", target.getJobTitle());
-        payload.put("currentRoleIds", resolveUserRoleIds(target));
+        payload.put("currentRoleIds", currentRoleIds);
+        payload.put("currentRoles", ownedRoles.stream().map(row -> {
+            Map<String, Object> basic = new LinkedHashMap<>();
+            basic.put("roleId", row.get("roleId"));
+            basic.put("roleCode", row.get("roleCode"));
+            basic.put("roleName", row.get("roleName"));
+            return basic;
+        }).toList());
+        payload.put("ownedRoles", ownedRoles);
         payload.put("recommendedRoles", recommended);
         payload.put("basedOnDays", 90);
         payload.put("sampleUsers", companyUsers.size());
@@ -785,13 +858,44 @@ public class UserController {
             }
             user.setRoleIds(roles);
         }
+
+        Set<Long> allRoleIds = new HashSet<>();
+        for (User user : users) {
+            if (user.getRoleIds() != null) {
+                allRoleIds.addAll(user.getRoleIds().stream().filter(Objects::nonNull).toList());
+            }
+        }
+        Map<Long, Role> roleById = allRoleIds.isEmpty()
+            ? Map.of()
+            : roleService.listByIds(allRoleIds).stream()
+                .filter(role -> role != null && role.getId() != null)
+                .collect(java.util.stream.Collectors.toMap(Role::getId, role -> role, (left, right) -> left));
+
+        for (User user : users) {
+            List<Long> roleIds = user.getRoleIds() == null ? List.of() : user.getRoleIds();
+            List<String> roleCodes = new ArrayList<>();
+            List<String> roleNames = new ArrayList<>();
+            for (Long roleId : roleIds) {
+                Role role = roleById.get(roleId);
+                if (role == null) {
+                    continue;
+                }
+                if (StringUtils.hasText(role.getCode())) {
+                    roleCodes.add(role.getCode().trim().toUpperCase(Locale.ROOT));
+                }
+                if (StringUtils.hasText(role.getName())) {
+                    roleNames.add(role.getName().trim());
+                }
+            }
+            user.setRoleCodes(roleCodes);
+            user.setRoleNames(roleNames);
+        }
     }
 
     private void normalizeUserMasterData(List<User> users, Long companyId) {
         if (users == null || users.isEmpty()) {
             return;
         }
-        boolean isDefaultCompany = Objects.equals(companyId, DEFAULT_COMPANY_ID);
         Map<String, Role> roleByCode = roleService.lambdaQuery()
             .eq(Role::getCompanyId, companyId)
             .list()
@@ -813,27 +917,36 @@ public class UserController {
             Long syncPrimaryRoleId = null;
             String normalizedUsername = String.valueOf(user.getUsername() == null ? "" : user.getUsername()).trim().toLowerCase(Locale.ROOT);
 
-            if (!StringUtils.hasText(user.getRealName())) {
-                user.setRealName(StringUtils.hasText(user.getNickname()) ? user.getNickname() : user.getUsername());
+            String mappedRealName = USERNAME_REAL_NAME.get(normalizedUsername);
+            String existingRealName = String.valueOf(user.getRealName() == null ? "" : user.getRealName()).trim();
+            if (!StringUtils.hasText(existingRealName) || existingRealName.equalsIgnoreCase(String.valueOf(user.getUsername()))) {
+                user.setRealName(StringUtils.hasText(mappedRealName)
+                    ? mappedRealName
+                    : (StringUtils.hasText(user.getNickname()) ? user.getNickname() : user.getUsername()));
                 changed = true;
             }
-            if (!StringUtils.hasText(user.getNickname())) {
+            String existingNickname = String.valueOf(user.getNickname() == null ? "" : user.getNickname()).trim();
+            if (!StringUtils.hasText(existingNickname) || existingNickname.equalsIgnoreCase(String.valueOf(user.getUsername()))) {
                 user.setNickname(StringUtils.hasText(user.getRealName()) ? user.getRealName() : user.getUsername());
                 changed = true;
             }
 
-            if (isDefaultCompany) {
-                List<String> expectedRoleCodes = COMPANY_ONE_PRESET_USER_ROLE.get(normalizedUsername);
-                Role expectedRole = resolvePresetRole(roleByCode, expectedRoleCodes);
-                Long expectedRoleId = expectedRole == null ? null : expectedRole.getId();
-                if (!Objects.equals(user.getRoleId(), expectedRoleId)) {
+            List<String> expectedRoleCodes = COMPANY_ONE_PRESET_USER_ROLE.get(normalizedUsername);
+            if (expectedRoleCodes != null && !expectedRoleCodes.isEmpty()) {
+                List<Role> expectedRoles = resolvePresetRoles(roleByCode, expectedRoleCodes);
+                Long expectedRoleId = expectedRoles.isEmpty() ? null : expectedRoles.get(0).getId();
+                if (expectedRoleId != null && !Objects.equals(user.getRoleId(), expectedRoleId)) {
                     user.setRoleId(expectedRoleId);
                     changed = true;
                 }
-                if (needSyncCompanyOneRoleBindings(user, expectedRoleId)) {
+                List<Long> expectedRoleIds = expectedRoles.stream()
+                    .map(Role::getId)
+                    .filter(Objects::nonNull)
+                    .toList();
+                if (needSyncCompanyOneRoleBindings(user, expectedRoleIds)) {
                     syncRoles = true;
-                    syncPrimaryRoleId = expectedRoleId;
-                    syncRoleIds = expectedRoleId == null ? List.of() : List.of(expectedRoleId);
+                    syncPrimaryRoleId = expectedRoleIds.isEmpty() ? null : expectedRoleIds.get(0);
+                    syncRoleIds = expectedRoleIds;
                 }
             } else {
                 Role currentRole = user.getRoleId() == null ? null : roleService.getById(user.getRoleId());
@@ -875,30 +988,50 @@ public class UserController {
         if (user == null) {
             return false;
         }
-        List<Long> boundRoleIds = user.getRoleIds() == null ? List.of() : user.getRoleIds();
-        if (expectedRoleId == null) {
+        List<Long> expectedRoleIds = expectedRoleId == null ? List.of() : List.of(expectedRoleId);
+        return needSyncCompanyOneRoleBindings(user, expectedRoleIds);
+    }
+
+    private boolean needSyncCompanyOneRoleBindings(User user, List<Long> expectedRoleIds) {
+        if (user == null) {
+            return false;
+        }
+        List<Long> boundRoleIds = user.getRoleIds() == null ? List.of() : user.getRoleIds().stream().filter(Objects::nonNull).toList();
+        List<Long> expected = expectedRoleIds == null ? List.of() : expectedRoleIds.stream().filter(Objects::nonNull).toList();
+        if (expected.isEmpty()) {
             return hasAnyRoleBinding(user);
         }
-        if (boundRoleIds.size() != 1 || !Objects.equals(boundRoleIds.get(0), expectedRoleId)) {
+        if (boundRoleIds.size() != expected.size()) {
             return true;
         }
-        return !Objects.equals(user.getRoleId(), expectedRoleId);
+        for (Long expectedRoleId : expected) {
+            if (!boundRoleIds.contains(expectedRoleId)) {
+                return true;
+            }
+        }
+        return !Objects.equals(user.getRoleId(), expected.get(0));
     }
 
     private Role resolvePresetRole(Map<String, Role> roleByCode, List<String> candidateCodes) {
+        List<Role> resolved = resolvePresetRoles(roleByCode, candidateCodes);
+        return resolved.isEmpty() ? null : resolved.get(0);
+    }
+
+    private List<Role> resolvePresetRoles(Map<String, Role> roleByCode, List<String> candidateCodes) {
+        List<Role> resolved = new ArrayList<>();
         if (roleByCode == null || roleByCode.isEmpty() || candidateCodes == null || candidateCodes.isEmpty()) {
-            return null;
+            return resolved;
         }
         for (String candidateCode : candidateCodes) {
             if (!StringUtils.hasText(candidateCode)) {
                 continue;
             }
             Role role = roleByCode.get(candidateCode.trim().toUpperCase(Locale.ROOT));
-            if (role != null) {
-                return role;
+            if (role != null && !resolved.stream().anyMatch(item -> Objects.equals(item.getId(), role.getId()))) {
+                resolved.add(role);
             }
         }
-        return null;
+        return resolved;
     }
 
     private void archiveDeletedUser(User target, User operator, String reason) {
@@ -1036,5 +1169,21 @@ public class UserController {
         Set<String> inter = new HashSet<>(left);
         inter.retainAll(right);
         return (double) inter.size() / union.size();
+    }
+
+    private int sharedOpsCount(Set<String> left, Set<String> right) {
+        if (left == null || right == null || left.isEmpty() || right.isEmpty()) {
+            return 0;
+        }
+        Set<String> inter = new HashSet<>(left);
+        inter.retainAll(right);
+        return inter.size();
+    }
+
+    private double clamp01(double value) {
+        if (Double.isNaN(value)) {
+            return 0d;
+        }
+        return Math.max(0d, Math.min(1d, value));
     }
 }

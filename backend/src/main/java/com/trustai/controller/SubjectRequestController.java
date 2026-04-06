@@ -43,12 +43,12 @@ public class SubjectRequestController {
     private static final Set<String> ALLOWED_TYPE = new HashSet<>(Arrays.asList("access", "export", "delete"));
     private static final Set<String> OPERATOR_ROLES = new HashSet<>(Arrays.asList(
         "ADMIN",
-        "DATA_ADMIN",
-        "BUSINESS_OWNER"
+        "SECOPS",
+        "ADMIN_REVIEWER"
     ));
 
     @GetMapping("/list")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN','BUSINESS_OWNER','EMPLOYEE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','EMPLOYEE')")
     public R<List<SubjectRequest>> list(@RequestParam(required = false) String status) {
         User currentUser = currentUserService.requireCurrentUser();
         String roleCode = currentUserService.currentRoleCode();
@@ -117,7 +117,7 @@ public class SubjectRequestController {
     }
 
     @PostMapping("/process")
-    @PreAuthorize("@currentUserService.hasRole('ADMIN')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS')")
     public R<?> process(@RequestBody @Validated ProcessReq req) {
         SubjectRequest sr = subjectRequestService.getById(req.getId());
         if (sr == null || !java.util.Objects.equals(sr.getCompanyId(), companyScopeService.requireCompanyId())) {
@@ -129,8 +129,16 @@ public class SubjectRequestController {
         if (!canTransit(sr.getStatus(), targetStatus)) return R.error(40000, "状态流转不合法");
         if (req.getHandlerId() == null) return R.error(40000, "处理人不能为空");
         User currentUser = currentUserService.requireCurrentUser();
+        String currentRoleCode = currentUserService.currentRoleCode();
+        String roleUpper = currentRoleCode == null ? "" : currentRoleCode.trim().toUpperCase();
+        if ("pending".equals(sr.getStatus()) && !"ADMIN".equals(roleUpper)) {
+            return R.error(40300, "仅治理管理员可处理待处理工单");
+        }
         if (!req.getHandlerId().equals(currentUser.getId())) {
             return R.error(40300, "处理人必须为当前登录账号");
+        }
+        if ("processing".equals(sr.getStatus()) && sr.getHandlerId() != null && !currentUser.getId().equals(sr.getHandlerId())) {
+            return R.error(40300, "处理中工单仅处理人可操作");
         }
         sr.setStatus(targetStatus);
         sr.setHandlerId(currentUser.getId());
@@ -141,19 +149,9 @@ public class SubjectRequestController {
     }
 
     @PostMapping("/delete")
-    @PreAuthorize("@currentUserService.hasRole('ADMIN')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN','EMPLOYEE')")
     public R<?> delete(@RequestBody @Validated IdReq req) {
-        SubjectRequest existing = subjectRequestService.getOne(
-            companyScopeService.withCompany(new QueryWrapper<SubjectRequest>()).eq("id", req.getId())
-        );
-        if (existing == null) {
-            return R.error(40000, "工单不存在或已删除");
-        }
-        boolean removed = subjectRequestService.removeById(req.getId());
-        if (!removed) {
-            return R.error(40000, "工单删除失败，请刷新后重试");
-        }
-        return R.okMsg("删除成功");
+        return R.error(40300, "主体权利工单为合规留痕数据，不可删除");
     }
 
     private boolean canTransit(String source, String target) {

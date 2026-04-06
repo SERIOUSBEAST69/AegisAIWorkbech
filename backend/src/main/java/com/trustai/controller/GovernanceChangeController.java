@@ -105,11 +105,13 @@ public class GovernanceChangeController {
         User requester = currentUserService.requireCurrentUser();
         enforceGovernanceDuty(requester, "submit");
         sensitiveOperationGuardService.requireConfirmedOperator(requester, req.getConfirmPassword(), "governance_change_submit", req.getModule() + ":" + req.getAction());
+        Long companyId = companyScopeService.requireCompanyId();
+        Long normalizedTargetId = normalizeTargetIdForSubmit(req, companyId);
         GovernanceChangeRequest request = new GovernanceChangeRequest();
-        request.setCompanyId(companyScopeService.requireCompanyId());
+        request.setCompanyId(companyId);
         request.setModule(normalize(req.getModule()));
         request.setAction(normalize(req.getAction()));
-        request.setTargetId(req.getTargetId());
+        request.setTargetId(normalizedTargetId);
         request.setPayloadJson(enrichPayloadWithTrace(req.getPayloadJson(), requester, request.getRequesterRoleCode()));
         request.setStatus(STATUS_PENDING);
         request.setRiskLevel(resolveRiskLevel(request.getModule(), request.getAction()));
@@ -131,6 +133,35 @@ public class GovernanceChangeController {
             );
         }
         return R.ok(request);
+    }
+
+    private Long normalizeTargetIdForSubmit(SubmitReq req, Long companyId) {
+        String module = normalize(req == null ? null : req.getModule());
+        String action = normalize(req == null ? null : req.getAction());
+        Long targetId = req == null ? null : req.getTargetId();
+
+        if ("ROLE".equalsIgnoreCase(module) && ("UPDATE".equalsIgnoreCase(action) || "DELETE".equalsIgnoreCase(action))) {
+            if (targetId == null || targetId <= 0L) {
+                Map<String, Object> payload = parsePayloadMap(req == null ? null : req.getPayloadJson());
+                Long payloadRoleId = parseLong(payload.get("roleId"));
+                if (payloadRoleId != null && payloadRoleId > 0L) {
+                    targetId = payloadRoleId;
+                } else {
+                    String payloadCode = stringValue(payload.get("code"));
+                    String payloadName = stringValue(payload.get("name"));
+                    Role compatible = findCompatibleRoleInCompany(companyId, payloadCode, payloadName);
+                    if (compatible != null) {
+                        targetId = compatible.getId();
+                    }
+                }
+            }
+            if (targetId == null || targetId <= 0L) {
+                throw new BizException(40000, "角色变更缺少目标ID");
+            }
+            Role resolvedRole = requireCompanyRole(targetId, companyId, "角色不存在或不在当前公司");
+            return resolvedRole.getId();
+        }
+        return targetId;
     }
 
     @GetMapping("/page")
@@ -436,10 +467,7 @@ public class GovernanceChangeController {
             replaceRolePermissionsByCodes(role.getId(), payload.get("permissionCodes"));
             return;
         }
-        Role existing = roleService.getById(request.getTargetId());
-        if (existing == null || !java.util.Objects.equals(existing.getCompanyId(), companyScopeService.requireCompanyId())) {
-            throw new BizException(40400, "角色不存在或不在当前公司");
-        }
+        Role existing = requireCompanyRole(request.getTargetId(), companyScopeService.requireCompanyId(), "角色不存在或不在当前公司");
         if ("DELETE".equalsIgnoreCase(action)) {
             if ("ADMIN".equalsIgnoreCase(existing.getCode())) {
                 throw new BizException(40000, "默认治理管理员角色不允许删除");
@@ -701,11 +729,9 @@ public class GovernanceChangeController {
             if (payload.containsKey("roleId")) {
                 Long roleId = parseLong(payload.get("roleId"));
                 if (roleId != null) {
-                    Role role = roleService.getById(roleId);
-                    if (role == null || !java.util.Objects.equals(role.getCompanyId(), existing.getCompanyId())) {
-                        throw new BizException(40000, "目标角色不存在或不在当前公司");
-                    }
-                    existing.setRoleId(roleId);
+                    Long roleCompanyId = existing.getCompanyId() == null ? companyScopeService.requireCompanyId() : existing.getCompanyId();
+                    Role role = requireCompanyRole(roleId, roleCompanyId, "目标角色不存在或不在当前公司");
+                    existing.setRoleId(role.getId());
                 }
             }
             existing.setUpdateTime(new Date());
@@ -726,6 +752,65 @@ public class GovernanceChangeController {
             return "HIGH";
         }
         return "MEDIUM";
+    }
+
+    private Role requireCompanyRole(Long roleId, Long companyId, String notFoundMessage) {
+        Role role = roleService.getById(roleId);
+        if (role == null) {
+            throw new BizException(40400, notFoundMessage);
+        }
+        if (java.util.Objects.equals(role.getCompanyId(), companyId)) {
+            return role;
+        }
+
+        // Repair legacy rows that missed company binding so governance edit flow can proceed.
+        if ((role.getCompanyId() == null || role.getCompanyId() <= 0L) && companyId != null && companyId > 0L) {
+            role.setCompanyId(companyId);
+            role.setUpdateTime(new Date());
+            roleService.updateById(role);
+            role.setCompanyId(companyId);
+            return role;
+        }
+
+        // If request references a cross-company row, map to compatible role in current company.
+        if (companyId != null && companyId > 0L && (StringUtils.hasText(role.getCode()) || StringUtils.hasText(role.getName()))) {
+            Role sameCodeRole = findCompatibleRoleInCompany(companyId, role.getCode(), role.getName());
+            if (sameCodeRole != null) {
+                return sameCodeRole;
+            }
+        }
+        throw new BizException(40400, notFoundMessage);
+    }
+
+    private Role findCompatibleRoleInCompany(Long companyId, String roleCode, String roleName) {
+        if (companyId == null || companyId <= 0L) {
+            return null;
+        }
+        java.util.List<Role> candidates = roleService.lambdaQuery()
+            .eq(Role::getCompanyId, companyId)
+            .orderByDesc(Role::getUpdateTime)
+            .list();
+        String normalizedCode = String.valueOf(roleCode == null ? "" : roleCode).trim().toLowerCase(Locale.ROOT);
+        String normalizedName = String.valueOf(roleName == null ? "" : roleName).trim();
+        for (Role candidate : candidates) {
+            if (candidate == null) {
+                continue;
+            }
+            String code = String.valueOf(candidate.getCode() == null ? "" : candidate.getCode()).trim().toLowerCase(Locale.ROOT);
+            if (StringUtils.hasText(normalizedCode) && normalizedCode.equals(code)) {
+                return candidate;
+            }
+        }
+        for (Role candidate : candidates) {
+            if (candidate == null) {
+                continue;
+            }
+            String name = String.valueOf(candidate.getName() == null ? "" : candidate.getName()).trim();
+            if (StringUtils.hasText(normalizedName) && normalizedName.equals(name)) {
+                return candidate;
+            }
+        }
+        return null;
     }
 
     private GovernanceChangeRequest requireScopedRequest(Long requestId) {

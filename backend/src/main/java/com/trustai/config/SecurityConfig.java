@@ -84,6 +84,8 @@ public class SecurityConfig {
                         "/api/download/**",
                         // 安全事件上报（供 OpenClaw 模拟程序等无 token 上报）
                         "/api/security/events/report",
+                        // 驾驶舱 SSE 通道，鉴权在控制器内通过 token 参数完成
+                        "/api/security-cockpit/alerts/stream",
                         "/uploads/**",
                         "/v3/api-docs/**",
                         "/swagger-ui/**",

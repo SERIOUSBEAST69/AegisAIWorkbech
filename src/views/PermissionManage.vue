@@ -1,5 +1,5 @@
 <template>
-  <el-card>
+  <el-card class="mgmt-table-exempt">
     <h2>权限管理</h2>
     <el-tabs v-model="activeTab" @tab-change="handleTabChange">
       <el-tab-pane label="权限列表维护" name="list">
@@ -33,7 +33,11 @@
               <div class="cell nowrap">{{ scope.row.id }}</div>
             </template>
           </el-table-column>
-          <el-table-column prop="name" label="权限名称" />
+          <el-table-column label="权限名称">
+            <template #default="scope">
+              <span>{{ permissionDisplayName(scope.row) }}</span>
+            </template>
+          </el-table-column>
           <el-table-column prop="code" label="权限编码" sortable="custom" />
           <el-table-column prop="type" label="类型" width="110">
             <template #default="scope">
@@ -86,7 +90,7 @@
           empty-text="暂无权限树"
         >
           <template #default="{ data }">
-            <span>{{ data.name }}（{{ data.code || '-' }} / {{ data.type || '-' }}）</span>
+            <span>{{ permissionDisplayName(data) }}（{{ data.code || '-' }} / {{ data.type || '-' }}）</span>
           </template>
         </el-tree>
       </el-tab-pane>
@@ -247,6 +251,39 @@ const PERMISSION_TYPE_OPTIONS = Object.freeze([
   { label: '按钮', value: 'button' },
 ]);
 const PERMISSION_CODE_REGEX = /^[a-z][a-z0-9_-]*(?::[a-z][a-z0-9_-]*)+$/;
+const MODULE_NAME_MAP = Object.freeze({
+  user: '用户',
+  role: '角色',
+  permission: '权限',
+  approval: '审批',
+  policy: '策略',
+  audit: '审计',
+  risk: '风险',
+  security: '安全',
+  data: '数据',
+  model: '模型',
+  ai: 'AI',
+  subject: '数据主体',
+  sod: '职责分离',
+});
+const ACTION_NAME_MAP = Object.freeze({
+  view: '查看',
+  list: '列表',
+  page: '分页',
+  manage: '管理',
+  add: '新增',
+  create: '创建',
+  update: '更新',
+  edit: '编辑',
+  delete: '删除',
+  remove: '移除',
+  approve: '审批',
+  reject: '驳回',
+  operate: '操作',
+  assign: '分配',
+  export: '导出',
+  import: '导入',
+});
 
 async function promptOperatorConfirm(actionText) {
   const operatorPrompt = await ElMessageBox.prompt(`请输入当前账号密码确认${actionText}`, '治理变更发起确认', {
@@ -323,7 +360,7 @@ const queryParentOptions = computed(() => {
     .filter(item => item?.id != null)
     .map(item => ({
       id: Number(item.id),
-      label: `${item.name || '-'}（${item.code || '-'}，ID:${item.id}）`,
+      label: `${permissionDisplayName(item)}（${item.code || '-'}，ID:${item.id}）`,
     }));
 });
 
@@ -335,7 +372,7 @@ const parentOptions = computed(() => {
     .filter(item => Number(item.id) !== currentEditId)
     .map(item => ({
       id: Number(item.id),
-      label: `${item.name || '-'}（${item.code || '-'}，ID:${item.id}）`,
+      label: `${permissionDisplayName(item)}（${item.code || '-'}，ID:${item.id}）`,
     }));
 
   const selectedParentId = Number(editForm.value?.parentId || 0);
@@ -358,6 +395,35 @@ function normalizeStatus(status) {
   return normalized === 'disabled' ? 'disabled' : 'active';
 }
 
+function prettifyToken(token) {
+  const raw = String(token || '').trim().toLowerCase();
+  if (!raw) return '';
+  if (MODULE_NAME_MAP[raw]) return MODULE_NAME_MAP[raw];
+  if (ACTION_NAME_MAP[raw]) return ACTION_NAME_MAP[raw];
+  return raw.replace(/[_-]+/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase());
+}
+
+function permissionDisplayName(permission) {
+  const explicitName = String(permission?.name || '').trim();
+  if (explicitName) {
+    return explicitName;
+  }
+  const code = String(permission?.code || '').trim();
+  if (!code) {
+    return '未命名权限';
+  }
+  const parts = code.split(':').map(part => part.trim()).filter(Boolean);
+  if (parts.length === 0) {
+    return code;
+  }
+  if (parts.length === 1) {
+    return `${prettifyToken(parts[0])}权限`;
+  }
+  const modulePart = prettifyToken(parts[0]);
+  const actionPart = prettifyToken(parts[parts.length - 1]);
+  return `${modulePart}${actionPart}`;
+}
+
 async function fetchParentPermissionPool() {
   try {
     const data = await request.get('/permission/list');
@@ -376,9 +442,10 @@ async function ensureParentPermissionPoolReady() {
 
 function resolveParentLabel(parentId) {
   if (parentId == null) return '-';
-  const matched = permissions.value.find(item => Number(item?.id) === Number(parentId));
-  if (!matched) return String(parentId);
-  return `${matched.name || '-'}（ID:${matched.id}）`;
+  const matched = parentPermissionPool.value.find(item => Number(item?.id) === Number(parentId))
+    || permissions.value.find(item => Number(item?.id) === Number(parentId));
+  if (!matched) return `未知父级（ID:${parentId}）`;
+  return `${permissionDisplayName(matched)}（ID:${matched.id}）`;
 }
 
 function normalizePermissionPayload(form) {
@@ -450,7 +517,7 @@ async function fetchMatrix() {
     const map = new Map();
     permissionsRaw.forEach(item => {
       if (item?.id != null) {
-        map.set(String(item.id), `${item.name || '-'}(${item.code || '-'})`);
+        map.set(String(item.id), `${permissionDisplayName(item)}(${item.code || '-'})`);
       }
     });
     permissionNameMap.value = map;

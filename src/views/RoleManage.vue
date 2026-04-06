@@ -1,5 +1,5 @@
 <template>
-  <el-card>
+  <el-card class="mgmt-table-exempt">
     <h2>角色管理</h2>
 
     <el-form :inline="true" @submit.prevent>
@@ -34,7 +34,14 @@
       <el-table-column label="操作" width="260" :fixed="isNarrowScreen ? false : 'right'">
         <template #default="scope">
           <el-button size="small" :disabled="isSystemRole(scope.row) || !canWriteRole()" @click="openEdit(scope.row)">编辑</el-button>
-          <el-button size="small" type="primary" plain :disabled="!canOpenPermissionEditor(scope.row)" @click="openPermissions(scope.row)">权限</el-button>
+          <el-button
+            v-if="!isSystemRole(scope.row)"
+            size="small"
+            type="primary"
+            plain
+            :disabled="!canOpenPermissionEditor(scope.row)"
+            @click="openPermissions(scope.row)"
+          >权限</el-button>
           <el-button
             size="small"
             type="danger"
@@ -88,7 +95,7 @@
             :props="treeProps"
           >
             <template #default="{ data }">
-              <span>{{ data.name }}（{{ data.code }}）</span>
+              <span>{{ permissionDisplayName(data) }}（{{ data.code }}）</span>
             </template>
           </el-tree>
         </el-form-item>
@@ -110,7 +117,7 @@
         :props="treeProps"
       >
         <template #default="{ data }">
-          <span>{{ data.name }}（{{ data.code }}）</span>
+          <span>{{ permissionDisplayName(data) }}（{{ data.code }}）</span>
         </template>
       </el-tree>
       <template #footer>
@@ -130,22 +137,6 @@ import { hasPermissionByUser } from '../utils/permission';
 
 function currentUserSnapshot() {
   return getSession()?.user || {};
-}
-
-function normalizeCompanyId(value) {
-  if (value == null || value === '') {
-    return null;
-  }
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function roleCompanyId(role) {
-  return normalizeCompanyId(role?.companyId ?? role?.company_id);
-}
-
-function currentCompanyId() {
-  return normalizeCompanyId(currentUserSnapshot()?.companyId);
 }
 
 function isPlatformAdmin() {
@@ -201,6 +192,40 @@ const treeProps = {
   children: 'children'
 };
 
+const MODULE_NAME_MAP = Object.freeze({
+  user: '用户',
+  role: '角色',
+  permission: '权限',
+  approval: '审批',
+  policy: '策略',
+  audit: '审计',
+  risk: '风险',
+  security: '安全',
+  data: '数据',
+  model: '模型',
+  ai: 'AI',
+  subject: '数据主体',
+  sod: '职责分离',
+});
+const ACTION_NAME_MAP = Object.freeze({
+  view: '查看',
+  list: '列表',
+  page: '分页',
+  manage: '管理',
+  add: '新增',
+  create: '创建',
+  update: '更新',
+  edit: '编辑',
+  delete: '删除',
+  remove: '移除',
+  approve: '审批',
+  reject: '驳回',
+  operate: '操作',
+  assign: '分配',
+  export: '导出',
+  import: '导入',
+});
+
 const editor = ref({
   id: null,
   name: '',
@@ -245,6 +270,40 @@ function normalizeRoleDisplayName(role) {
   return role;
 }
 
+function prettifyToken(token) {
+  const raw = String(token || '').trim().toLowerCase();
+  if (!raw) return '';
+  if (MODULE_NAME_MAP[raw]) return MODULE_NAME_MAP[raw];
+  if (ACTION_NAME_MAP[raw]) return ACTION_NAME_MAP[raw];
+  return raw.replace(/[_-]+/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase());
+}
+
+function permissionDisplayName(permission) {
+  const explicitName = String(permission?.name || '').trim();
+  if (explicitName) {
+    return explicitName;
+  }
+  const code = String(permission?.code || '').trim();
+  if (!code) {
+    return '未命名权限';
+  }
+  const parts = code.split(':').map(part => part.trim()).filter(Boolean);
+  if (parts.length === 0) {
+    return code;
+  }
+  if (parts.length === 1) {
+    return `${prettifyToken(parts[0])}权限`;
+  }
+  return `${prettifyToken(parts[0])}${prettifyToken(parts[parts.length - 1])}`;
+}
+
+function sanitizeGovernanceText(value) {
+  // Remove invisible control characters that can break backend JSON parsing.
+  return String(value ?? '')
+    .replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
+    .trim();
+}
+
 function flattenTreeCodes(nodes, acc = []) {
   for (const node of nodes || []) {
     if (node?.code) {
@@ -265,20 +324,40 @@ function isSystemRole(role) {
   return false;
 }
 
-function isRoleInCurrentCompany(role) {
-  const boundCompanyId = currentCompanyId();
-  if (boundCompanyId == null) {
-    return true;
-  }
-  const boundRoleCompanyId = roleCompanyId(role);
-  if (boundRoleCompanyId == null) {
-    return true;
-  }
-  return boundRoleCompanyId === boundCompanyId;
+function canOpenPermissionEditor(role) {
+  return canAssignRolePermission() && !isSystemRole(role);
 }
 
-function canOpenPermissionEditor(role) {
-  return canAssignRolePermission() && !isSystemRole(role) && isRoleInCurrentCompany(role);
+function normalizeIdAsString(value) {
+  if (value == null) return '';
+  return String(value).trim();
+}
+
+function normalizeCompanyIdAsString(value) {
+  if (value == null) return '';
+  const normalized = String(value).trim();
+  return normalized === '' ? '' : normalized;
+}
+
+function resolveRoleId(role) {
+  return normalizeIdAsString(role?.id || role?.roleId);
+}
+
+function currentCompanyIdAsString() {
+  return normalizeCompanyIdAsString(currentUserSnapshot()?.companyId);
+}
+
+function resolveRoleCompanyId(role) {
+  return normalizeCompanyIdAsString(role?.companyId || role?.company_id);
+}
+
+function normalizeRoleRow(role) {
+  const normalized = {
+    ...role,
+    id: resolveRoleId(role),
+    companyId: resolveRoleCompanyId(role),
+  };
+  return normalizeRoleDisplayName(normalized);
 }
 
 async function fetchPermissionTree() {
@@ -297,7 +376,7 @@ async function fetchRoles() {
       },
     });
     roles.value = Array.isArray(data?.list) ? data.list : [];
-    roles.value = roles.value.map(normalizeRoleDisplayName);
+    roles.value = roles.value.map(normalizeRoleRow);
     pagination.value.total = Number(data?.total || 0);
   } catch (err) {
     ElMessage.error(err?.message || '角色加载失败');
@@ -358,10 +437,15 @@ async function openEdit(role) {
     return;
   }
   try {
+    const roleId = resolveRoleId(role);
+    if (!roleId) {
+      ElMessage.error('角色ID为空，无法编辑');
+      return;
+    }
     editing.value = true;
-    currentRole.value = role;
+    currentRole.value = { ...role, id: roleId };
     editor.value = {
-      id: role.id,
+      id: roleId,
       name: role.name,
       code: role.code,
       description: role.description || '',
@@ -369,7 +453,7 @@ async function openEdit(role) {
       reviewNote: '',
     };
     await fetchPermissionTree();
-    const currentCodes = await request.get(`/roles/${role.id}/permissions`);
+    const currentCodes = await request.get(`/roles/${roleId}/permissions`);
     showEditor.value = true;
     await nextTick();
     permissionTreeRef.value?.setCheckedKeys(Array.isArray(currentCodes) ? currentCodes : []);
@@ -388,12 +472,12 @@ async function saveRole() {
       const reviewPayload = await promptOperatorConfirm(editing.value ? '更新角色' : '新增角色');
       const permissionCodes = getCheckedPermissionCodes(permissionTreeRef.value);
       const payload = {
-        name: editor.value.name,
-        code: String(editor.value.code || '').trim().toUpperCase(),
-        description: editor.value.description,
+        name: sanitizeGovernanceText(editor.value.name),
+        code: sanitizeGovernanceText(editor.value.code).toUpperCase(),
+        description: sanitizeGovernanceText(editor.value.description),
         allowSelfRegister: Boolean(editor.value.allowSelfRegister),
         permissionCodes,
-        reviewNote: editor.value.reviewNote || undefined,
+        reviewNote: sanitizeGovernanceText(editor.value.reviewNote) || undefined,
       };
 
       await request.post('/governance-change/submit', {
@@ -423,14 +507,26 @@ async function openPermissions(role) {
     ElMessage.warning('系统预设角色不允许编辑');
     return;
   }
-  if (!isRoleInCurrentCompany(role)) {
-    ElMessage.error('角色不属于当前公司');
-    return;
-  }
   try {
-    currentRole.value = role;
+    const roleId = resolveRoleId(role);
+    if (!roleId) {
+      ElMessage.error('角色ID为空，无法加载权限');
+      return;
+    }
+    const roleCompanyId = resolveRoleCompanyId(role);
+    const currentCompanyId = currentCompanyIdAsString();
+    if (roleCompanyId && currentCompanyId && roleCompanyId !== currentCompanyId) {
+      ElMessage.error('角色不属于当前公司，无法加载权限');
+      return;
+    }
+    currentRole.value = { ...role, id: roleId };
     await fetchPermissionTree();
-    const currentCodes = await request.get(`/roles/${role.id}/permissions`);
+    const currentCodes = await request.get(`/roles/${roleId}/permissions`, {
+      params: {
+        roleId,
+        companyId: currentCompanyId || undefined,
+      },
+    });
     showPermissionOnly.value = true;
     await nextTick();
     permissionOnlyTreeRef.value?.setCheckedKeys(Array.isArray(currentCodes) ? currentCodes : []);

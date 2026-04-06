@@ -43,15 +43,35 @@
           <div class="cell nowrap">{{ scope.row.id }}</div>
         </template>
       </el-table-column>
-      <el-table-column prop="userId" label="用户ID" width="80" />
+      <el-table-column prop="userId" label="用户ID" width="90" />
+      <el-table-column label="账号" width="120">
+        <template #default="scope">{{ userNameById(scope.row.userId) }}</template>
+      </el-table-column>
+      <el-table-column label="角色" width="120">
+        <template #default="scope">{{ userRoleById(scope.row.userId) }}</template>
+      </el-table-column>
+      <el-table-column label="部门" width="120">
+        <template #default="scope">{{ userDepartmentById(scope.row.userId) }}</template>
+      </el-table-column>
+      <el-table-column label="公司" width="100">
+        <template #default="scope">{{ userCompanyById(scope.row.userId) }}</template>
+      </el-table-column>
       <el-table-column prop="permissionId" label="权限ID" width="110" />
       <el-table-column prop="permissionName" label="权限名称" width="180" show-overflow-tooltip />
       <el-table-column prop="assetId" label="资产ID" width="80" />
-      <el-table-column prop="operation" label="操作类型" width="110" />
-      <el-table-column prop="operationTime" label="操作时间" width="160" />
+      <el-table-column prop="operation" label="操作类型" width="130" />
+      <el-table-column prop="operationTime" label="操作时间" width="190" />
       <el-table-column prop="ip" label="IP" width="130" />
-      <el-table-column prop="result" label="结果" width="80" />
-      <el-table-column prop="riskLevel" label="风险级" width="80" />
+      <el-table-column prop="result" label="结果" width="90">
+        <template #default="scope">
+          <el-tag :type="resultTagType(scope.row.result)">{{ scope.row.result }}</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column prop="riskLevel" label="风险级" width="90">
+        <template #default="scope">
+          <el-tag :type="riskTagType(scope.row.riskLevel)">{{ scope.row.riskLevel }}</el-tag>
+        </template>
+      </el-table-column>
       <el-table-column label="输入摘要" min-width="140" show-overflow-tooltip>
         <template #default="scope">{{ scope.row.inputOverview || '—' }}</template>
       </el-table-column>
@@ -80,6 +100,7 @@ import { hasPermission } from '../utils/permission';
 
 const route = useRoute();
 const logs = ref([]);
+const userDirectory = ref(new Map());
 const loading = ref(false);
 const query = ref(buildQueryFromRoute(route.query));
 const canExport = hasPermission('audit:export');
@@ -112,9 +133,10 @@ function buildParams() {
 async function fetchLogs() {
   loading.value = true;
   try {
+    await ensureUserDirectory();
     // 后端使用 GET /api/audit-log/search，ES CriteriaQuery 按 userId/operation/时间段检索
     const res = await request.get('/audit-log/search', { params: buildParams() });
-    logs.value = Array.isArray(res) ? res : [];
+    logs.value = normalizeAuditLogs(Array.isArray(res) ? res : []);
     pagination.value.total = logs.value.length;
     pagination.value.current = 1;
   } catch (err) {
@@ -124,6 +146,121 @@ async function fetchLogs() {
   } finally {
     loading.value = false;
   }
+}
+
+async function ensureUserDirectory() {
+  if (userDirectory.value.size > 0) {
+    return;
+  }
+  try {
+    const users = await request.get('/user/list');
+    const map = new Map();
+    (Array.isArray(users) ? users : []).forEach(item => {
+      if (item?.id != null) {
+        map.set(String(item.id), item);
+      }
+    });
+    userDirectory.value = map;
+  } catch {
+    userDirectory.value = new Map();
+  }
+}
+
+function normalizeOperation(value) {
+  const raw = String(value || '').toLowerCase();
+  if (!raw) return '访问';
+  if (/(login|signin)/.test(raw)) return '登录';
+  if (/(export|download)/.test(raw)) return '导出';
+  if (/(update|edit|modify)/.test(raw)) return '修改';
+  if (/(delete|remove)/.test(raw)) return '删除';
+  if (/(approve|review)/.test(raw)) return '审批';
+  return String(value || '访问');
+}
+
+function normalizeResult(value) {
+  const raw = String(value || '').toLowerCase();
+  if (['success', 'ok', 'pass', 'true', '1'].includes(raw)) return '成功';
+  if (['fail', 'failed', 'error', 'deny', 'false', '0'].includes(raw)) return '失败';
+  if (raw.includes('success') || raw.includes('ok')) return '成功';
+  if (raw.includes('fail') || raw.includes('error') || raw.includes('deny')) return '失败';
+  return '成功';
+}
+
+function normalizeRiskLevel(value, operation, result) {
+  const raw = String(value || '').toLowerCase();
+  if (['critical', 'high', 'medium', 'low'].includes(raw)) {
+    if (raw === 'critical') return '高';
+    if (raw === 'high') return '高';
+    if (raw === 'medium') return '中';
+    return '低';
+  }
+  if (result === '失败') return '中';
+  if (operation === '删除' || operation === '导出') return '高';
+  if (operation === '审批' || operation === '修改') return '中';
+  return '低';
+}
+
+function normalizeAuditLogs(rows) {
+  const seen = new Set();
+  const normalized = [];
+  for (const item of rows) {
+    const operation = normalizeOperation(item?.operation);
+    const result = normalizeResult(item?.result);
+    const riskLevel = normalizeRiskLevel(item?.riskLevel, operation, result);
+    const normalizedItem = {
+      ...item,
+      operation,
+      result,
+      riskLevel,
+      operationTime: item?.operationTime || item?.createTime || item?.updateTime || '-',
+      ip: item?.ip || item?.clientIp || '-',
+      inputOverview: String(item?.inputOverview || item?.requestSummary || item?.input || item?.detail || '-'),
+    };
+    const signature = [
+      normalizedItem.userId,
+      normalizedItem.operation,
+      normalizedItem.result,
+      normalizedItem.operationTime,
+      normalizedItem.ip,
+      normalizedItem.permissionId,
+    ].join('|');
+    if (seen.has(signature)) continue;
+    seen.add(signature);
+    normalized.push(normalizedItem);
+  }
+  return normalized;
+}
+
+function userById(id) {
+  if (id == null) return null;
+  return userDirectory.value.get(String(id)) || null;
+}
+
+function userNameById(id) {
+  return userById(id)?.username || '-';
+}
+
+function userRoleById(id) {
+  return userById(id)?.roleCode || '-';
+}
+
+function userDepartmentById(id) {
+  return userById(id)?.department || '-';
+}
+
+function userCompanyById(id) {
+  const companyId = userById(id)?.companyId;
+  return companyId != null ? String(companyId) : '-';
+}
+
+function resultTagType(value) {
+  return String(value || '') === '失败' ? 'danger' : 'success';
+}
+
+function riskTagType(value) {
+  if (String(value || '') === '高') return 'danger';
+  if (String(value || '') === '中') return 'warning';
+  return 'info';
 }
 
 function onPageChange(page) {

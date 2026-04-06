@@ -130,7 +130,7 @@ const quickActions = [
   },
   {
     id: 6,
-    title: '威胁监控',
+    title: '实时威胁告警',
     description: '实时安全监控',
     icon: Monitor,
     color: 'danger',
@@ -139,8 +139,8 @@ const quickActions = [
   },
   {
     id: 7,
-    title: '风险事件',
-    description: '管理风险事件',
+    title: '合规风险记录',
+    description: '管理合规风险记录',
     icon: Warning,
     color: 'warning',
     shortcut: 'Ctrl+E',

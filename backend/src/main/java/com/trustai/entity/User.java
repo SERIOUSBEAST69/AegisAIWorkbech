@@ -39,4 +39,10 @@ public class User {
 
     @TableField(exist = false)
     private List<Long> roleIds;
+
+    @TableField(exist = false)
+    private List<String> roleCodes;
+
+    @TableField(exist = false)
+    private List<String> roleNames;
 }

@@ -653,10 +653,10 @@ public class DataInitializer implements CommandLineRunner {
             new PermissionSeed("数据资产菜单", "menu:data_asset", "menu"),
             new PermissionSeed("数据资产上传", "data_asset:upload", "button"),
             new PermissionSeed("数据资产删除", "data_asset:delete", "button"),
-            new PermissionSeed("影子AI发现菜单", "menu:shadow_ai", "menu"),
+            new PermissionSeed("影子AI发现与风险评级菜单", "menu:shadow_ai", "menu"),
             new PermissionSeed("员工AI行为监控菜单", "menu:ai_anomaly", "menu"),
             new PermissionSeed("实时威胁监控菜单", "menu:threat_monitor", "menu"),
-            new PermissionSeed("AI风险评级菜单", "menu:ai_risk_rating", "menu"),
+            new PermissionSeed("AI风险评级子页菜单", "menu:ai_risk_rating", "menu"),
             new PermissionSeed("敏感扫描菜单", "menu:sensitive_scan", "menu"),
             new PermissionSeed("脱敏预览菜单", "menu:desense_preview", "menu"),
             new PermissionSeed("主体权利菜单", "menu:subject_request", "menu"),
@@ -742,7 +742,7 @@ public class DataInitializer implements CommandLineRunner {
         permissionParentByCode.put("shadow:ai:view", "menu:shadow_ai");
         permissionParentByCode.put("anomaly:monitor:view", "menu:ai_anomaly");
         permissionParentByCode.put("threat:monitor:view", "menu:threat_monitor");
-        permissionParentByCode.put("ai:risk:rating:view", "menu:ai_risk_rating");
+        permissionParentByCode.put("ai:risk:rating:view", "menu:shadow_ai");
         permissionParentByCode.put("sensitive:scan:view", "menu:sensitive_scan");
         permissionParentByCode.put("desense:preview:view", "menu:desense_preview");
         permissionParentByCode.put("subject:request:view", "menu:subject_request");
@@ -1467,6 +1467,8 @@ public class DataInitializer implements CommandLineRunner {
             }
         }
 
+        seedRealPolicyBaselines(companyId);
+
         Integer policyCount = jdbcTemplate.queryForObject("SELECT COUNT(1) FROM compliance_policy WHERE company_id = ?", Integer.class, companyId);
         int targetPolicy = 24;
         int existingPolicy = policyCount == null ? 0 : policyCount;
@@ -1477,13 +1479,175 @@ public class DataInitializer implements CommandLineRunner {
                 "INSERT INTO compliance_policy(company_id, name, rule_content, scope, status, version, create_time, update_time) VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
                 companyId,
                 "治理策略-" + (i + 1),
-                "{\"rule\":\"deny high risk export\",\"index\":" + i + "}",
-                i % 2 == 0 ? "全局" : "指定资产",
+                "{\"policyType\":\"MASKING\",\"keywords\":[\"身份证\",\"手机号\",\"银行卡\"],\"action\":\"mask\",\"index\":" + i + "}",
+                i % 3 == 0 ? "全局" : (i % 3 == 1 ? "业务部门" : "ai_prompt"),
                 1,
                 1 + (i % 3),
                 createTime,
                 createTime
             );
+        }
+    }
+
+    private void seedRealPolicyBaselines(Long companyId) {
+        Date now = new Date();
+        ensurePolicyBaseline(
+            companyId,
+            "数据外发脱敏策略",
+            "MASKING",
+            10,
+            "全平台",
+            "全公司",
+            "数据导出岗,审计岗",
+            "手机号,身份证,银行卡",
+            "{\"policyType\":\"MASKING\",\"keywords\":[\"身份证\",\"手机号\",\"银行卡\",\"住址\"],\"action\":\"mask\",\"priority\":10,\"scenario\":\"文件外发时自动检测手机号、身份证并脱敏\",\"scopeDetail\":{\"departments\":[\"全公司\"],\"dataTypes\":[\"数据导出\",\"脱敏预览\",\"审计日志\"]}}",
+            1,
+            "governance-admin",
+            now
+        );
+        ensurePolicyBaseline(
+            companyId,
+            "敏感词拦截策略",
+            "ACCESS_CONTROL",
+            15,
+            "ai_prompt",
+            "数据治理部,研发部",
+            "AI安全岗,审计岗",
+            "AI对话,安全告警,审计日志",
+            "{\"policyType\":\"ACCESS_CONTROL\",\"keywords\":[\"越权导出\",\"批量下载客户\",\"泄露隐私\",\"绕过审批\"],\"action\":\"block\",\"priority\":15,\"scenario\":\"AI对话中识别违规指令并拦截，生成告警\",\"scopeDetail\":{\"departments\":[\"数据治理部\",\"研发部\"],\"dataTypes\":[\"AI对话\",\"安全告警\",\"审计日志\"]}}",
+            1,
+            "secops-reviewer",
+            new Date(now.getTime() - 3600_000L)
+        );
+        ensurePolicyBaseline(
+            companyId,
+            "导出次数管控策略",
+            "EXPORT_LIMIT",
+            20,
+            "数据治理部",
+            "数据治理部",
+            "数据导出岗",
+            "数据导出,风险预警,审计日志",
+            "{\"policyType\":\"EXPORT_LIMIT\",\"keywords\":[\"导出\",\"外发\",\"批量\"],\"action\":\"block\",\"exportLimit\":5,\"priority\":20,\"scenario\":\"限制用户单日导出次数，防止批量泄露\",\"scopeDetail\":{\"departments\":[\"数据治理部\"],\"dataTypes\":[\"数据导出\",\"风险预警\",\"审计日志\"]}}",
+            1,
+            "ops-analyst",
+            new Date(now.getTime() - 7200_000L)
+        );
+        ensurePolicyBaseline(
+            companyId,
+            "AI对话审计策略",
+            "AUDIT_GOVERNANCE",
+            35,
+            "研发部",
+            "研发部",
+            "研发组,审计岗",
+            "AI对话,审计日志,员工AI行为监控",
+            "{\"policyType\":\"AUDIT_GOVERNANCE\",\"keywords\":[\"大模型\",\"提示词\",\"上下文\"],\"action\":\"audit\",\"priority\":35,\"scenario\":\"对AI对话过程留痕并生成可追溯审计记录\",\"scopeDetail\":{\"departments\":[\"研发部\"],\"dataTypes\":[\"AI对话\",\"审计日志\",\"员工AI行为监控\"]}}",
+            1,
+            "audit-bot",
+            new Date(now.getTime() - 10_800_000L)
+        );
+        ensurePolicyBaseline(
+            companyId,
+            "权限变更告警策略",
+            "ALERT_GOVERNANCE",
+            45,
+            "全平台",
+            "数据治理部,研发部",
+            "管理员,审计岗",
+            "权限管理,安全告警,审计日志",
+            "{\"policyType\":\"ALERT_GOVERNANCE\",\"keywords\":[\"角色升级\",\"越权授权\",\"高危权限\"],\"action\":\"alert\",\"priority\":45,\"scenario\":\"权限变更后触发告警并联动审计复核\",\"scopeDetail\":{\"departments\":[\"数据治理部\",\"研发部\"],\"dataTypes\":[\"权限管理\",\"安全告警\",\"审计日志\"]}}",
+            0,
+            "system-scheduler",
+            new Date(now.getTime() - 14_400_000L)
+        );
+    }
+
+    private void ensurePolicyBaseline(Long companyId,
+                                      String name,
+                                      String policyType,
+                                      int priority,
+                                      String scope,
+                                      String scopeDepartments,
+                                      String scopeUserGroups,
+                                      String scopeDataTypes,
+                                      String ruleContent,
+                                      int status,
+                                      String lastModifier,
+                                      Date updateTime) {
+        Long exists = querySingleLong(
+            "SELECT id FROM compliance_policy WHERE company_id = ? AND name = ? ORDER BY id ASC LIMIT 1",
+            companyId,
+            name
+        );
+        if (exists == null) {
+            jdbcTemplate.update(
+                "INSERT INTO compliance_policy(company_id, name, rule_content, scope, status, version, create_time, update_time) VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
+                companyId,
+                name,
+                ruleContent,
+                scope,
+                status,
+                3,
+                updateTime,
+                updateTime
+            );
+            applyPolicyOptionalColumns(exists, policyType, priority, scopeDepartments, scopeUserGroups, scopeDataTypes, lastModifier, updateTime, companyId, name);
+            return;
+        }
+        jdbcTemplate.update(
+            "UPDATE compliance_policy SET name = ?, rule_content = ?, scope = ?, status = ?, version = CASE WHEN version IS NULL OR version < 3 THEN 3 ELSE version END, update_time = ? WHERE id = ?",
+            name,
+            ruleContent,
+            scope,
+            status,
+            updateTime,
+            exists
+        );
+        applyPolicyOptionalColumns(exists, policyType, priority, scopeDepartments, scopeUserGroups, scopeDataTypes, lastModifier, updateTime, companyId, name);
+    }
+
+    private void applyPolicyOptionalColumns(Long policyId,
+                                            String policyType,
+                                            int priority,
+                                            String scopeDepartments,
+                                            String scopeUserGroups,
+                                            String scopeDataTypes,
+                                            String lastModifier,
+                                            Date updateTime,
+                                            Long companyId,
+                                            String name) {
+        Long targetId = policyId;
+        if (targetId == null) {
+            targetId = querySingleLong(
+                "SELECT id FROM compliance_policy WHERE company_id = ? AND name = ? ORDER BY id DESC LIMIT 1",
+                companyId,
+                name
+            );
+        }
+        if (targetId == null) {
+            return;
+        }
+        if (columnExists("compliance_policy", "policy_type")) {
+            jdbcTemplate.update("UPDATE compliance_policy SET policy_type = ? WHERE id = ?", policyType, targetId);
+        }
+        if (columnExists("compliance_policy", "priority")) {
+            jdbcTemplate.update("UPDATE compliance_policy SET priority = ? WHERE id = ?", priority, targetId);
+        }
+        if (columnExists("compliance_policy", "scope_departments")) {
+            jdbcTemplate.update("UPDATE compliance_policy SET scope_departments = ? WHERE id = ?", scopeDepartments, targetId);
+        }
+        if (columnExists("compliance_policy", "scope_user_groups")) {
+            jdbcTemplate.update("UPDATE compliance_policy SET scope_user_groups = ? WHERE id = ?", scopeUserGroups, targetId);
+        }
+        if (columnExists("compliance_policy", "scope_data_types")) {
+            jdbcTemplate.update("UPDATE compliance_policy SET scope_data_types = ? WHERE id = ?", scopeDataTypes, targetId);
+        }
+        if (columnExists("compliance_policy", "last_modifier")) {
+            jdbcTemplate.update("UPDATE compliance_policy SET last_modifier = ? WHERE id = ?", lastModifier, targetId);
+        }
+        if (columnExists("compliance_policy", "last_modified_at")) {
+            jdbcTemplate.update("UPDATE compliance_policy SET last_modified_at = ? WHERE id = ?", updateTime, targetId);
         }
     }
 

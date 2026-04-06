@@ -361,6 +361,61 @@
       </Transition>
     </div>
 
+    <el-card class="sandbox-card card-glass scene-block" style="grid-column: 1 / -1">
+      <div class="panel-head">
+        <div>
+          <div class="card-header">攻防演练沙盒闭环</div>
+          <p class="panel-subtitle">真实触发链路：检测触发 -> 告警处置 -> 稳定性复核，动画与时间线仅由真实接口回执驱动。</p>
+        </div>
+        <div class="panel-actions sandbox-actions">
+          <el-button :loading="sandboxDetectLoading" @click="triggerSandboxDetect">触发检测</el-button>
+          <el-button type="warning" :loading="sandboxDisposeLoading" @click="triggerSandboxDispose">执行处置</el-button>
+          <el-button type="success" :loading="sandboxVerifyLoading" @click="triggerSandboxVerify">复核验证</el-button>
+          <el-button type="primary" :loading="sandboxRunAllLoading" @click="runSandboxClosedLoop">一键闭环</el-button>
+        </div>
+      </div>
+
+      <div class="sandbox-summary-grid">
+        <article>
+          <span>当前威胁态势</span>
+          <strong>{{ sandboxState.threatLevel || '-' }}</strong>
+        </article>
+        <article>
+          <span>风险分值</span>
+          <strong>{{ sandboxState.riskScore ?? 0 }}</strong>
+        </article>
+        <article>
+          <span>待处置告警</span>
+          <strong>{{ sandboxState.pendingCount ?? 0 }}</strong>
+        </article>
+        <article>
+          <span>闭环结果</span>
+          <strong>{{ sandboxState.closedLoopStatus || '待执行' }}</strong>
+        </article>
+      </div>
+
+      <div class="sandbox-timeline">
+        <article
+          v-for="node in sandboxTimeline"
+          :key="node.id"
+          class="sandbox-step"
+          :class="`status-${node.status}`"
+        >
+          <div class="sandbox-step-head">
+            <strong>{{ node.title }}</strong>
+            <el-tag size="small" :type="node.status === 'done' ? 'success' : (node.status === 'running' ? 'warning' : 'info')">
+              {{ node.status === 'done' ? '完成' : (node.status === 'running' ? '执行中' : '待执行') }}
+            </el-tag>
+          </div>
+          <p>{{ node.message }}</p>
+          <div class="sandbox-step-meta">
+            <span>{{ node.time || '-' }}</span>
+            <el-button link type="primary" @click="openSandboxModuleJump(node)">跳转{{ node.moduleLabel }}</el-button>
+          </div>
+        </article>
+      </div>
+    </el-card>
+
     <AIPrivacyShield ref="privacyShieldRef" />
 
     <el-dialog
@@ -395,6 +450,7 @@ import StatCard from '../components/StatCard.vue';
 import AIPrivacyShield from '../components/AIPrivacyShield.vue';
 import { useUserStore } from '../store/user';
 import { getPersonaExperience, personalizeWorkbench } from '../utils/persona';
+import { useRouter } from 'vue-router';
 
 function createEmptyOverview() {
   return {
@@ -432,6 +488,7 @@ const heroRef = ref(null);
 const trendChartRef = ref(null);
 const riskChartRef = ref(null);
 const userStore = useUserStore();
+const router = useRouter();
 const overview = ref(createEmptyOverview());
 const insights = ref({ postureScore: 0, summary: {}, highlights: [], recommendations: [] });
 const trustPulse = ref({ score: 0, pulseLevel: '', mission: '', innovationLabel: '', dimensions: [], signals: [] });
@@ -524,6 +581,48 @@ const adversarialBattle = ref(null);
 const adversarialVisibleRounds = ref([]);
 const adversarialHardeningApplying = ref(false);
 const adversarialBeforeHardening = ref(null);
+const sandboxState = ref({
+  threatLevel: '-',
+  riskScore: 0,
+  pendingCount: 0,
+  closedLoopStatus: '待执行',
+});
+const sandboxTimeline = ref([
+  {
+    id: 'detect',
+    title: '阶段1：威胁检测触发',
+    moduleLabel: '安全态势',
+    route: '/operations-command',
+    query: {},
+    status: 'pending',
+    message: '等待触发实时威胁检测。',
+    time: '',
+  },
+  {
+    id: 'dispose',
+    title: '阶段2：处置闭环执行',
+    moduleLabel: '告警中心',
+    route: '/threat-monitor',
+    query: { tab: 'alertCenter' },
+    status: 'pending',
+    message: '等待执行阻断并触发攻防验证。',
+    time: '',
+  },
+  {
+    id: 'verify',
+    title: '阶段3：稳定性复核',
+    moduleLabel: '演练报告',
+    route: '/ops-observability',
+    query: {},
+    status: 'pending',
+    message: '等待完成可靠性复核。',
+    time: '',
+  },
+]);
+const sandboxDetectLoading = ref(false);
+const sandboxDisposeLoading = ref(false);
+const sandboxVerifyLoading = ref(false);
+const sandboxRunAllLoading = ref(false);
 let adversarialPlaybackTimer = null;
 let homeLoadFrameId = null;
 
@@ -751,6 +850,142 @@ function stopAdversarialPlayback() {
     clearInterval(adversarialPlaybackTimer);
     adversarialPlaybackTimer = null;
   }
+}
+
+function formatSandboxTime() {
+  return new Date().toLocaleString('zh-CN', { hour12: false });
+}
+
+function updateSandboxStep(stepId, patch) {
+  sandboxTimeline.value = sandboxTimeline.value.map(item => {
+    if (item.id !== stepId) return item;
+    return {
+      ...item,
+      ...patch,
+      time: patch.time !== undefined ? patch.time : formatSandboxTime(),
+    };
+  });
+}
+
+async function refreshSandboxPending() {
+  try {
+    const data = await request.get('/alert-center/list', {
+      params: { page: 1, pageSize: 1, status: 'pending' },
+    });
+    const stats = data?.stats || {};
+    sandboxState.value.pendingCount = Number(stats.pending || 0);
+  } catch {
+    sandboxState.value.pendingCount = 0;
+  }
+}
+
+async function triggerSandboxDetect() {
+  sandboxDetectLoading.value = true;
+  updateSandboxStep('detect', { status: 'running', message: '正在执行实时威胁检测...' });
+  try {
+    const result = await request.post('/ai/adversarial/run', { scenario: 'real-threat-check', rounds: 10 });
+    const level = String(result?.threatLevel || result?.battle?.winner || '-');
+    const risk = Number(result?.riskScoreAdjusted ?? result?.riskScore ?? 0);
+    sandboxState.value.threatLevel = level;
+    sandboxState.value.riskScore = risk;
+    updateSandboxStep('detect', {
+      status: 'done',
+      message: `检测完成：态势 ${level}，风险分 ${risk}`,
+    });
+    await refreshSandboxPending();
+  } catch (error) {
+    updateSandboxStep('detect', {
+      status: 'pending',
+      message: error?.message || '检测失败，请重试。',
+    });
+    ElMessage.error(error?.message || '沙盒检测失败');
+  } finally {
+    sandboxDetectLoading.value = false;
+  }
+}
+
+async function triggerSandboxDispose() {
+  sandboxDisposeLoading.value = true;
+  updateSandboxStep('dispose', { status: 'running', message: '正在获取待处置告警并执行闭环处置...' });
+  try {
+    const listRes = await request.get('/alert-center/list', {
+      params: { page: 1, pageSize: 1, status: 'pending' },
+    });
+    const target = Array.isArray(listRes?.list) ? listRes.list[0] : null;
+    if (!target?.id) {
+      updateSandboxStep('dispose', { status: 'done', message: '当前无待处置告警，闭环处置已完成。' });
+      sandboxState.value.closedLoopStatus = '无待处置项';
+      await refreshSandboxPending();
+      return;
+    }
+
+    const disposeRes = await request.post('/alert-center/dispose', {
+      id: target.id,
+      status: 'blocked',
+      note: '沙盒闭环自动处置：阻断并验证',
+      triggerSimulation: true,
+      rounds: 12,
+    });
+    const validation = disposeRes?.validation || {};
+    const summary = validation?.battle?.winner || validation?.mode || '已处置';
+    updateSandboxStep('dispose', {
+      status: 'done',
+      message: `已处置告警 #${target.id}，验证结果：${summary}`,
+    });
+    sandboxState.value.closedLoopStatus = '处置完成';
+    await refreshSandboxPending();
+  } catch (error) {
+    updateSandboxStep('dispose', {
+      status: 'pending',
+      message: error?.message || '处置失败，请检查权限或告警状态。',
+    });
+    ElMessage.error(error?.message || '沙盒处置失败');
+  } finally {
+    sandboxDisposeLoading.value = false;
+  }
+}
+
+async function triggerSandboxVerify() {
+  sandboxVerifyLoading.value = true;
+  updateSandboxStep('verify', { status: 'running', message: '正在执行稳定性复核...' });
+  try {
+    const drill = await request.post('/award/reliability/drill/run', {
+      scenario: 'sandbox-closed-loop-verify',
+      probeCount: 3,
+    });
+    const availability = Number(drill?.sliAvailability ?? drill?.sli_availability ?? 0);
+    updateSandboxStep('verify', {
+      status: 'done',
+      message: `复核完成：可用性 ${availability.toFixed(2)}%，证据已入库。`,
+    });
+    sandboxState.value.closedLoopStatus = availability >= 99.0 ? '闭环通过' : '闭环待优化';
+  } catch (error) {
+    updateSandboxStep('verify', {
+      status: 'pending',
+      message: error?.message || '复核失败，请稍后重试。',
+    });
+    ElMessage.error(error?.message || '沙盒复核失败');
+  } finally {
+    sandboxVerifyLoading.value = false;
+  }
+}
+
+async function runSandboxClosedLoop() {
+  if (sandboxRunAllLoading.value) return;
+  sandboxRunAllLoading.value = true;
+  try {
+    await triggerSandboxDetect();
+    await triggerSandboxDispose();
+    await triggerSandboxVerify();
+    ElMessage.success('沙盒闭环流程已执行完成');
+  } finally {
+    sandboxRunAllLoading.value = false;
+  }
+}
+
+function openSandboxModuleJump(node) {
+  if (!node?.route) return;
+  router.push({ path: node.route, query: node.query || {} });
 }
 
 function startAdversarialPlayback(rounds) {
@@ -1508,6 +1743,7 @@ onMounted(() => {
     fetchModelGovernance();
     fetchAwardReadiness();
     loadAiAuditLogs();
+    refreshSandboxPending();
     homeLoadFrameId = null;
   });
   resizeHandler = () => {
@@ -1666,6 +1902,88 @@ onBeforeUnmount(() => {
   margin-top: 4px;
 }
 
+.sandbox-card {
+  min-height: 240px;
+}
+
+.sandbox-actions {
+  flex-wrap: wrap;
+}
+
+.sandbox-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 8px 0 14px;
+}
+
+.sandbox-summary-grid article {
+  border: 1px solid rgba(133, 170, 226, 0.24);
+  border-radius: 10px;
+  background: rgba(12, 25, 47, 0.45);
+  padding: 10px;
+}
+
+.sandbox-summary-grid span {
+  color: #9eb4d8;
+  font-size: 12px;
+}
+
+.sandbox-summary-grid strong {
+  display: block;
+  margin-top: 6px;
+  color: #f3f7ff;
+  font-size: 22px;
+}
+
+.sandbox-timeline {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.sandbox-step {
+  border: 1px solid rgba(139, 174, 225, 0.22);
+  border-radius: 12px;
+  background: rgba(12, 23, 42, 0.5);
+  padding: 11px;
+}
+
+.sandbox-step.status-running {
+  border-color: rgba(249, 115, 22, 0.5);
+}
+
+.sandbox-step.status-done {
+  border-color: rgba(34, 197, 94, 0.5);
+}
+
+.sandbox-step-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+}
+
+.sandbox-step p {
+  margin: 8px 0;
+  min-height: 40px;
+  color: #a6bade;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.sandbox-step-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+}
+
+.sandbox-step-meta span {
+  color: #8ea7cc;
+  font-size: 12px;
+}
+
 @media (max-width: 1100px) {
   .trace-grid {
     grid-template-columns: 1fr;
@@ -1690,6 +2008,14 @@ onBeforeUnmount(() => {
 
   .web-vitals-grid,
   .compare-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .sandbox-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sandbox-timeline {
     grid-template-columns: 1fr;
   }
 }

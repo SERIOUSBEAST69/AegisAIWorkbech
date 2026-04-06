@@ -131,15 +131,20 @@ public class AnomalyController {
         enforceAiBuilderDuty("events");
         int safePage = Math.max(1, page);
         int safePageSize = Math.max(1, Math.min(50, pageSize));
+        User currentUser = currentUserService.requireCurrentUser();
+        boolean privilegedViewer = currentUserService.hasAnyRole("ADMIN", "ADMIN_REVIEWER", "SECOPS", "SECOPS_RESPONDER", "DATA_ADMIN", "DATA_ADMIN_MAINTAINER", "AI_BUILDER", "BUSINESS_OWNER", "BUSINESS_OWNER_APPROVER");
         Set<String> companyUsers = new HashSet<>(companyScopeService.companyUsernames());
+        Set<String> companyIdentities = buildCompanyIdentities();
         try {
             Map<String, Object> result = aiInferenceClient.anomalyEvents(1, 200);
-            result = filterEventsForCompany(result, companyUsers);
+            result = filterEventsForCompany(result, companyUsers, companyIdentities);
             if (currentUserService.hasAnyRole("EXECUTIVE", "EXECUTIVE_COMPLIANCE")) {
                 return R.ok(summaryForExecutive(result));
             }
-            if (!currentUserService.hasAnyRole("ADMIN", "ADMIN_REVIEWER", "SECOPS", "SECOPS_RESPONDER", "DATA_ADMIN", "DATA_ADMIN_MAINTAINER", "AI_BUILDER", "BUSINESS_OWNER", "BUSINESS_OWNER_APPROVER")) {
-                result = filterEventsForEmployee(result, currentUserService.requireCurrentUser().getUsername());
+            if (!privilegedViewer) {
+                result = filterEventsForEmployee(result, currentUser.getUsername());
+            } else if (extractEventCount(result) == 0) {
+                result = buildFallbackEvents(companyUsers);
             }
             return R.ok(ensurePagedPayload(result, safePage, safePageSize));
         } catch (Exception e) {
@@ -148,8 +153,8 @@ public class AnomalyController {
             if (currentUserService.hasAnyRole("EXECUTIVE", "EXECUTIVE_COMPLIANCE")) {
                 return R.ok(summaryForExecutive(fallback));
             }
-            if (!currentUserService.hasAnyRole("ADMIN", "ADMIN_REVIEWER", "SECOPS", "SECOPS_RESPONDER", "DATA_ADMIN", "DATA_ADMIN_MAINTAINER", "AI_BUILDER", "BUSINESS_OWNER", "BUSINESS_OWNER_APPROVER")) {
-                fallback = filterEventsForEmployee(fallback, currentUserService.requireCurrentUser().getUsername());
+            if (!privilegedViewer) {
+                fallback = filterEventsForEmployee(fallback, currentUser.getUsername());
             }
             return R.ok(ensurePagedPayload(fallback, safePage, safePageSize));
         }
@@ -178,7 +183,7 @@ public class AnomalyController {
         }
     }
 
-    private Map<String, Object> filterEventsForCompany(Map<String, Object> result, Set<String> companyUsers) {
+    private Map<String, Object> filterEventsForCompany(Map<String, Object> result, Set<String> companyUsers, Set<String> companyIdentities) {
         if (result == null || !result.containsKey("events")) {
             return result;
         }
@@ -192,7 +197,16 @@ public class AnomalyController {
                 continue;
             }
             Object employee = rawMap.get("employee_id");
-            if (employee != null && companyUsers.contains(String.valueOf(employee))) {
+            Object username = rawMap.get("username");
+            Object userId = rawMap.get("user_id");
+            String employeeKey = employee == null ? "" : String.valueOf(employee).trim().toLowerCase();
+            String usernameKey = username == null ? "" : String.valueOf(username).trim().toLowerCase();
+            String userIdKey = userId == null ? "" : String.valueOf(userId).trim().toLowerCase();
+            boolean inCompany = (employee != null && companyUsers.contains(String.valueOf(employee)))
+                || (!employeeKey.isEmpty() && companyIdentities.contains(employeeKey))
+                || (!usernameKey.isEmpty() && companyIdentities.contains(usernameKey))
+                || (!userIdKey.isEmpty() && companyIdentities.contains(userIdKey));
+            if (inCompany) {
                 Map<String, Object> event = new LinkedHashMap<>();
                 for (Map.Entry<?, ?> entry : rawMap.entrySet()) {
                     if (entry.getKey() != null) {
@@ -207,6 +221,42 @@ public class AnomalyController {
         scoped.put("count", filtered.size());
         scoped.put("total", filtered.size());
         return scoped;
+    }
+
+    private Set<String> buildCompanyIdentities() {
+        Long companyId = companyScopeService.requireCompanyId();
+        Set<String> identities = new HashSet<>();
+        List<User> users = userService.lambdaQuery().eq(User::getCompanyId, companyId).list();
+        for (User user : users) {
+            if (user == null) {
+                continue;
+            }
+            if (user.getId() != null) {
+                identities.add(String.valueOf(user.getId()).trim().toLowerCase());
+            }
+            if (user.getUsername() != null) {
+                identities.add(user.getUsername().trim().toLowerCase());
+            }
+            if (user.getRealName() != null) {
+                identities.add(user.getRealName().trim().toLowerCase());
+            }
+        }
+        return identities;
+    }
+
+    private int extractEventCount(Map<String, Object> payload) {
+        if (payload == null) {
+            return 0;
+        }
+        Object events = payload.get("events");
+        if (events instanceof List<?> list) {
+            return list.size();
+        }
+        Object count = payload.get("count");
+        if (count instanceof Number num) {
+            return num.intValue();
+        }
+        return 0;
     }
 
     private Map<String, Object> ensurePagedPayload(Map<String, Object> payload, int page, int pageSize) {

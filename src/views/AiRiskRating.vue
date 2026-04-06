@@ -97,6 +97,67 @@
       </el-table>
     </div>
 
+    <el-card class="radar-card scene-block card-glass" shadow="never">
+      <template #header>
+        <div class="radar-head">
+          <div>
+            <div class="legend-title">AI 风险画像雷达（近30天真实行为）</div>
+            <p class="radar-subtitle">点击建议可直接跳转到对应治理模块，完成闭环处置。</p>
+          </div>
+          <div class="radar-actions">
+            <el-input
+              v-if="canQueryOthers"
+              v-model="profileUsername"
+              placeholder="输入用户名查看画像"
+              clearable
+              style="width: 180px"
+            />
+            <el-button :loading="radarLoading" @click="loadRadarProfile">刷新画像</el-button>
+          </div>
+        </div>
+      </template>
+
+      <div class="radar-layout">
+        <div ref="radarChartRef" class="radar-canvas"></div>
+        <div class="radar-side">
+          <div class="radar-score-block">
+            <span>综合风险指数</span>
+            <strong :class="`risk-${radarProfile.riskLevel || 'low'}`">{{ radarProfile.totalRisk ?? 0 }}</strong>
+            <em>画像用户：{{ radarProfile.username || '-' }}</em>
+          </div>
+
+          <div class="radar-evidence-list">
+            <article
+              v-for="dim in radarProfile.dimensions || []"
+              :key="dim.code"
+              class="radar-evidence-item"
+              @click="selectedDimension = dim"
+            >
+              <div class="evidence-top">
+                <strong>{{ dim.label }}</strong>
+                <el-tag size="small" :type="dim.value >= 70 ? 'danger' : (dim.value >= 40 ? 'warning' : 'success')">{{ dim.value }}</el-tag>
+              </div>
+              <p>{{ dim.explain }}</p>
+            </article>
+          </div>
+
+          <div class="radar-rec-list">
+            <div class="rec-title">治理建议跳转</div>
+            <el-button
+              v-for="rec in radarProfile.recommendations || []"
+              :key="rec.title"
+              class="rec-jump-btn"
+              :type="rec.priority === '优先' ? 'danger' : 'primary'"
+              plain
+              @click="jumpRecommendation(rec)"
+            >
+              {{ rec.title }} · {{ rec.priority }}
+            </el-button>
+          </div>
+        </div>
+      </div>
+    </el-card>
+
     <!-- 服务卡片列表 -->
     <div v-loading="loading" class="service-grid scene-block">
       <div
@@ -245,11 +306,18 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import { Refresh, RefreshRight } from '@element-plus/icons-vue';
+import * as echarts from 'echarts/core';
+import { RadarChart } from 'echarts/charts';
+import { LegendComponent, TooltipComponent } from 'echarts/components';
+import { CanvasRenderer } from 'echarts/renderers';
 import request from '../api/request';
+import { useRouter } from 'vue-router';
 import { useUserStore } from '../store/user';
+
+echarts.use([RadarChart, TooltipComponent, LegendComponent, CanvasRenderer]);
 
 // ── State ─────────────────────────────────────────────────────────────────────
 const services  = ref([]);
@@ -259,6 +327,7 @@ const showDetail= ref(false);
 const selected  = ref(null);
 const updatedAt = ref(null);
 const userStore = useUserStore();
+const router = useRouter();
 const whitelistState = ref({
   catalog: [],
   whitelist: [],
@@ -269,6 +338,23 @@ const whitelistState = ref({
 const whitelistLoading = ref(false);
 const selectedWhitelist = ref([]);
 const pendingRows = computed(() => (whitelistState.value.pending || []).filter(item => item?.status === 'pending'));
+const canQueryOthers = computed(() => {
+  const role = String(userStore.userInfo?.roleCode || '').toUpperCase();
+  return ['ADMIN', 'SECOPS', 'EXECUTIVE', 'DATA_ADMIN', 'AI_BUILDER', 'BUSINESS_OWNER'].includes(role);
+});
+
+const radarLoading = ref(false);
+const profileUsername = ref('');
+const selectedDimension = ref(null);
+const radarProfile = ref({
+  totalRisk: 0,
+  riskLevel: 'low',
+  username: '',
+  dimensions: [],
+  recommendations: [],
+});
+const radarChartRef = ref(null);
+let radarChart = null;
 
 // ── API ───────────────────────────────────────────────────────────────────────
 async function loadList() {
@@ -317,6 +403,90 @@ async function loadWhitelist() {
   } finally {
     whitelistLoading.value = false;
   }
+}
+
+async function loadRadarProfile() {
+  radarLoading.value = true;
+  try {
+    const params = {};
+    if (canQueryOthers.value && String(profileUsername.value || '').trim()) {
+      params.username = String(profileUsername.value).trim();
+    }
+    const data = await request.get('/ai-risk/profile/radar', { params });
+    radarProfile.value = {
+      totalRisk: Number(data?.totalRisk || 0),
+      riskLevel: String(data?.riskLevel || 'low'),
+      username: data?.username || '-',
+      dimensions: Array.isArray(data?.dimensions) ? data.dimensions : [],
+      recommendations: Array.isArray(data?.recommendations) ? data.recommendations : [],
+    };
+    selectedDimension.value = radarProfile.value.dimensions[0] || null;
+    await nextTick();
+    renderRadar();
+  } catch (err) {
+    ElMessage.error(err?.message || '加载风险画像失败');
+  } finally {
+    radarLoading.value = false;
+  }
+}
+
+function renderRadar() {
+  if (!radarChartRef.value) return;
+  if (!radarChart) {
+    radarChart = echarts.init(radarChartRef.value);
+    radarChart.on('click', params => {
+      const idx = Number(params?.dataIndex ?? -1);
+      if (idx >= 0 && Array.isArray(radarProfile.value.dimensions) && radarProfile.value.dimensions[idx]) {
+        selectedDimension.value = radarProfile.value.dimensions[idx];
+      }
+    });
+  }
+  const dims = radarProfile.value.dimensions || [];
+  const indicators = dims.map(item => ({ name: item.label, max: 100 }));
+  const values = dims.map(item => Number(item.value || 0));
+  radarChart.setOption({
+    tooltip: {
+      trigger: 'item',
+      formatter: () => {
+        if (!selectedDimension.value) return '';
+        return `${selectedDimension.value.label}<br/>风险值: ${selectedDimension.value.value}<br/>${selectedDimension.value.explain || ''}`;
+      },
+    },
+    radar: {
+      indicator: indicators,
+      splitNumber: 5,
+      axisName: { color: '#9fb8d9' },
+      splitLine: { lineStyle: { color: 'rgba(151, 181, 218, 0.2)' } },
+      splitArea: { areaStyle: { color: ['rgba(40,64,96,0.18)', 'rgba(28,50,82,0.1)'] } },
+      axisLine: { lineStyle: { color: 'rgba(151, 181, 218, 0.3)' } },
+    },
+    series: [{
+      name: '行为风险画像',
+      type: 'radar',
+      data: [{
+        value: values,
+        name: radarProfile.value.username || '当前用户',
+        areaStyle: { color: 'rgba(249, 115, 22, 0.28)' },
+        lineStyle: { color: '#fb923c', width: 2 },
+        symbolSize: 6,
+        itemStyle: { color: '#fdba74' },
+      }],
+    }],
+  });
+}
+
+function jumpRecommendation(rec) {
+  const route = String(rec?.route || '').trim();
+  if (!route) return;
+  const hint = String(rec?.jumpHint || '').trim();
+  const query = {};
+  if (hint) {
+    query.tab = hint;
+    if (hint === 'pending') {
+      query.status = 'pending';
+    }
+  }
+  router.push({ path: route, query });
 }
 
 async function submitWhitelistRequest() {
@@ -422,8 +592,19 @@ function tagType(tag) {
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 onMounted(async () => {
-  await Promise.all([loadList(), loadWhitelist()]);
+  await Promise.all([loadList(), loadWhitelist(), loadRadarProfile()]);
+  window.addEventListener('resize', resizeRadar, { passive: true });
 });
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', resizeRadar);
+  radarChart?.dispose();
+  radarChart = null;
+});
+
+function resizeRadar() {
+  radarChart?.resize();
+}
 </script>
 
 <style scoped>
@@ -486,6 +667,109 @@ onMounted(async () => {
   padding: 16px 20px;
   border-radius: 10px;
   margin-bottom: 24px;
+}
+
+.radar-card {
+  margin-bottom: 20px;
+}
+
+.radar-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.radar-subtitle {
+  margin: 4px 0 0;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.radar-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.radar-layout {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: 16px;
+}
+
+.radar-canvas {
+  min-height: 360px;
+}
+
+.radar-side {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.radar-score-block {
+  padding: 12px;
+  border: 1px solid rgba(119, 164, 224, 0.24);
+  border-radius: 10px;
+  background: rgba(14, 28, 49, 0.44);
+}
+
+.radar-score-block span,
+.radar-score-block em {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.radar-score-block strong {
+  display: block;
+  font-size: 28px;
+  line-height: 1;
+  margin: 6px 0;
+}
+
+.risk-high { color: #ef4444; }
+.risk-medium { color: #f97316; }
+.risk-low { color: #22c55e; }
+
+.radar-evidence-list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.radar-evidence-item {
+  border: 1px solid rgba(122, 165, 217, 0.22);
+  border-radius: 10px;
+  padding: 10px;
+  background: rgba(13, 24, 43, 0.5);
+  cursor: pointer;
+}
+
+.evidence-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.radar-evidence-item p {
+  margin: 6px 0 0;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.radar-rec-list {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rec-jump-btn {
+  justify-content: flex-start;
 }
 
 .legend-title {
@@ -748,6 +1032,16 @@ onMounted(async () => {
 
 /* ── Responsive ──────────────────────────────────────────────────────────────── */
 @media (max-width: 600px) {
+  .radar-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .radar-actions {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
   .detail-scores { grid-template-columns: 1fr; }
   .service-grid  { grid-template-columns: 1fr; }
 }

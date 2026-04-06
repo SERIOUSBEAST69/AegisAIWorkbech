@@ -42,7 +42,7 @@ const PERSONAS = {
       { step: '03', title: '下达资源动作', description: '根据工作台信号决定是加审计、加算力、加治理，还是冻结高风险模型。' },
     ],
     quickActions: [
-      { title: '查看风险事件', description: '优先压降高危事件', route: '/risk-event-manage' },
+      { title: '查看合规风险记录', description: '优先压降高危事件', route: '/risk-event-manage' },
       { title: '查看审批流', description: '识别卡点与责任链', route: '/approval-manage' },
     ],
     roleHints: ['exec', 'ceo', 'cxo', 'director', 'management', 'leader', 'principal', 'president', '校长', '院长', '管理层', '总经理'],
@@ -63,7 +63,7 @@ const PERSONAS = {
     ],
     journey: [
       { step: '01', title: '签收高危告警', description: '先把真正可能造成事故或合规暴露的告警签收并定级。' },
-      { step: '02', title: '回到证据链', description: '用审计日志、风险事件和敏感扫描结果还原发生了什么。' },
+      { step: '02', title: '回到证据链', description: '用审计日志、合规风险记录和敏感扫描结果还原发生了什么。' },
       { step: '03', title: '联动策略处置', description: '必要时冻结模型、调整权限、更新策略或发起审批。' },
     ],
     quickActions: [
@@ -196,7 +196,7 @@ const PERSONAS = {
     quickActions: [
       { title: '用户管理', description: '调整组织与角色', route: '/user-manage' },
       { title: '策略管理', description: '更新平台策略与门禁', route: '/policy-manage' },
-      { title: '风险事件', description: '总览全域风险闭环', route: '/risk-event-manage' },
+      { title: '合规风险记录', description: '总览全域风险闭环', route: '/risk-event-manage' },
     ],
     roleHints: ['admin', 'governance', 'compliance', '管理员', '合规'],
   },
@@ -241,17 +241,15 @@ const MENU_SECTIONS = [
     key: 'governance',
     title: '数据与模型',
     items: [
-      { path: '/data-asset', label: '数据资产', icon: 'DataAnalysis', audiences: ['governanceAdmin', 'dataAdmin', 'secops'] },
-      { path: '/sensitive-data-governance', label: '敏感数据治理', icon: 'Lock', audiences: ['governanceAdmin', 'secops', 'dataAdmin'] },
+      { path: '/data-asset', label: '数据资产与敏感治理', icon: 'DataAnalysis', audiences: ['governanceAdmin', 'dataAdmin', 'secops'] },
     ],
   },
   {
     key: 'security',
     title: '安全与闭环',
     items: [
-      { path: '/shadow-ai', label: '影子AI发现', icon: 'View', audiences: ['governanceAdmin', 'secops', 'executive', 'dataAdmin', 'aiBuilder', 'businessOwner', 'employee'] },
-      { path: '/threat-monitor', label: 'AI数据防泄漏', icon: 'AlarmClock', audiences: ['governanceAdmin', 'secops'] },
-      { path: '/ai/risk-rating', label: 'AI风险评级', icon: 'Histogram', audiences: ['governanceAdmin', 'secops', 'executive', 'dataAdmin', 'aiBuilder', 'businessOwner', 'employee'] },
+      { path: '/shadow-ai', label: '影子AI发现与风险评级', icon: 'View', audiences: ['governanceAdmin', 'secops', 'executive', 'dataAdmin', 'aiBuilder', 'businessOwner', 'employee'] },
+      { path: '/threat-monitor', label: '实时威胁告警', icon: 'AlarmClock', audiences: ['governanceAdmin', 'secops'] },
       { path: '/ai/anomaly', label: '员工AI行为监控', icon: 'AlarmClock', audiences: ['governanceAdmin', 'secops', 'executive', 'dataAdmin', 'aiBuilder', 'businessOwner', 'employee'] },
       { path: '/audit-center', label: '审计中心', icon: 'Document', audiences: ['governanceAdmin', 'secops', 'executive'] },
     ],
@@ -261,9 +259,8 @@ const MENU_SECTIONS = [
     title: '流转与履约',
     items: [
       { path: '/approval-center', label: '审批中心', icon: 'Files', audiences: ['governanceAdmin', 'secops', 'dataAdmin', 'businessOwner'] },
-      { path: '/risk-event-manage', label: '风险事件', icon: 'Warning', audiences: ['governanceAdmin', 'secops'] },
+      { path: '/risk-event-manage', label: '合规风险记录', icon: 'Warning', audiences: ['governanceAdmin', 'secops'] },
       { path: '/subject-request', label: '主体权利', icon: 'UserFilled', audiences: ['governanceAdmin'] },
-      { path: '/policy-manage', label: '策略管理', icon: 'Document', audiences: ['governanceAdmin', 'secops'] },
     ],
   },
   {
@@ -273,6 +270,7 @@ const MENU_SECTIONS = [
       { path: '/user-manage', label: '用户管理', icon: 'UserFilled', audiences: ['governanceAdmin'] },
       { path: '/role-manage', label: '角色管理', icon: 'Avatar', audiences: ['governanceAdmin'] },
       { path: '/permission-manage', label: '权限管理', icon: 'Key', audiences: ['governanceAdmin'] },
+      { path: '/policy-manage', label: '策略管理', icon: 'Document', audiences: ['governanceAdmin', 'secops'] },
     ],
   },
 ];

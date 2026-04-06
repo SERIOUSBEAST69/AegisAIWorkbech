@@ -36,6 +36,13 @@
       </div>
     </div>
 
+    <el-tabs v-model="activeTab" class="shadow-tabs" @tab-change="handleTabChange">
+      <el-tab-pane label="影子AI发现" name="discovery" />
+      <el-tab-pane label="AI风险评级" name="risk" />
+    </el-tabs>
+
+    <template v-if="activeTab === 'discovery'">
+
     <!-- 统计卡片 -->
     <div v-if="canViewCompanyWide" class="stats-grid scene-block">
       <article class="stat-tile card-glass">
@@ -445,12 +452,16 @@
       </div>
     </el-drawer>
 
+    </template>
+    <AiRiskRating v-else />
+
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { ElMessage } from 'element-plus';
+import { useRoute, useRouter } from 'vue-router';
 import {
   Refresh, Monitor, Warning, AlarmClock, Document,
   Download, Search, Loading,
@@ -458,10 +469,14 @@ import {
 import { shadowAiApi } from '../api/shadowAi';
 import request from '../api/request';
 import { useUserStore } from '../store/user';
+import AiRiskRating from './AiRiskRating.vue';
 
 // ── 检测是否在 Electron 客户端中运行 ──────────────────────────────────────────
 const isElectron = typeof window !== 'undefined' && !!window.aegisClient;
 const userStore = useUserStore();
+const route = useRoute();
+const router = useRouter();
+const activeTab = ref(route.query?.tab === 'risk' ? 'risk' : 'discovery');
 
 // ── 状态 ──────────────────────────────────────────────────────────────────────
 const loading        = ref(false);
@@ -491,6 +506,15 @@ const isEmployeeView = computed(() => roleCode.value === 'EMPLOYEE');
 const isAdminUser = computed(() => roleCode.value === 'ADMIN');
 const canViewCompanyWide = computed(() => roleCode.value === 'ADMIN' || roleCode.value === 'SECOPS');
 const canRunLocalScan = computed(() => roleCode.value === 'ADMIN' || roleCode.value === 'SECOPS');
+
+function handleTabChange(tabName) {
+  const normalized = tabName === 'risk' ? 'risk' : 'discovery';
+  router.replace({ query: { ...route.query, tab: normalized } });
+}
+
+watch(() => route.query?.tab, (tab) => {
+  activeTab.value = tab === 'risk' ? 'risk' : 'discovery';
+});
 
 // ── 计算属性 ──────────────────────────────────────────────────────────────────
 const filteredClients = computed(() => {

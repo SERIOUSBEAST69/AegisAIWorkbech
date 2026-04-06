@@ -14,7 +14,8 @@
         <el-button @click="openAdd">新建申请</el-button>
       </el-form-item>
     </el-form>
-    <el-table :data="approvals" style="width: 100%" v-loading="loading" table-layout="auto">
+    <div class="approval-table-wrap">
+    <el-table :data="approvals" class="approval-table" style="width: 100%" v-loading="loading" table-layout="fixed">
       <el-table-column prop="id" label="ID" width="250">
         <template #default="scope">
           <div class="cell nowrap">{{ scope.row.id }}</div>
@@ -40,10 +41,14 @@
         <template #default="scope">{{ traceValue(scope.row.reason, 'device') || deviceById(scope.row.applicantId) }}</template>
       </el-table-column>
       <el-table-column prop="assetId" label="资产ID" />
-      <el-table-column label="理由" min-width="180" show-overflow-tooltip>
+      <el-table-column label="理由" min-width="260" show-overflow-tooltip>
         <template #default="scope">{{ cleanReason(scope.row.reason) }}</template>
       </el-table-column>
-      <el-table-column prop="status" label="状态" />
+      <el-table-column label="状态" width="120">
+        <template #default="scope">
+          <el-tag :type="statusTagType(scope.row)">{{ statusText(scope.row) }}</el-tag>
+        </template>
+      </el-table-column>
       <el-table-column prop="approverId" label="审批人ID" />
       <el-table-column label="审批账号" min-width="130">
         <template #default="scope">{{ userNameById(scope.row.approverId) }}</template>
@@ -63,15 +68,25 @@
       <el-table-column label="审批设备" min-width="160" show-overflow-tooltip>
         <template #default="scope">{{ deviceById(scope.row.approverId) }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="220" fixed="right">
+      <el-table-column label="申请时间" width="190">
+        <template #default="scope">{{ formatTime(scope.row.createTime) }}</template>
+      </el-table-column>
+      <el-table-column label="更新时间" width="190">
+        <template #default="scope">{{ formatTime(scope.row.updateTime) }}</template>
+      </el-table-column>
+      <el-table-column label="操作" width="250" fixed="right">
         <template #default="scope">
-          <el-button v-if="canApproveRow(scope.row)" size="small" @click="approve(scope.row, '通过')">通过</el-button>
-          <el-button v-if="canRejectRow(scope.row)" size="small" type="danger" @click="approve(scope.row, '拒绝')">拒绝</el-button>
-          <el-button v-if="canDeleteRow(scope.row)" size="small" type="warning" @click="remove(scope.row.id)" style="margin-left:6px">删除</el-button>
-          <span v-if="!canApproveRow(scope.row) && !canRejectRow(scope.row) && !canDeleteRow(scope.row)" class="cell">仅查看</span>
+          <div class="action-wrap">
+            <el-button size="small" @click="openDetail(scope.row)">详情</el-button>
+            <template v-if="canApproveRow(scope.row)">
+              <el-button size="small" type="success" @click="approve(scope.row, '通过')">通过</el-button>
+              <el-button size="small" type="danger" plain @click="approve(scope.row, '拒绝')">驳回</el-button>
+            </template>
+          </div>
         </template>
       </el-table-column>
     </el-table>
+    </div>
     <div style="display: flex; justify-content: flex-end; margin-top: 16px">
       <el-pagination
         background
@@ -98,7 +113,7 @@
   </el-card>
 </template>
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import request from '../api/request';
 import { useUserStore } from '../store/user';
@@ -118,10 +133,51 @@ const addForm = ref({ assetId: '', reason: '' });
 const query = ref({ applicantId: '', assetId: '', status: '', keyword: '' });
 const pagination = ref({ current: 1, pageSize: 10, total: 0 });
 const addFormRef = ref();
+const isNarrowScreen = ref(false);
 const rules = {
   assetId: [{ required: true, message: '资产ID不能为空', trigger: 'blur' }],
   reason: [{ required: true, message: '理由不能为空', trigger: 'blur' }]
 };
+
+function sortByLatestTime(rows) {
+  return [...rows].sort((a, b) => {
+    const ta = new Date(String(a?.updateTime || a?.createTime || '').replace(' ', 'T')).getTime();
+    const tb = new Date(String(b?.updateTime || b?.createTime || '').replace(' ', 'T')).getTime();
+    return (Number.isNaN(tb) ? 0 : tb) - (Number.isNaN(ta) ? 0 : ta);
+  });
+}
+
+function approvalSignature(row) {
+  return [
+    row?.applicantId ?? '-',
+    row?.assetId ?? '-',
+    String(row?.status || '').toLowerCase(),
+    cleanReason(row?.reason || ''),
+    row?.approverId ?? '-',
+  ].join('|');
+}
+
+function dedupeTraceableApprovals(rows, limit = 15) {
+  const seen = new Set();
+  const unique = [];
+  for (const row of sortByLatestTime(Array.isArray(rows) ? rows : [])) {
+    const signature = approvalSignature(row);
+    if (seen.has(signature)) {
+      continue;
+    }
+    seen.add(signature);
+    unique.push(row);
+    if (limit > 0 && unique.length >= limit) {
+      break;
+    }
+  }
+  return unique;
+}
+
+function syncViewport() {
+  isNarrowScreen.value = typeof window !== 'undefined' ? window.innerWidth < 992 : false;
+}
+
 async function fetchApprovals() {
   loading.value = true;
   try {
@@ -132,8 +188,8 @@ async function fetchApprovals() {
       pageSize: pagination.value.pageSize,
     };
     const res = await request.get('/approval/page', { params });
-    approvals.value = res?.list || [];
-    pagination.value.total = Number(res?.total || 0);
+    approvals.value = dedupeTraceableApprovals(res?.list || [], 0);
+    pagination.value.total = approvals.value.length;
   } catch (err) {
     ElMessage.error(err?.message || '加载失败');
   } finally {
@@ -156,7 +212,7 @@ async function fetchTodo() {
   loading.value = true;
   try {
     await ensureUserDirectory();
-    approvals.value = await request.get('/approval/todo');
+    approvals.value = dedupeTraceableApprovals(await request.get('/approval/todo'), 0);
     pagination.value.total = approvals.value.length;
   } catch (err) {
     ElMessage.error(err?.message || '加载待办失败');
@@ -327,29 +383,113 @@ function canApproveRow(row) {
   if (!canOperateType(row)) {
     return false;
   }
-  return true;
+  return normalizeStatus(row?.status) === 'pending';
 }
 
 function canRejectRow(row) {
   if (!canOperateType(row)) {
     return false;
   }
-  return true;
-}
-
-function canDeleteRow(row) {
-  const user = currentUser.value;
-  if (hasRole(user, 'ADMIN')) {
-    return true;
-  }
-  if (hasRole(user, 'EMPLOYEE')) {
-    return currentUser.value?.id != null && currentUser.value.id === row?.applicantId;
-  }
-  return canOperateType(row);
+  return normalizeStatus(row?.status) === 'pending';
 }
 
 function traceValue(reason, key) {
   return parseTrace(reason)[key] || '';
 }
+
+function openDetail(row) {
+  ElMessageBox.alert(
+    [
+      `申请ID：${row?.id ?? '-'}`,
+      `申请状态：${statusText(row)}`,
+      `申请人：${userNameById(row?.applicantId)}`,
+      `审批人：${userNameById(row?.approverId)}`,
+      `申请理由：${cleanReason(row?.reason || '-')}`,
+      `申请时间：${formatTime(row?.createTime)}`,
+      `更新时间：${formatTime(row?.updateTime)}`,
+    ].join('\n'),
+    '审批详情',
+    { confirmButtonText: '关闭' }
+  );
+}
+
+function normalizeStatus(status) {
+  const raw = String(status || '').toLowerCase();
+  if (['pending', '待审批', '待处理'].includes(raw)) return 'pending';
+  if (['approved', '通过', '已通过'].includes(raw)) return 'approved';
+  if (['rejected', '拒绝', '已驳回'].includes(raw)) return 'rejected';
+  if (['revoked', '撤回', '已撤回'].includes(raw)) return 'revoked';
+  return raw || 'pending';
+}
+
+function statusText(row) {
+  const value = normalizeStatus(row?.status);
+  if (value === 'pending') return '待审批';
+  if (value === 'approved') return '已通过';
+  if (value === 'rejected') return '已驳回';
+  if (value === 'revoked') return '已撤回';
+  return String(row?.status || '-');
+}
+
+function statusTagType(row) {
+  const value = normalizeStatus(row?.status);
+  if (value === 'pending') return 'warning';
+  if (value === 'approved') return 'success';
+  if (value === 'rejected') return 'danger';
+  if (value === 'revoked') return 'info';
+  return '';
+}
+
+function formatTime(value) {
+  if (!value) return '-';
+  const date = new Date(String(value).replace(' ', 'T'));
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString('zh-CN', { hour12: false });
+}
 fetchApprovals();
+
+onMounted(() => {
+  syncViewport();
+  window.addEventListener('resize', syncViewport, { passive: true });
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', syncViewport);
+});
 </script>
+
+<style scoped>
+.approval-table-wrap {
+  overflow-x: auto;
+}
+
+:deep(.approval-table) {
+  min-width: 2360px;
+}
+
+:deep(.approval-table .el-table__body-wrapper) {
+  padding-bottom: 14px;
+}
+
+:deep(.approval-table .el-table__fixed-right) {
+  bottom: 14px;
+  z-index: 4;
+  background: rgba(7, 12, 22, 0.98);
+  box-shadow: -8px 0 18px rgba(0, 0, 0, 0.22);
+}
+
+:deep(.approval-table .el-table__fixed-right-patch) {
+  height: 14px;
+}
+
+:deep(.approval-table .el-table__fixed-right .el-table__fixed-body-wrapper) {
+  bottom: 14px;
+}
+
+.action-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+}
+</style>

@@ -6,12 +6,15 @@ import com.trustai.entity.AiModel;
 import com.trustai.entity.User;
 import com.trustai.service.AiCallAuditService;
 import com.trustai.service.AiModelService;
+import com.trustai.service.CompanyScopeService;
 import com.trustai.service.CurrentUserService;
 import com.trustai.service.PrivacyShieldConfigService;
+import com.trustai.service.UserService;
 import com.trustai.utils.R;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -46,6 +49,9 @@ public class AiRiskRatingController {
     @Autowired private AiCallAuditService aiCallAuditService;
     @Autowired private CurrentUserService currentUserService;
     @Autowired private PrivacyShieldConfigService privacyShieldConfigService;
+    @Autowired private CompanyScopeService companyScopeService;
+    @Autowired private UserService userService;
+    @Autowired private JdbcTemplate jdbcTemplate;
 
     private static final String WINDOW_LABEL = "近30天";
     private static final Set<String> TRUSTED_SERVICE_IDS = new LinkedHashSet<>(List.of(
@@ -142,6 +148,129 @@ public class AiRiskRatingController {
         } else {
             data.put("pending", List.of());
         }
+        return R.ok(data);
+    }
+
+    @GetMapping("/profile/radar")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','EXECUTIVE','SECOPS','DATA_ADMIN','AI_BUILDER','BUSINESS_OWNER','EMPLOYEE')")
+    public R<Map<String, Object>> riskRadarProfile(@RequestParam(required = false) String username) {
+        User current = currentUserService.requireCurrentUser();
+        Long companyId = companyScopeService.requireCompanyId();
+        boolean canQueryOthers = currentUserService.hasAnyRole("ADMIN", "SECOPS", "EXECUTIVE", "DATA_ADMIN", "AI_BUILDER", "BUSINESS_OWNER");
+
+        User target = current;
+        if (StringUtils.hasText(username) && canQueryOthers) {
+            User hit = userService.lambdaQuery()
+                .eq(User::getCompanyId, companyId)
+                .eq(User::getUsername, username.trim())
+                .last("LIMIT 1")
+                .one();
+            if (hit != null) {
+                target = hit;
+            }
+        }
+
+        Date sinceDate = java.sql.Timestamp.valueOf(LocalDateTime.now().minusDays(30));
+
+        long privacyAlerts = queryLong(
+            "SELECT COUNT(1) FROM governance_event WHERE company_id = ? AND user_id = ? AND event_type = 'PRIVACY_ALERT' AND event_time >= ?",
+            companyId, target.getId(), sinceDate
+        );
+        long anomalyAlerts = queryLong(
+            "SELECT COUNT(1) FROM governance_event WHERE company_id = ? AND user_id = ? AND event_type = 'ANOMALY_ALERT' AND event_time >= ?",
+            companyId, target.getId(), sinceDate
+        );
+        long shadowAlerts = queryLong(
+            "SELECT COUNT(1) FROM governance_event WHERE company_id = ? AND user_id = ? AND event_type = 'SHADOW_AI_ALERT' AND event_time >= ?",
+            companyId, target.getId(), sinceDate
+        );
+        long pendingSecurity = queryLong(
+            "SELECT COUNT(1) FROM governance_event WHERE company_id = ? AND user_id = ? AND event_type = 'SECURITY_ALERT' AND event_time >= ? AND LOWER(status) IN ('pending','reviewing')",
+            companyId, target.getId(), sinceDate
+        );
+
+        long aiCallTotal = queryLong(
+            "SELECT COUNT(1) FROM ai_call_log WHERE company_id = ? AND user_id = ? AND create_time >= ?",
+            companyId, target.getId(), sinceDate
+        );
+        long aiCallFail = queryLong(
+            "SELECT COUNT(1) FROM ai_call_log WHERE company_id = ? AND user_id = ? AND create_time >= ? AND LOWER(status) <> 'success'",
+            companyId, target.getId(), sinceDate
+        );
+        long aiCallAvgLatency = queryLong(
+            "SELECT COALESCE(AVG(duration_ms), 0) FROM ai_call_log WHERE company_id = ? AND user_id = ? AND create_time >= ?",
+            companyId, target.getId(), sinceDate
+        );
+
+        int privacyRisk = clampRisk((int) Math.round(Math.min(100D, privacyAlerts * 12D + (privacyAlerts > 0 ? 10D : 0D))));
+        int behaviorRisk = clampRisk((int) Math.round(Math.min(100D, anomalyAlerts * 14D + (aiCallFail > 0 ? Math.min(30D, (aiCallFail * 100D) / Math.max(1D, aiCallTotal)) : 0D))));
+        int shadowRisk = clampRisk((int) Math.round(Math.min(100D, shadowAlerts * 16D + (shadowAlerts > 0 ? 8D : 0D))));
+        int complianceRisk = clampRisk((int) Math.round(Math.min(100D, pendingSecurity * 18D + (pendingSecurity > 0 ? 6D : 0D))));
+        int reliabilityRisk = clampRisk((int) Math.round(Math.min(100D,
+            (aiCallAvgLatency >= 3000 ? 50D : (aiCallAvgLatency >= 1800 ? 35D : (aiCallAvgLatency >= 900 ? 18D : 6D)))
+                + (aiCallFail > 0 ? Math.min(35D, (aiCallFail * 100D) / Math.max(1D, aiCallTotal)) : 0D)
+        )));
+
+        int totalRisk = clampRisk((int) Math.round(
+            privacyRisk * 0.24 + behaviorRisk * 0.22 + shadowRisk * 0.2 + complianceRisk * 0.2 + reliabilityRisk * 0.14
+        ));
+
+        List<Map<String, Object>> dimensions = new ArrayList<>();
+        dimensions.add(radarDimension("privacyDiscipline", "隐私纪律风险", privacyRisk, "近30天隐私告警" + privacyAlerts + " 次"));
+        dimensions.add(radarDimension("behaviorStability", "行为稳定性风险", behaviorRisk, "近30天异常行为" + anomalyAlerts + " 次"));
+        dimensions.add(radarDimension("shadowAiExposure", "影子AI暴露风险", shadowRisk, "近30天影子AI事件" + shadowAlerts + " 次"));
+        dimensions.add(radarDimension("securityCompliance", "安全处置合规风险", complianceRisk, "未闭环安全告警" + pendingSecurity + " 次"));
+        dimensions.add(radarDimension("modelReliability", "模型调用可靠性风险", reliabilityRisk, "调用" + aiCallTotal + " 次，失败" + aiCallFail + " 次，均延" + aiCallAvgLatency + "ms"));
+
+        List<Map<String, Object>> recommendations = new ArrayList<>();
+        recommendations.add(recommendationNode(
+            "隐私泄露防控加固",
+            privacyRisk >= 60 ? "优先" : "建议",
+            "收紧隐私字段拦截规则并复核最近告警样本",
+            "/threat-monitor",
+            "events"
+        ));
+        recommendations.add(recommendationNode(
+            "异常行为与账号画像复核",
+            behaviorRisk >= 60 ? "优先" : "建议",
+            "检查异常行为轨迹并确认是否需要审批升级",
+            "/ai/anomaly",
+            "profile"
+        ));
+        recommendations.add(recommendationNode(
+            "影子AI治理闭环",
+            shadowRisk >= 60 ? "优先" : "建议",
+            "核查非白名单调用并执行白名单审批流程",
+            "/shadow-ai",
+            "risk"
+        ));
+        recommendations.add(recommendationNode(
+            "安全事件快速阻断",
+            complianceRisk >= 55 ? "优先" : "建议",
+            "针对待处置安全事件执行阻断并触发攻防验证",
+            "/operations-command",
+            "pending"
+        ));
+
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("window", WINDOW_LABEL);
+        data.put("username", target.getUsername());
+        data.put("userId", target.getId());
+        data.put("companyId", companyId);
+        data.put("totalRisk", totalRisk);
+        data.put("riskLevel", totalRisk >= 70 ? "high" : (totalRisk >= 40 ? "medium" : "low"));
+        data.put("dimensions", dimensions);
+        data.put("recommendations", recommendations);
+        data.put("evidence", Map.of(
+            "privacyAlerts30d", privacyAlerts,
+            "anomalyAlerts30d", anomalyAlerts,
+            "shadowAlerts30d", shadowAlerts,
+            "pendingSecurity30d", pendingSecurity,
+            "aiCalls30d", aiCallTotal,
+            "aiCallFailures30d", aiCallFail,
+            "aiCallAvgLatencyMs30d", aiCallAvgLatency
+        ));
+        data.put("generatedAt", new Date());
         return R.ok(data);
     }
 
@@ -261,6 +390,34 @@ public class AiRiskRatingController {
             }
         }
         return result;
+    }
+
+    private Map<String, Object> radarDimension(String code, String label, int value, String explain) {
+        Map<String, Object> node = new LinkedHashMap<>();
+        node.put("code", code);
+        node.put("label", label);
+        node.put("value", value);
+        node.put("explain", explain);
+        return node;
+    }
+
+    private Map<String, Object> recommendationNode(String title, String priority, String action, String route, String jumpHint) {
+        Map<String, Object> node = new LinkedHashMap<>();
+        node.put("title", title);
+        node.put("priority", priority);
+        node.put("action", action);
+        node.put("route", route);
+        node.put("jumpHint", jumpHint);
+        return node;
+    }
+
+    private int clampRisk(int value) {
+        return Math.max(0, Math.min(100, value));
+    }
+
+    private long queryLong(String sql, Object... params) {
+        Number value = jdbcTemplate.queryForObject(sql, Number.class, params);
+        return value == null ? 0L : value.longValue();
     }
 
     private List<String> resolveCompanyWhitelist(Map<String, Object> config, Long companyId) {

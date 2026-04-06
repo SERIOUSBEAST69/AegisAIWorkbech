@@ -233,9 +233,11 @@ import { canUsePrivacyOps, hasAnyRole, isExecutive as isExecutiveRole } from '..
 
 const userStore = useUserStore();
 const isExecutive = computed(() => isExecutiveRole(userStore.userInfo));
-const isPersonalView = computed(() => !hasAnyRole(userStore.userInfo, ['SECOPS', 'EXECUTIVE']));
+const isPersonalView = computed(() => !hasAnyRole(userStore.userInfo, ['ADMIN', 'SECOPS', 'EXECUTIVE']));
 const canExportPrivacy = computed(() => canUsePrivacyOps(userStore.userInfo));
 const canQueryOthers = computed(() => canUsePrivacyOps(userStore.userInfo));
+const currentUserId = computed(() => userStore.userInfo?.id != null ? String(userStore.userInfo.id) : '');
+const currentUsername = computed(() => String(userStore.userInfo?.username || '').toLowerCase());
 
 const activeTab = ref('anomaly');
 const userDirectory = ref(new Map());
@@ -425,6 +427,31 @@ function normalizeAnomalyEvent(item = {}) {
   };
 }
 
+function dedupeBySignature(rows, signatureBuilder) {
+  const seen = new Set();
+  const output = [];
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const signature = signatureBuilder(row);
+    if (seen.has(signature)) continue;
+    seen.add(signature);
+    output.push(row);
+  }
+  return output;
+}
+
+function isCurrentUserEvent(userValue) {
+  if (!isPersonalView.value) return true;
+  const normalized = String(userValue || '').toLowerCase();
+  if (!normalized) return false;
+  if (currentUserId.value && normalized === currentUserId.value.toLowerCase()) return true;
+  if (currentUsername.value && normalized === currentUsername.value) return true;
+  const linkedUser = userByAny(userValue);
+  if (!linkedUser) return false;
+  if (currentUserId.value && String(linkedUser.id || '') === currentUserId.value) return true;
+  if (currentUsername.value && String(linkedUser.username || '').toLowerCase() === currentUsername.value) return true;
+  return false;
+}
+
 async function loadAnomalyStatus() {
   try {
     const data = await request.get('/anomaly/status');
@@ -456,9 +483,20 @@ async function loadAnomaly() {
       return;
     }
     anomalyTotalRecords.value = Number(data?.total || data?.count || 0);
-    anomalyEvents.value = Array.isArray(data?.events)
+    const normalizedEvents = Array.isArray(data?.events)
       ? data.events.map((item) => normalizeAnomalyEvent(item))
       : [];
+    const scopedEvents = isPersonalView.value
+      ? normalizedEvents.filter(item => isCurrentUserEvent(item?.employee_id))
+      : normalizedEvents;
+    anomalyEvents.value = dedupeBySignature(scopedEvents, (item) => [
+      item?.employee_id || '-',
+      item?.ai_service || '-',
+      item?.risk_level || '-',
+      item?.created_at || '-',
+      item?.description || '-',
+    ].join('|'));
+    anomalyTotalRecords.value = anomalyEvents.value.length;
   } catch (error) {
     anomalyTotalRecords.value = 0;
     anomalyEvents.value = [];
@@ -493,8 +531,22 @@ async function loadPrivacyEvents() {
       clipboardCount: data?.clipboardCount || 0,
       summaryOnly: !!data?.summaryOnly,
     };
-    privacyTotal.value = Number(data?.total || 0);
-    privacyEvents.value = Array.isArray(data?.list) ? data.list : [];
+    const eventList = Array.isArray(data?.list) ? data.list : [];
+    const scopedEvents = isPersonalView.value
+      ? eventList.filter(item => isCurrentUserEvent(item?.userId || item?.username || item?.employeeId))
+      : eventList;
+    privacyEvents.value = dedupeBySignature(scopedEvents, (item) => [
+      item?.userId || item?.username || '-',
+      item?.eventType || '-',
+      item?.source || '-',
+      item?.action || '-',
+      item?.eventTime || '-',
+      item?.matchedTypes || '-',
+    ].join('|'));
+    privacyTotal.value = privacyEvents.value.length;
+    if (isPersonalView.value && !privacySummary.value.summaryOnly) {
+      privacySummary.value.total = privacyTotal.value;
+    }
   } catch (error) {
     privacyEvents.value = [];
     ElMessage.error(error?.message || '加载隐私告警失败');

@@ -11,13 +11,11 @@ import RiskEventManage from '../views/RiskEventManage.vue';
 import OpsObservability from '../views/OpsObservability.vue';
 import ApprovalCenterHub from '../views/ApprovalCenterHub.vue';
 import PolicyManage from '../views/PolicyManage.vue';
-import SensitiveDataGovernance from '../views/SensitiveDataGovernance.vue';
 import SubjectRequest from '../views/SubjectRequest.vue';
 import Login from '../views/Login.vue';
 import Profile from '../views/Profile.vue';
 import Settings from '../views/Settings.vue';
 import ShadowAiDiscovery from '../views/ShadowAiDiscovery.vue';
-import AiRiskRating from '../views/AiRiskRating.vue';
 import EmployeeAiBehaviorMonitor from '../views/EmployeeAiBehaviorMonitor.vue';
 import ThreatMonitor from '../views/ThreatMonitor.vue';
 import { getSession, hasActiveSession } from '../utils/auth';
@@ -54,11 +52,11 @@ const routes = [
   { path: '/approval-manage', redirect: to => ({ path: '/approval-center', query: to.query }) },
   { path: '/policy-manage', name: 'PolicyManage', component: PolicyManage, meta: { depth: 3 } },
   { path: '/risk-event-manage', name: 'RiskEventManage', component: RiskEventManage, meta: { depth: 3 } },
-  { path: '/sensitive-data-governance', name: 'SensitiveDataGovernance', component: SensitiveDataGovernance, meta: { depth: 2 } },
-  { path: '/sensitive-scan', redirect: to => ({ path: '/sensitive-data-governance', query: to.query }) },
-  { path: '/desense-preview', redirect: to => ({ path: '/sensitive-data-governance', query: to.query }) },
+  { path: '/sensitive-data-governance', redirect: to => ({ path: '/data-asset', query: { ...to.query, tab: 'sensitive' } }) },
+  { path: '/sensitive-scan', redirect: to => ({ path: '/data-asset', query: { ...to.query, tab: 'sensitive' } }) },
+  { path: '/desense-preview', redirect: to => ({ path: '/data-asset', query: { ...to.query, tab: 'sensitive' } }) },
   { path: '/subject-request', name: 'SubjectRequest', component: SubjectRequest, meta: { depth: 2 } },
-  { path: '/ai/risk-rating', name: 'AiRiskRating', component: AiRiskRating, meta: { depth: 3 } },
+  { path: '/ai/risk-rating', redirect: to => ({ path: '/shadow-ai', query: { ...to.query, tab: 'risk' } }) },
   { path: '/ai/anomaly', name: 'AnomalyDetection', component: EmployeeAiBehaviorMonitor, meta: { depth: 3 } },
   { path: '/shadow-ai', name: 'ShadowAiDiscovery', component: ShadowAiDiscovery, meta: { depth: 2 } },
   { path: '/threat-monitor', name: 'ThreatMonitor', component: ThreatMonitor, meta: { depth: 2 } },

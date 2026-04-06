@@ -98,11 +98,27 @@ public class RoleSelfServiceController {
         int safePage = Math.max(1, page);
         int safePageSize = Math.max(1, Math.min(100, pageSize));
         Page<Role> result = roleService.page(new Page<>(safePage, safePageSize), wrapper);
+        List<Map<String, Object>> list = result.getRecords().stream()
+            .map(role -> {
+                Map<String, Object> row = new LinkedHashMap<>();
+                // Long IDs can exceed JS safe integer; expose as string for frontend precision safety.
+                row.put("id", role.getId() == null ? null : String.valueOf(role.getId()));
+                row.put("companyId", role.getCompanyId() == null ? null : String.valueOf(role.getCompanyId()));
+                row.put("name", role.getName());
+                row.put("code", role.getCode());
+                row.put("description", role.getDescription());
+                row.put("allowSelfRegister", role.getAllowSelfRegister());
+                row.put("isSystem", role.getIsSystem());
+                row.put("createTime", role.getCreateTime());
+                row.put("updateTime", role.getUpdateTime());
+                return row;
+            })
+            .toList();
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("current", result.getCurrent());
         payload.put("pages", result.getPages());
         payload.put("total", result.getTotal());
-        payload.put("list", result.getRecords());
+        payload.put("list", list);
         return R.ok(payload);
     }
 
@@ -430,7 +446,10 @@ public class RoleSelfServiceController {
 
     private Role requireCompanyRole(Long roleId, Long companyId) {
         Role role = roleService.getById(roleId);
-        if (role == null || !Objects.equals(role.getCompanyId(), companyId)) {
+        if (role == null) {
+            throw new BizException(40400, "角色不存在或不属于当前公司");
+        }
+        if (!Objects.equals(role.getCompanyId(), companyId)) {
             throw new BizException(40400, "角色不存在或不属于当前公司");
         }
         return role;

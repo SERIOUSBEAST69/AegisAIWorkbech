@@ -53,7 +53,7 @@
     <el-tabs v-model="activeTab" class="main-tabs">
 
       <!-- ── 事件列表 Tab ── -->
-      <el-tab-pane label="威胁事件" name="events">
+      <el-tab-pane label="实时威胁告警" name="events">
         <el-card class="card-glass" style="margin-top: 0">
 
           <!-- 筛选工具栏 -->
@@ -673,6 +673,54 @@ const actionLoading = ref(null);
 const filter = ref({ status: '', severity: '', keyword: '' });
 const pagination = ref({ page: 1, pageSize: 20, total: 0 });
 
+function sortByLatestEventTime(rows) {
+  return [...rows].sort((a, b) => {
+    const ta = new Date(String(a?.eventTime || a?.updateTime || a?.createTime || '').replace(' ', 'T')).getTime();
+    const tb = new Date(String(b?.eventTime || b?.updateTime || b?.createTime || '').replace(' ', 'T')).getTime();
+    return (Number.isNaN(tb) ? 0 : tb) - (Number.isNaN(ta) ? 0 : ta);
+  });
+}
+
+function threatEventSignature(row) {
+  return [
+    String(row?.eventType || '').toUpperCase(),
+    String(row?.severity || '').toLowerCase(),
+    String(row?.status || '').toLowerCase(),
+    String(row?.employeeId || '').toLowerCase(),
+    String(row?.hostname || '').toLowerCase(),
+    String(row?.filePath || '').toLowerCase(),
+    String(row?.targetAddr || '').toLowerCase(),
+  ].join('|');
+}
+
+function centerEventSignature(row) {
+  return [
+    String(row?.eventType || '').toUpperCase(),
+    String(row?.severity || '').toLowerCase(),
+    String(row?.status || '').toLowerCase(),
+    String(row?.title || '').toLowerCase(),
+    String(row?.username || '').toLowerCase(),
+    String(row?.sourceModule || '').toLowerCase(),
+  ].join('|');
+}
+
+function dedupeEvents(rows, signatureBuilder, limit = 15) {
+  const seen = new Set();
+  const unique = [];
+  for (const row of sortByLatestEventTime(Array.isArray(rows) ? rows : [])) {
+    const signature = signatureBuilder(row);
+    if (seen.has(signature)) {
+      continue;
+    }
+    seen.add(signature);
+    unique.push(row);
+    if (unique.length >= limit) {
+      break;
+    }
+  }
+  return unique;
+}
+
 async function refreshEvents() {
   loading.value = true;
   try {
@@ -685,8 +733,8 @@ async function refreshEvents() {
     if (filter.value.keyword) params.keyword = filter.value.keyword;
 
     const data = await request.get('/security/events', { params });
-    events.value = data.list || [];
-    pagination.value.total = data.total || 0;
+    events.value = dedupeEvents(data.list || [], threatEventSignature, 15);
+    pagination.value.total = events.value.length;
   } catch (e) {
     ElMessage.error('加载事件失败：' + (e.message || '未知错误'));
   } finally {
@@ -875,8 +923,8 @@ async function refreshCenterEvents() {
     if (centerFilter.value.keyword) params.keyword = centerFilter.value.keyword;
 
     const data = await alertCenterApi.list(params);
-    centerEvents.value = data.list || [];
-    centerPagination.value.total = data.total || 0;
+    centerEvents.value = dedupeEvents(data.list || [], centerEventSignature, 15);
+    centerPagination.value.total = centerEvents.value.length;
   } catch (e) {
     ElMessage.error('加载告警闭环失败：' + (e.message || '未知错误'));
   } finally {

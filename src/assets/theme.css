@@ -373,6 +373,29 @@ body {
   background: #c0c4cc;
 }
 
+/* Non-management tables: keep fixed operation column visually separated from scrolled text */
+.el-table .el-table__fixed-right {
+  background: color-mix(in srgb, var(--color-card) 96%, transparent);
+  z-index: 4;
+}
+
+.el-table .el-table__fixed-right::before {
+  content: '';
+  position: absolute;
+  left: -24px;
+  top: 0;
+  width: 24px;
+  height: 100%;
+  pointer-events: none;
+  background: linear-gradient(to right, rgba(6, 10, 18, 0), rgba(6, 10, 18, 0.82) 65%, rgba(6, 10, 18, 0.95));
+  backdrop-filter: blur(2px);
+}
+
+/* Four management pages are excluded from this softening behavior */
+.mgmt-table-exempt .el-table .el-table__fixed-right::before {
+  display: none;
+}
+
 /* 响应式表格 */
 @media (max-width: 768px) {
   .el-table {

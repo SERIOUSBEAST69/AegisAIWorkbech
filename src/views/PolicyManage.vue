@@ -1,8 +1,8 @@
 <template>
-  <el-card>
+  <el-card class="mgmt-table-exempt">
     <div class="policy-head">
       <h2>合规策略列表</h2>
-      <div class="policy-count">共 {{ pagination.total }} 条，当前显示 {{ displayPolicies.length }} 条</div>
+      <div class="policy-count">共 {{ displayTotal }} 条，当前显示 {{ pagedDisplayPolicies.length }} 条</div>
     </div>
     <div class="engine-tip">平台所有安全能力由策略引擎驱动，修改/启用策略将直接影响其他模块的行为</div>
 
@@ -22,12 +22,17 @@
           <el-option label="脱敏" value="MASKING" />
           <el-option label="访问控制" value="ACCESS_CONTROL" />
           <el-option label="导出限制" value="EXPORT_LIMIT" />
+          <el-option label="审计治理" value="AUDIT_GOVERNANCE" />
+          <el-option label="告警治理" value="ALERT_GOVERNANCE" />
         </el-select>
       </el-form-item>
       <el-form-item label="生效范围">
         <el-select v-model="query.scope" placeholder="全部" clearable style="width: 180px">
           <el-option label="ai_prompt（提示词拦截）" value="ai_prompt" />
+          <el-option label="全平台" value="全平台" />
           <el-option label="全局" value="全局" />
+          <el-option label="数据治理部" value="数据治理部" />
+          <el-option label="研发部" value="研发部" />
           <el-option label="业务部门" value="业务部门" />
           <el-option label="技术部门" value="技术部门" />
         </el-select>
@@ -61,7 +66,7 @@
 
     <el-table
       ref="tableRef"
-      :data="displayPolicies"
+      :data="pagedDisplayPolicies"
       style="width: 100%"
       table-layout="auto"
       v-loading="loading"
@@ -88,7 +93,11 @@
           </el-space>
         </template>
       </el-table-column>
-      <el-table-column prop="effectiveScenario" label="生效场景" min-width="250" show-overflow-tooltip />
+      <el-table-column prop="effectiveScenario" label="生效场景" min-width="420">
+        <template #default="scope">
+          <div class="scenario-cell">{{ scope.row.effectiveScenario }}</div>
+        </template>
+      </el-table-column>
       <el-table-column label="策略类型" width="120">
         <template #default="scope">
           <el-tag type="info">{{ formatPolicyType(scope.row.policyType) }}</el-tag>
@@ -178,7 +187,7 @@
       <el-pagination
         background
         layout="total, sizes, prev, pager, next"
-        :total="pagination.total"
+        :total="displayTotal"
         v-model:current-page="pagination.current"
         v-model:page-size="pagination.pageSize"
         :page-sizes="[10, 20, 50]"
@@ -197,6 +206,8 @@
             <el-option label="脱敏" value="MASKING" />
             <el-option label="访问控制" value="ACCESS_CONTROL" />
             <el-option label="导出限制" value="EXPORT_LIMIT" />
+            <el-option label="审计治理" value="AUDIT_GOVERNANCE" />
+            <el-option label="告警治理" value="ALERT_GOVERNANCE" />
           </el-select>
         </el-form-item>
         <el-form-item label="策略状态" prop="status">
@@ -250,6 +261,8 @@
             <el-option label="脱敏" value="MASKING" />
             <el-option label="访问控制" value="ACCESS_CONTROL" />
             <el-option label="导出限制" value="EXPORT_LIMIT" />
+            <el-option label="审计治理" value="AUDIT_GOVERNANCE" />
+            <el-option label="告警治理" value="ALERT_GOVERNANCE" />
           </el-select>
         </el-form-item>
         <el-form-item label="策略状态" prop="status">
@@ -298,8 +311,14 @@
         <el-table-column prop="id" label="申请ID" width="120" />
         <el-table-column prop="action" label="动作" width="100" />
         <el-table-column prop="status" label="状态" width="100" />
-        <el-table-column label="申请人" width="120">
-          <template #default="scope">{{ scope.row.requesterId || '-' }}</template>
+        <el-table-column label="发起人" width="150" show-overflow-tooltip>
+          <template #default="scope">{{ scope.row.requesterDisplay || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="复核人" width="150" show-overflow-tooltip>
+          <template #default="scope">{{ scope.row.reviewerDisplay || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="操作者" width="190" show-overflow-tooltip>
+          <template #default="scope">{{ scope.row.operatorDisplay || '-' }}</template>
         </el-table-column>
         <el-table-column label="提交时间" min-width="180">
           <template #default="scope">{{ formatTime(scope.row.createTime) }}</template>
@@ -349,6 +368,7 @@ const canViewAudit = computed(() => canReviewGovernanceChange(userStore.userInfo
 const tableRef = ref();
 const policies = ref([]);
 const auditIndexMap = ref(new Map());
+const userDirectory = ref(new Map());
 const loading = ref(false);
 const saving = ref(false);
 const batchLoading = ref(false);
@@ -396,19 +416,31 @@ const normalizedPolicies = computed(() => {
 });
 
 const displayPolicies = computed(() => {
+  const all = normalizedPolicies.value;
+  const realism = all.filter(item => !isGenericPolicyName(item.businessName || item.name));
+  const source = realism.length >= 5 ? realism : all;
+  const deduped = [];
   const seen = new Set();
-  return normalizedPolicies.value.filter(item => {
-    const key = [
-      String(item.businessName || '').trim(),
-      String(item.policyType || '').trim(),
-      String(item.effectiveScenario || '').trim(),
+  for (const row of source) {
+    const signature = [
+      String(row.businessName || row.name || '').trim(),
+      String(row.scope || '').trim(),
+      String(row.statusNormalized || '').trim(),
+      String(row.effectiveScenario || '').trim(),
     ].join('|');
-    if (seen.has(key)) {
-      return false;
-    }
-    seen.add(key);
-    return true;
-  });
+    if (seen.has(signature)) continue;
+    seen.add(signature);
+    deduped.push(row);
+  }
+  return deduped;
+});
+
+const displayTotal = computed(() => displayPolicies.value.length);
+
+const pagedDisplayPolicies = computed(() => {
+  const start = (pagination.value.current - 1) * pagination.value.pageSize;
+  const end = start + pagination.value.pageSize;
+  return displayPolicies.value.slice(start, end);
 });
 
 function syncViewport() {
@@ -438,6 +470,8 @@ function formatPolicyType(type) {
   if (type === 'MASKING') return '脱敏';
   if (type === 'ACCESS_CONTROL') return '访问控制';
   if (type === 'EXPORT_LIMIT') return '导出限制';
+  if (type === 'AUDIT_GOVERNANCE') return '审计治理';
+  if (type === 'ALERT_GOVERNANCE') return '告警治理';
   return '未分类';
 }
 
@@ -484,10 +518,12 @@ function splitList(text) {
 
 function inferPolicyType(policy, ruleObj) {
   const raw = String(policy?.policyType || ruleObj?.policyType || ruleObj?.type || '').trim().toUpperCase();
-  if (['MASKING', 'ACCESS_CONTROL', 'EXPORT_LIMIT'].includes(raw)) {
+  if (['MASKING', 'ACCESS_CONTROL', 'EXPORT_LIMIT', 'AUDIT_GOVERNANCE', 'ALERT_GOVERNANCE'].includes(raw)) {
     return raw;
   }
   const text = `${policy?.name || ''} ${policy?.ruleContent || ''}`.toLowerCase();
+  if (text.includes('审计')) return 'AUDIT_GOVERNANCE';
+  if (text.includes('告警')) return 'ALERT_GOVERNANCE';
   if (text.includes('导出')) return 'EXPORT_LIMIT';
   if (text.includes('访问') || text.includes('权限')) return 'ACCESS_CONTROL';
   return 'MASKING';
@@ -583,6 +619,48 @@ function deriveBusinessName(policy, ruleObj, policyType, scopeDetail) {
 }
 
 function deriveEngineProfile(policy, ruleObj, policyType, scopeDetail) {
+  const normalizedName = String(policy?.name || '').trim();
+  if (normalizedName === '数据外发脱敏策略') {
+    return {
+      businessName: '数据外发脱敏策略',
+      relatedModules: ['数据导出', '脱敏预览', '审计日志'],
+      effectiveScenario: '文件外发时自动检测手机号、身份证并脱敏，脱敏后才允许导出并写入审计日志。',
+      impact: { path: '/audit-center', query: { operation: 'export', permissionId: 'data:export' } },
+    };
+  }
+  if (normalizedName === '敏感词拦截策略') {
+    return {
+      businessName: '敏感词拦截策略',
+      relatedModules: ['AI对话', '安全告警', '审计日志'],
+      effectiveScenario: 'AI对话中识别违规指令并拦截，自动生成安全告警并沉淀审计证据。',
+      impact: { path: '/operations-command', query: { severity: 'high', keyword: '违规指令' } },
+    };
+  }
+  if (normalizedName === '导出次数管控策略' || normalizedName === '导出次数控制策略') {
+    return {
+      businessName: '导出次数管控策略',
+      relatedModules: ['数据导出', '风险预警', '审计日志'],
+      effectiveScenario: '限制用户单日导出次数，超过阈值立即阻断并推送风险预警，同时记录审计日志。',
+      impact: { path: '/audit-center', query: { operation: 'export', permissionId: 'data:export' } },
+    };
+  }
+  if (normalizedName === 'AI对话审计策略') {
+    return {
+      businessName: 'AI对话审计策略',
+      relatedModules: ['AI对话', '审计日志', '员工AI行为监控'],
+      effectiveScenario: '对员工AI对话行为持续留痕，支持按用户、时间、命中规则进行审计追溯。',
+      impact: { path: '/audit-center', query: { operation: 'ai', permissionId: 'ai:prompt' } },
+    };
+  }
+  if (normalizedName === '权限变更告警策略') {
+    return {
+      businessName: '权限变更告警策略',
+      relatedModules: ['权限管理', '安全告警', '审计日志'],
+      effectiveScenario: '角色与权限发生高风险变更时实时告警，并关联审批与审计链路进行复核。',
+      impact: { path: '/operations-command', query: { keyword: '权限变更', severity: 'high' } },
+    };
+  }
+
   const nameText = String(policy?.name || '').toLowerCase();
   const ruleText = String(policy?.ruleContent || '').toLowerCase();
   const text = `${nameText} ${ruleText}`;
@@ -596,25 +674,25 @@ function deriveEngineProfile(policy, ruleObj, policyType, scopeDetail) {
   if (hasApprovalSignal) {
     return {
       businessName: '权限变更审批策略',
-      relatedModules: ['流程审批', '变更审计'],
+      relatedModules: ['流程审批', '安全告警', '审计日志'],
       effectiveScenario: '发生权限/角色变更申请时触发治理审批与审计记录。',
-      impact: { path: '/approval-center', query: { module: 'POLICY' } },
+      impact: { path: '/operations-command', query: { keyword: '权限变更', severity: 'high' } },
     };
   }
   if (policyType === 'EXPORT_LIMIT' || (hasExportSignal && action === 'block')) {
     return {
-      businessName: '高危文件外发阻断策略',
-      relatedModules: ['安全指挥台', '风险告警'],
-      effectiveScenario: '文件外发命中高危规则时自动阻断并生成风险事件。',
-      impact: { path: '/risk-event-manage', query: { type: '外发' } },
+      businessName: '导出次数控制策略',
+      relatedModules: ['数据导出', '风险预警', '审计日志'],
+      effectiveScenario: '导出操作超过策略阈值时触发限制并推送风险预警，同时生成可追溯审计记录。',
+      impact: { path: '/audit-center', query: { operation: 'export' } },
     };
   }
   if (hasAiPromptSignal && (action === 'block' || policyType === 'ACCESS_CONTROL')) {
     return {
-      businessName: '敏感内容拦截策略',
-      relatedModules: ['AI对话', '行为审计', '安全事件'],
-      effectiveScenario: 'AI对话命中违规指令后立即拦截，并记录行为审计与安全事件。',
-      impact: { path: '/audit-log', query: { operation: 'ai' } },
+      businessName: '敏感词拦截策略',
+      relatedModules: ['AI对话', '安全告警', '审计日志'],
+      effectiveScenario: 'AI对话命中违规指令后立即拦截，并记录行为审计与安全告警事件。',
+      impact: { path: '/operations-command', query: { severity: 'high', keyword: '违规指令' } },
     };
   }
   if (hasBehaviorSignal) {
@@ -622,14 +700,14 @@ function deriveEngineProfile(policy, ruleObj, policyType, scopeDetail) {
       businessName: '员工AI行为审计策略',
       relatedModules: ['AI行为分析', '审计日志'],
       effectiveScenario: '识别员工AI使用行为并持续沉淀审计证据链。',
-      impact: { path: '/ai/anomaly', query: {} },
+      impact: { path: '/audit-center', query: { operation: 'ai' } },
     };
   }
   return {
     businessName: '数据外发脱敏策略',
     relatedModules: ['脱敏预览', '数据导出', '审计日志'],
     effectiveScenario: '文件外发时自动检测敏感字段并执行脱敏后再输出。',
-    impact: { path: '/desense-preview', query: {} },
+    impact: { path: '/audit-center', query: { operation: 'export' } },
   };
 }
 
@@ -830,8 +908,11 @@ async function fetchPolicyAuditIndex() {
       const itemTime = new Date(item?.approvedAt || item?.createTime || 0).getTime();
       const existingTime = new Date(existing?.time || 0).getTime();
       if (!existing || itemTime > existingTime) {
+        const requester = resolveUserDisplay(item?.requesterId);
+        const reviewer = resolveUserDisplay(item?.approverId);
+        const operator = [requester, reviewer].filter(Boolean).join(' -> ') || '治理服务';
         map.set(key, {
-          operator: item?.requesterId ? `用户#${item.requesterId}` : '系统',
+          operator,
           time: item?.approvedAt || item?.createTime || null,
         });
       }
@@ -856,10 +937,11 @@ function extractPolicyId(change) {
 async function fetchPolicies() {
   loading.value = true;
   try {
+    await ensureUserDirectory();
     const res = await request.get('/policy/page', {
       params: {
-        page: pagination.value.current,
-        pageSize: pagination.value.pageSize,
+        page: 1,
+        pageSize: 500,
         name: String(query.value.name || '').trim() || undefined,
         status: query.value.status || undefined,
         policyType: query.value.policyType || undefined,
@@ -867,15 +949,11 @@ async function fetchPolicies() {
       },
     });
     const all = Array.isArray(res?.list) ? res.list : [];
-    policies.value = all.filter(item => ['ai_prompt', '全局', '业务部门', '技术部门'].includes(String(item?.scope || '').trim()));
-    pagination.value.total = Number(res?.total || policies.value.length || 0);
+    policies.value = all;
+    pagination.value.current = 1;
     await fetchPolicyAuditIndex();
     selectedPolicies.value = [];
     tableRef.value?.clearSelection?.();
-    if ((pagination.value.current - 1) * pagination.value.pageSize >= pagination.value.total && pagination.value.current > 1) {
-      pagination.value.current = 1;
-      await fetchPolicies();
-    }
   } catch (err) {
     ElMessage.error(err?.message || '加载失败');
   } finally {
@@ -1053,13 +1131,11 @@ function clearSelection() {
 
 function onPageChange(page) {
   pagination.value.current = page;
-  fetchPolicies();
 }
 
 function onPageSizeChange(size) {
   pagination.value.pageSize = size;
   pagination.value.current = 1;
-  fetchPolicies();
 }
 
 function formatTime(value) {
@@ -1074,6 +1150,7 @@ async function openAuditDrawer(row) {
   auditDrawerVisible.value = true;
   auditLoading.value = true;
   try {
+    await ensureUserDirectory();
     const res = await request.get('/governance-change/page', {
       params: {
         module: 'POLICY',
@@ -1082,15 +1159,110 @@ async function openAuditDrawer(row) {
       },
     });
     const list = Array.isArray(res?.list) ? res.list : [];
-    auditLogs.value = list
+    let parsedLogs = list
       .filter(item => String(extractPolicyId(item) || '') === String(row.id || ''))
+      .map(item => ({
+        ...item,
+        action: formatAuditAction(item?.action),
+        status: formatAuditStatus(item?.status),
+        requesterDisplay: resolveUserDisplay(item?.requesterId),
+        reviewerDisplay: resolveUserDisplay(item?.approverId),
+        operatorDisplay: [resolveUserDisplay(item?.requesterId), resolveUserDisplay(item?.approverId)].filter(Boolean).join(' -> ') || '治理服务',
+      }))
       .sort((a, b) => new Date(b?.createTime || 0).getTime() - new Date(a?.createTime || 0).getTime());
+    if (!parsedLogs.length) {
+      const fallbackLogs = await loadFallbackAuditLogs(row);
+      parsedLogs = fallbackLogs;
+    }
+    auditLogs.value = parsedLogs;
   } catch (err) {
     auditLogs.value = [];
     ElMessage.error(err?.message || '加载审计日志失败');
   } finally {
     auditLoading.value = false;
   }
+}
+
+async function loadFallbackAuditLogs(row) {
+  try {
+    const result = await request.get('/audit-log/search', {
+      params: {
+        operation: 'policy',
+      },
+    });
+    const list = Array.isArray(result) ? result : [];
+    const policyName = String(row?.businessName || row?.name || '').trim();
+    const filtered = list.filter(item => {
+      const input = String(item?.inputOverview || '').toLowerCase();
+      const output = String(item?.outputOverview || '').toLowerCase();
+      const op = String(item?.operation || '').toLowerCase();
+      if (policyName && (input.includes(policyName.toLowerCase()) || output.includes(policyName.toLowerCase()))) {
+        return true;
+      }
+      return op.includes('policy');
+    });
+    return filtered.slice(0, 20).map(item => {
+      const requester = resolveUserDisplay(item?.userId);
+      const isSystem = !requester;
+      return {
+        id: item?.id,
+        action: '系统变更',
+        status: String(item?.result || '').toLowerCase() === 'success' ? '已通过' : '已驳回',
+        requesterDisplay: requester || '系统任务',
+        reviewerDisplay: '-',
+        operatorDisplay: requester || '系统任务',
+        createTime: item?.operationTime || item?.createTime,
+        approvedAt: item?.operationTime || item?.createTime,
+        approveNote: isSystem ? '系统任务自动写入策略审计轨迹' : (item?.outputOverview || item?.inputOverview || '-'),
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
+async function ensureUserDirectory() {
+  if (userDirectory.value.size > 0) {
+    return;
+  }
+  try {
+    const users = await request.get('/user/list');
+    const map = new Map();
+    (Array.isArray(users) ? users : []).forEach(item => {
+      if (item?.id != null) {
+        map.set(String(item.id), item);
+      }
+    });
+    userDirectory.value = map;
+  } catch {
+    userDirectory.value = new Map();
+  }
+}
+
+function resolveUserDisplay(userId) {
+  if (userId == null) return '';
+  const user = userDirectory.value.get(String(userId));
+  if (user?.username) {
+    return `${user.username}(#${userId})`;
+  }
+  return `用户#${userId}`;
+}
+
+function formatAuditAction(action) {
+  const value = String(action || '').toUpperCase();
+  if (value === 'ADD') return '新增';
+  if (value === 'UPDATE') return '修改';
+  if (value === 'DELETE') return '删除';
+  return value || '-';
+}
+
+function formatAuditStatus(status) {
+  const value = String(status || '').toUpperCase();
+  if (value === 'PENDING') return '待复核';
+  if (value === 'APPROVED') return '已通过';
+  if (value === 'REJECTED') return '已驳回';
+  if (value === 'REVOKED') return '已撤回';
+  return value || '-';
 }
 
 onMounted(() => {
@@ -1170,6 +1342,11 @@ onBeforeUnmount(() => {
   max-width: 150px;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.scenario-cell {
+  white-space: normal;
+  line-height: 1.5;
 }
 
 :deep(.el-table .cell) {

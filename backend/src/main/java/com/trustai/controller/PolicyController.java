@@ -202,7 +202,11 @@ public class PolicyController {
         if (normalized.isEmpty()) {
             return "MASKING";
         }
-        if ("ACCESS_CONTROL".equals(normalized) || "EXPORT_LIMIT".equals(normalized)) {
+        if ("ACCESS_CONTROL".equals(normalized)
+            || "EXPORT_LIMIT".equals(normalized)
+            || "AUDIT_GOVERNANCE".equals(normalized)
+            || "ALERT_GOVERNANCE".equals(normalized)
+            || "MASKING".equals(normalized)) {
             return normalized;
         }
         return "MASKING";

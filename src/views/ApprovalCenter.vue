@@ -1,16 +1,5 @@
 <template>
   <el-card class="approval-center-card">
-    <template #header>
-      <div class="card-header">
-        <div class="headline-block">
-          <div class="headline-kicker">Governance Workflow</div>
-          <h2>审批中心</h2>
-          <p>统一处理治理变更待办与我发起申请</p>
-        </div>
-        <el-button v-if="canSubmit" type="primary" @click="openSubmit">发起治理变更</el-button>
-      </div>
-    </template>
-
     <el-tabs v-model="activeTab" @tab-change="onTabChange" class="approval-tabs">
       <el-tab-pane v-if="showTodoTab" name="todo" label="待我审批" />
       <el-tab-pane v-if="showMineTab" name="mine" label="我发起" />
@@ -57,10 +46,11 @@
       </el-form-item>
     </el-form>
 
-    <el-table :data="rows" v-loading="loading" style="width: 100%" empty-text="暂无记录" class="approval-table">
+    <div class="table-wrap">
+    <el-table :data="rows" v-loading="loading" style="width: 100%" empty-text="暂无记录" class="approval-table" table-layout="fixed">
       <el-table-column prop="id" label="申请ID" width="110" />
-      <el-table-column prop="title" label="申请标题" min-width="230" show-overflow-tooltip />
-      <el-table-column prop="requestType" label="类型" min-width="170" />
+      <el-table-column prop="title" label="申请标题" min-width="280" show-overflow-tooltip />
+      <el-table-column prop="requestType" label="类型" min-width="200" show-overflow-tooltip />
       <el-table-column prop="riskLevel" label="风险" width="100" />
       <el-table-column prop="status" label="状态" width="110">
         <template #default="scope">
@@ -75,30 +65,35 @@
       <el-table-column prop="updateTime" label="更新时间" min-width="170">
         <template #default="scope">{{ formatTime(scope.row.updateTime) }}</template>
       </el-table-column>
-      <el-table-column label="操作" min-width="300" :fixed="isNarrowScreen ? false : 'right'">
+      <el-table-column label="操作" width="260" fixed="right">
         <template #default="scope">
-          <el-button size="small" @click="openDetail(scope.row)">详情</el-button>
-          <el-button
-            size="small"
-            type="success"
-            :disabled="activeTab !== 'todo' || scope.row.status !== 'pending'"
-            @click="doApprove(scope.row, true)"
-          >通过</el-button>
-          <el-button
-            size="small"
-            type="danger"
-            :disabled="activeTab !== 'todo' || scope.row.status !== 'pending'"
-            @click="doApprove(scope.row, false)"
-          >驳回</el-button>
-          <el-button
-            size="small"
-            type="warning"
-            :disabled="activeTab !== 'mine' || scope.row.status !== 'pending'"
-            @click="doRevoke(scope.row)"
-          >撤回</el-button>
+          <div class="row-actions">
+            <el-button size="small" @click="openDetail(scope.row)">详情</el-button>
+            <template v-if="canShowTodoActions(scope.row)">
+              <el-button
+                size="small"
+                type="success"
+                @click="doApprove(scope.row, true)"
+              >通过</el-button>
+              <el-button
+                size="small"
+                type="danger"
+                plain
+                @click="doApprove(scope.row, false)"
+              >驳回</el-button>
+            </template>
+            <template v-else-if="canShowRevokeAction(scope.row)">
+              <el-button
+                size="small"
+                type="warning"
+                @click="doRevoke(scope.row)"
+              >撤回</el-button>
+            </template>
+          </div>
         </template>
       </el-table-column>
     </el-table>
+    </div>
 
     <div class="page-wrap">
       <el-pagination
@@ -148,40 +143,6 @@
       </div>
     </el-drawer>
 
-    <el-dialog v-model="showSubmit" title="发起治理变更申请" width="640px">
-      <el-form :model="submitForm" :rules="submitRules" ref="submitFormRef" label-width="100px">
-        <el-form-item label="模块" prop="module">
-          <el-select v-model="submitForm.module" placeholder="请选择模块" style="width: 100%">
-            <el-option label="角色" value="ROLE" />
-            <el-option label="权限" value="PERMISSION" />
-            <el-option label="策略" value="POLICY" />
-            <el-option label="用户" value="USER" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="动作" prop="action">
-          <el-select v-model="submitForm.action" placeholder="请选择动作" style="width: 100%">
-            <el-option label="新增" value="ADD" />
-            <el-option label="更新" value="UPDATE" />
-            <el-option label="删除" value="DELETE" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="目标ID">
-          <el-input-number v-model="submitForm.targetId" :min="1" :step="1" style="width: 100%" />
-        </el-form-item>
-        <el-form-item label="变更载荷" prop="payloadJson">
-          <el-input
-            v-model="submitForm.payloadJson"
-            type="textarea"
-            :rows="7"
-            placeholder='例如: {"title":"新增审计角色","reason":"收敛权限边界","impact":"影响运维审批","name":"审计角色","code":"AUDIT_REVIEW"}'
-          />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="showSubmit = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="submitRequest">提交申请</el-button>
-      </template>
-    </el-dialog>
   </el-card>
 </template>
 
@@ -195,7 +156,6 @@ import {
   fetchMyPage,
   fetchTodoPage,
   revokeRequest,
-  submitGovernanceChange,
 } from '../api/approvalCenter';
 import { getSession } from '../utils/auth';
 import { canReviewGovernanceChange, canSubmitGovernanceChange, normalizeRoleCode } from '../utils/roleBoundary';
@@ -211,11 +171,6 @@ const showDetail = ref(false);
 const detailLoading = ref(false);
 const detail = ref(null);
 const diffData = ref({ before: {}, after: {} });
-
-const showSubmit = ref(false);
-const saving = ref(false);
-const submitFormRef = ref();
-const submitForm = ref({ module: 'ROLE', action: 'ADD', targetId: null, payloadJson: '' });
 
 const canSubmit = computed(() => canSubmitGovernanceChange(getSession()?.user));
 const canReview = computed(() => canReviewGovernanceChange(getSession()?.user));
@@ -236,12 +191,6 @@ const doneCount = computed(() => rows.value.filter(item => {
   return status === 'approved' || status === 'rejected' || status === 'revoked';
 }).length);
 
-const submitRules = {
-  module: [{ required: true, message: '模块不能为空', trigger: 'change' }],
-  action: [{ required: true, message: '动作不能为空', trigger: 'change' }],
-  payloadJson: [{ required: true, message: '变更载荷不能为空', trigger: 'blur' }],
-};
-
 function statusText(status) {
   const map = {
     pending: '待审批',
@@ -250,6 +199,18 @@ function statusText(status) {
     revoked: '已撤回',
   };
   return map[String(status || '').toLowerCase()] || String(status || '-');
+}
+
+function normalizedStatus(status) {
+  return String(status || '').toLowerCase();
+}
+
+function canShowTodoActions(row) {
+  return activeTab.value === 'todo' && normalizedStatus(row?.status) === 'pending';
+}
+
+function canShowRevokeAction(row) {
+  return activeTab.value === 'mine' && normalizedStatus(row?.status) === 'pending';
 }
 
 function statusTagType(status) {
@@ -466,57 +427,6 @@ async function doRevoke(row) {
   }
 }
 
-function openSubmit() {
-  if (!canSubmit.value) {
-    ElMessage.error('当前身份无发起治理变更权限');
-    return;
-  }
-  submitForm.value = { module: 'ROLE', action: 'ADD', targetId: null, payloadJson: '' };
-  showSubmit.value = true;
-}
-
-function submitRequest() {
-  if (!submitFormRef.value) return;
-  submitFormRef.value.validate(async valid => {
-    if (!valid) return;
-
-    let confirmPassword = '';
-    try {
-      const pwdPrompt = await ElMessageBox.prompt('请输入当前账号密码确认发起', '敏感操作二次校验', {
-        inputType: 'password',
-        inputAttributes: { autocomplete: 'current-password', autofocus: 'autofocus' },
-        inputPlaceholder: '请输入密码',
-        inputValidator: value => (!!value && value.trim().length > 0) || '密码不能为空',
-        confirmButtonText: '确认提交',
-        cancelButtonText: '取消',
-      });
-      confirmPassword = pwdPrompt.value;
-    } catch {
-      return;
-    }
-
-    saving.value = true;
-    try {
-      await submitGovernanceChange({
-        ...submitForm.value,
-        targetId: submitForm.value.targetId || null,
-        payloadJson: submitForm.value.payloadJson,
-        confirmPassword,
-      });
-      ElMessage.success('治理变更申请已提交');
-      showSubmit.value = false;
-      activeTab.value = 'mine';
-      query.value.status = '';
-      pagination.value.current = 1;
-      fetchList();
-    } catch (err) {
-      ElMessage.error(err?.message || '提交治理变更申请失败');
-    } finally {
-      saving.value = false;
-    }
-  });
-}
-
 onMounted(() => {
   syncViewport();
   window.addEventListener('resize', syncViewport, { passive: true });
@@ -628,6 +538,40 @@ onBeforeUnmount(() => {
   border: 1px solid var(--color-border-light);
   border-radius: 12px;
   overflow: hidden;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+:deep(.approval-table) {
+  min-width: 1660px;
+}
+
+:deep(.approval-table .el-table__body-wrapper) {
+  padding-bottom: 14px;
+}
+
+:deep(.approval-table .el-table__fixed-right) {
+  bottom: 14px;
+  z-index: 4;
+  background: rgba(7, 12, 22, 0.98);
+  box-shadow: -8px 0 18px rgba(0, 0, 0, 0.22);
+}
+
+:deep(.approval-table .el-table__fixed-right-patch) {
+  height: 14px;
+}
+
+:deep(.approval-table .el-table__fixed-right .el-table__fixed-body-wrapper) {
+  bottom: 14px;
+}
+
+.row-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: nowrap;
 }
 
 .detail-loading {

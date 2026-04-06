@@ -1,0 +1,85 @@
+﻿[
+    {
+        "user":  "admin",
+        "persona":  "governanceAdmin",
+        "login":  "ok",
+        "checks":  [
+                       {
+                           "endpoint":  "/api/anomaly/events?page=1\u0026pageSize=10",
+                           "code":  20000,
+                           "ok":  true
+                       },
+                       {
+                           "endpoint":  "/api/subject-request/list",
+                           "code":  20000,
+                           "ok":  true
+                       },
+                       {
+                           "endpoint":  "/api/risk-event/list",
+                           "code":  20000,
+                           "ok":  true
+                       },
+                       {
+                           "endpoint":  "/api/approval/page?page=1\u0026pageSize=5",
+                           "code":  20000,
+                           "ok":  true
+                       }
+                   ]
+    },
+    {
+        "user":  "secops",
+        "persona":  "secops",
+        "login":  "ok",
+        "checks":  [
+                       {
+                           "endpoint":  "/api/anomaly/events?page=1\u0026pageSize=10",
+                           "code":  20000,
+                           "ok":  true
+                       },
+                       {
+                           "endpoint":  "/api/subject-request/list",
+                           "code":  "HTTP_ERROR",
+                           "ok":  false,
+                           "err":  "远程服务器返回错误: (403) 已禁止。"
+                       },
+                       {
+                           "endpoint":  "/api/risk-event/list",
+                           "code":  20000,
+                           "ok":  true
+                       },
+                       {
+                           "endpoint":  "/api/approval/page?page=1\u0026pageSize=5",
+                           "code":  20000,
+                           "ok":  true
+                       }
+                   ]
+    },
+    {
+        "user":  "employee1",
+        "persona":  "employee",
+        "login":  "ok",
+        "checks":  [
+                       {
+                           "endpoint":  "/api/anomaly/events?page=1\u0026pageSize=10",
+                           "code":  "HTTP_ERROR",
+                           "ok":  false,
+                           "err":  "远程服务器返回错误: (403) 已禁止。"
+                       },
+                       {
+                           "endpoint":  "/api/subject-request/list",
+                           "code":  20000,
+                           "ok":  true
+                       },
+                       {
+                           "endpoint":  "/api/risk-event/list",
+                           "code":  20000,
+                           "ok":  true
+                       },
+                       {
+                           "endpoint":  "/api/approval/page?page=1\u0026pageSize=5",
+                           "code":  20000,
+                           "ok":  true
+                       }
+                   ]
+    }
+]

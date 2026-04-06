@@ -199,9 +199,9 @@ export function canCreateSubjectRequestType(user, requestType) {
 }
 
 export function canProcessSubjectRequest(user) {
-  return hasAnyRole(user, [ROLE.ADMIN]);
+  return hasAnyRole(user, [ROLE.ADMIN, ROLE.SECOPS]);
 }
 
 export function canDeleteSubjectRequest(user) {
-  return canProcessSubjectRequest(user);
+  return false;
 }
