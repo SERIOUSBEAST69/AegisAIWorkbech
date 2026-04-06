@@ -3252,7 +3252,8 @@ onBeforeUnmount(() => {
 
 .pulse-bar i {
   display: block;
-  height: 100%;
+  height: auto;
+  min-height: 100%;
   border-radius: inherit;
   background: linear-gradient(90deg, #f1f6ff, #85adff 36%, #4469db 100%);
 }
@@ -4498,7 +4499,8 @@ onBeforeUnmount(() => {
 .lane-pulse {
   display: block;
   width: 38%;
-  height: 100%;
+  height: auto;
+  min-height: 100%;
   border-radius: inherit;
   background: linear-gradient(90deg, rgba(255, 118, 86, 0.92), rgba(104, 205, 255, 0.9));
   animation: laneRush 1.6s linear infinite;
@@ -4780,8 +4782,7 @@ onBeforeUnmount(() => {
   display: grid;
   gap: 8px;
   max-height: clamp(280px, 36vh, 420px);
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: visible;
   padding-right: 4px;
 }
 
