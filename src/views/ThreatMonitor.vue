@@ -352,26 +352,13 @@
 
             <div class="drill-actions">
               <el-button type="primary" :loading="drillLoading" @click="runImmediateThreatDrill">立即检测</el-button>
-              <el-button type="success" :loading="simDrillLoading" @click="runPythonBattleDrill">模拟攻防</el-button>
+              <el-button type="success" @click="goHomeAdversarial">前往首页真实演练</el-button>
               <el-tag :type="threatDrill.threatLevel === 'high' ? 'danger' : (threatDrill.threatLevel === 'medium' ? 'warning' : 'success')" size="large">
                 当前态势：{{ threatDrill.threatLevel || 'unknown' }}
               </el-tag>
             </div>
 
-            <div class="drill-config-row">
-              <el-select v-model="simDrillConfig.scenario" style="width: 280px" :disabled="simDrillLoading">
-                <el-option
-                  v-for="scene in simulationScenarios"
-                  :key="scene.code"
-                  :label="scene.description || scene.code"
-                  :value="scene.code"
-                />
-              </el-select>
-              <el-input-number v-model="simDrillConfig.rounds" :min="1" :max="100" :disabled="simDrillLoading" />
-              <el-input v-model="simDrillConfig.seed" style="width: 180px" placeholder="seed(可选)" :disabled="simDrillLoading" />
-            </div>
-
-            <p v-if="simDrillError" class="sim-error">{{ simDrillError }}</p>
+            <p class="sim-error">攻防启动入口已统一到首页，当前页面仅展示实时检测和历史结果。</p>
 
             <div class="code-block" style="margin-top: 14px">
               <div class="code-label">风险评分</div>
@@ -450,11 +437,11 @@
       class="adversarial-fab"
       type="button"
       :disabled="floatingDrillLoading"
-      @click="runFloatingDrill"
-      :title="floatingDrillLoading ? '攻防模拟进行中' : '启动攻防模拟'"
+      @click="goHomeAdversarial"
+      :title="前往首页启动真实攻防演练"
     >
       <span class="fab-icon">⚔</span>
-      <span class="fab-label">{{ floatingDrillLoading ? '模拟中' : '模拟攻防' }}</span>
+      <span class="fab-label">首页演练</span>
     </button>
 
     <!-- 规则编辑弹窗 -->
@@ -583,6 +570,7 @@
 
 <script setup>
 import { computed, ref, onMounted, onUnmounted } from 'vue';
+import { useRouter } from 'vue-router';
 import {
   Refresh, Search, Plus,
 } from '@element-plus/icons-vue';
@@ -599,6 +587,7 @@ import {
 } from '../utils/roleBoundary';
 
 const userStore = useUserStore();
+const router = useRouter();
 
 const canViewThreatMonitor = computed(() => canAccessThreatMonitor(userStore.userInfo));
 const canHandleThreats = computed(() => canHandleThreatEvent(userStore.userInfo));
@@ -1112,18 +1101,11 @@ async function runPythonBattleDrill() {
 }
 
 async function runFloatingDrill() {
-  if (!canHandleThreats.value || floatingDrillLoading.value) {
-    return;
-  }
-  floatingDrillLoading.value = true;
-  try {
-    await runPythonBattleDrill();
-    activeTab.value = 'drill';
-  } catch (e) {
-    ElMessage.error('攻防模拟触发失败：' + (e.message || '未知错误'));
-  } finally {
-    floatingDrillLoading.value = false;
-  }
+  goHomeAdversarial();
+}
+
+function goHomeAdversarial() {
+  router.push('/');
 }
 
 // ── 格式化工具 ────────────────────────────────────────────────────────────────

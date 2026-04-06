@@ -7,7 +7,7 @@
       </div>
     </div>
     <div class="stat-body">
-      <div class="value">{{ value }}<span class="suffix">{{ suffix }}</span></div>
+      <div class="value">{{ displayValue }}<span class="suffix">{{ suffix }}</span></div>
       <div class="trend" v-if="trend">
         <span class="trend-indicator" :class="{ positive: trend > 0, negative: trend <= 0 }">
           {{ trend > 0 ? '↑' : '↓' }} {{ Math.abs(trend) }}%
@@ -17,6 +17,7 @@
   </div>
 </template>
 <script setup>
+import { ref, watch } from 'vue';
 import {
   DataAnalysis,
   StarFilled,
@@ -40,6 +41,43 @@ const props = defineProps({
   color: { type: String, default: 'var(--color-primary)' },
   trend: { type: Number, default: 0 }
 });
+
+const displayValue = ref(props.value ?? 0);
+
+function toNumber(input) {
+  if (typeof input === 'number') return Number.isFinite(input) ? input : NaN;
+  const parsed = Number(String(input ?? '').replace(/,/g, ''));
+  return Number.isFinite(parsed) ? parsed : NaN;
+}
+
+function animateValue(from, to) {
+  const duration = 850;
+  const start = performance.now();
+  const run = now => {
+    const ratio = Math.min(1, (now - start) / duration);
+    const eased = 1 - Math.pow(1 - ratio, 3);
+    const next = Math.round(from + (to - from) * eased);
+    displayValue.value = String(next);
+    if (ratio < 1) {
+      requestAnimationFrame(run);
+    }
+  };
+  requestAnimationFrame(run);
+}
+
+watch(
+  () => props.value,
+  nextVal => {
+    const nextNum = toNumber(nextVal);
+    const currentNum = toNumber(displayValue.value);
+    if (!Number.isNaN(nextNum) && !Number.isNaN(currentNum)) {
+      animateValue(currentNum, nextNum);
+      return;
+    }
+    displayValue.value = nextVal;
+  },
+  { immediate: true }
+);
 
 const getIconComponent = (iconName) => {
   const iconMap = {
@@ -66,6 +104,10 @@ const getIconComponent = (iconName) => {
   position: relative;
   overflow: hidden;
   transition: all var(--transition-normal);
+  border: 1px solid rgba(109, 162, 235, 0.28);
+  background:
+    radial-gradient(circle at 100% 0%, rgba(84, 141, 255, 0.19), transparent 35%),
+    linear-gradient(140deg, rgba(9, 17, 33, 0.92), rgba(12, 23, 44, 0.9));
 }
 
 .stat-card::before {
@@ -82,6 +124,17 @@ const getIconComponent = (iconName) => {
 .stat-card:hover {
   transform: translateY(-4px);
   box-shadow: var(--shadow-xl);
+}
+
+.stat-card::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  border: 1px solid rgba(122, 174, 243, 0.24);
+  opacity: 0;
+  animation: statBreath 2.2s ease-in-out infinite;
+  pointer-events: none;
 }
 
 .stat-header {
@@ -119,11 +172,12 @@ const getIconComponent = (iconName) => {
 }
 
 .value {
-  font-size: 32px;
+  font-size: 36px;
   font-weight: 700;
   color: var(--color-text);
   line-height: 1;
   font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
 }
 
 .suffix {
@@ -131,6 +185,12 @@ const getIconComponent = (iconName) => {
   font-size: 14px;
   color: var(--color-text-muted);
   font-weight: 400;
+}
+
+@keyframes statBreath {
+  0% { opacity: 0.1; }
+  50% { opacity: 0.72; }
+  100% { opacity: 0.1; }
 }
 
 .trend {

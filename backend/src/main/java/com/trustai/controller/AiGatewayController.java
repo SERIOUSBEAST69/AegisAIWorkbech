@@ -156,6 +156,32 @@ public class AiGatewayController {
         return R.ok(aiGatewayService.adversarialRun(req));
     }
 
+    @PostMapping("/adversarial/task/start")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
+    public R<Map<String, Object>> adversarialTaskStart(@RequestBody BattleReq req) {
+        return R.ok(aiGatewayService.adversarialTaskStart(req));
+    }
+
+    @GetMapping("/adversarial/task/{taskId}")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
+    public R<Map<String, Object>> adversarialTaskStatus(@PathVariable String taskId) {
+        return R.ok(aiGatewayService.adversarialTaskStatus(taskId));
+    }
+
+    @GetMapping("/adversarial/task/{taskId}/logs")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
+    public R<Map<String, Object>> adversarialTaskLogs(@PathVariable String taskId,
+                                                       @RequestParam(defaultValue = "0") Integer offset,
+                                                       @RequestParam(defaultValue = "200") Integer limit) {
+        return R.ok(aiGatewayService.adversarialTaskLogs(taskId, offset, limit));
+    }
+
+    @GetMapping("/adversarial/task/{taskId}/report")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
+    public R<Map<String, Object>> adversarialTaskReport(@PathVariable String taskId) {
+        return R.ok(aiGatewayService.adversarialTaskReport(taskId));
+    }
+
     @PostMapping("/adversarial/apply-hardening")
     @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS')")
     public R<Map<String, Object>> adversarialApplyHardening(@RequestBody(required = false) Map<String, Object> payload) {

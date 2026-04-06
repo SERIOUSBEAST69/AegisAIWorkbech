@@ -1,0 +1,23 @@
+<svg width="240" height="240" viewBox="0 0 240 240" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="core" cx="50%" cy="50%" r="52%">
+      <stop offset="0%" stop-color="#ff9f6d" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#120923" stop-opacity="0.08"/>
+    </radialGradient>
+    <linearGradient id="dna" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffd1a3"/>
+      <stop offset="100%" stop-color="#ff5f94"/>
+    </linearGradient>
+  </defs>
+  <circle cx="120" cy="120" r="108" fill="url(#core)"/>
+  <path d="M86 42 C154 64 154 176 86 198" stroke="url(#dna)" stroke-width="6" fill="none" stroke-linecap="round"/>
+  <path d="M154 42 C86 64 86 176 154 198" stroke="url(#dna)" stroke-width="6" fill="none" stroke-linecap="round"/>
+  <g stroke="#ffc18b" stroke-width="4" opacity="0.88">
+    <line x1="94" y1="58" x2="146" y2="58"/>
+    <line x1="86" y1="84" x2="154" y2="84"/>
+    <line x1="82" y1="110" x2="158" y2="110"/>
+    <line x1="82" y1="136" x2="158" y2="136"/>
+    <line x1="86" y1="162" x2="154" y2="162"/>
+    <line x1="94" y1="188" x2="146" y2="188"/>
+  </g>
+</svg>

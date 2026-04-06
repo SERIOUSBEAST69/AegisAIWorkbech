@@ -1,6 +1,10 @@
 <template>
-  <el-card class="risk-event-page">
-    <h2>合规风险记录</h2>
+  <el-card class="mgmt-table-exempt risk-event-page">
+    <div class="policy-head">
+      <h2>合规风险记录</h2>
+      <div class="policy-count">共 {{ displayTotal }} 条，当前显示 {{ pagedEvents.length }} 条</div>
+    </div>
+    <div class="engine-tip">风险记录与策略治理表保持同款布局，便于跨模块审核与批量处置。</div>
     <el-form :inline="true" @submit.prevent>
       <el-form-item label="事件类型">
         <el-input v-model="query.type" placeholder="输入事件类型" />
@@ -30,8 +34,7 @@
         <el-button @click="resetQuery">重置</el-button>
       </el-form-item>
     </el-form>
-    <div class="risk-table-wrap">
-    <el-table :data="pagedEvents" class="page-table" table-layout="fixed" style="width: 100%" v-loading="loading" empty-text="暂无合规风险记录">
+    <el-table :data="pagedEvents" style="width: 100%" table-layout="auto" v-loading="loading" empty-text="暂无合规风险记录">
       <el-table-column prop="id" label="ID" width="250">
         <template #default="scope">
           <div class="cell nowrap">{{ scope.row.id }}</div>
@@ -95,8 +98,7 @@
         </template>
       </el-table-column>
     </el-table>
-    </div>
-    <div style="display:flex;justify-content:flex-end;margin-top:16px;">
+    <div class="policy-pagination">
       <el-pagination
         background
         layout="total, sizes, prev, pager, next"
@@ -213,6 +215,7 @@ const pagedEvents = computed(() => {
   const start = (pagination.value.current - 1) * pagination.value.pageSize;
   return filteredEvents.value.slice(start, start + pagination.value.pageSize);
 });
+const displayTotal = computed(() => filteredEvents.value.length);
 const filteredEvents = computed(() => {
   return events.value.filter(item => {
     const levelMatched = !query.value.level || normalizeLevel(item?.level) === query.value.level;
@@ -639,6 +642,34 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.policy-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.policy-count {
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+
+.engine-tip {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border-light);
+  background: var(--color-fill-light);
+  color: var(--color-text-primary);
+  font-size: 13px;
+}
+
+.policy-pagination {
+  margin-top: 14px;
+  display: flex;
+  justify-content: flex-end;
+}
+
 .risk-event-page :deep(.el-table__body-wrapper) {
   overflow-x: auto;
 }
@@ -656,6 +687,7 @@ onBeforeUnmount(() => {
 }
 
 .risk-event-page :deep(.el-table .cell) {
+  word-break: break-word;
   line-height: 1.4;
   font-size: 13px;
 }
@@ -684,5 +716,13 @@ onBeforeUnmount(() => {
   flex-wrap: nowrap;
   gap: 8px;
   align-items: center;
+}
+
+@media (max-width: 900px) {
+  .policy-head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
 }
 </style>

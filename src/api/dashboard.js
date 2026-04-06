@@ -1,4 +1,5 @@
 import request from './request';
+import { getAuthHeaderToken } from '../utils/auth';
 
 export const dashboardApi = {
   async getStats() {
@@ -119,5 +120,57 @@ export const dashboardApi = {
 
   async exportEvidencePackage(payload) {
     return request.post('/award/export', payload || {});
+  },
+
+  async getHomeAiHub(params) {
+    return request.get('/dashboard/ai-hub', { params: params || {} });
+  },
+
+  async getHomeAiHubScopeOptions() {
+    return request.get('/dashboard/ai-hub/scope-options');
+  },
+
+  async getHomeAiHubDetail(params) {
+    return request.get('/dashboard/ai-hub/detail', { params: params || {} });
+  },
+
+  openHomeAiHubStream({ scopeLevel = 'company', department = '', username = '', cursor = 0, onSnapshot, onDelta, onError }) {
+    const token = getAuthHeaderToken();
+    if (!token) {
+      throw new Error('未找到登录令牌，无法建立首页AI中枢实时连接');
+    }
+    const params = new URLSearchParams({
+      token,
+      scopeLevel: String(scopeLevel || 'company'),
+      cursor: String(cursor || 0),
+    });
+    if (department) {
+      params.set('department', department);
+    }
+    if (username) {
+      params.set('username', username);
+    }
+
+    const source = new EventSource(`/api/dashboard/ai-hub/stream?${params.toString()}`);
+    source.addEventListener('snapshot', event => {
+      try {
+        const payload = JSON.parse(event.data || '{}');
+        onSnapshot && onSnapshot(payload);
+      } catch (error) {
+        onError && onError(error);
+      }
+    });
+    source.addEventListener('delta', event => {
+      try {
+        const payload = JSON.parse(event.data || '{}');
+        onDelta && onDelta(payload);
+      } catch (error) {
+        onError && onError(error);
+      }
+    });
+    source.addEventListener('error', error => {
+      onError && onError(error);
+    });
+    return source;
   },
 };

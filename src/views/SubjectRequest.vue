@@ -1,7 +1,11 @@
 <template>
   <div class="page-grid">
-    <el-card class="card-glass">
-      <div class="card-header">数据主体权利工单</div>
+    <el-card class="card-glass mgmt-table-exempt">
+      <div class="policy-head">
+        <div class="card-header">数据主体权利工单</div>
+        <div class="policy-count">共 {{ displayTotal }} 条，当前显示 {{ pagedList.length }} 条</div>
+      </div>
+      <div class="engine-tip">主体权利工单表与策略管理采用同款表格布局，便于统一审计与跟踪。</div>
       <el-alert
         type="info"
         :closable="false"
@@ -24,8 +28,7 @@
         <span v-else class="hint-text">当前账号仅可查看工单</span>
       </el-form>
 
-      <div class="subject-table-wrap">
-      <el-table :data="pagedList" class="page-table" table-layout="fixed" style="margin-top:12px" v-loading="loading" empty-text="暂无记录">
+      <el-table :data="pagedList" table-layout="auto" style="width: 100%; margin-top:12px" v-loading="loading" empty-text="暂无记录">
         <el-table-column prop="id" label="ID" width="220" show-overflow-tooltip />
         <el-table-column label="申请账号" min-width="120">
           <template #default="scope">{{ userNameById(scope.row.userId) }}</template>
@@ -82,9 +85,8 @@
           </template>
         </el-table-column>
       </el-table>
-      </div>
 
-      <div class="table-pagination">
+      <div class="policy-pagination">
         <el-pagination
           background
           layout="total, sizes, prev, pager, next"
@@ -191,6 +193,7 @@ const pagedList = computed(() => {
   const end = start + pagination.value.pageSize;
   return list.value.slice(start, end);
 });
+const displayTotal = computed(() => list.value.length);
 
 function sortByLatestTime(rows) {
   return [...rows].sort((a, b) => {
@@ -547,8 +550,29 @@ if (!form.value.userId && userStore.userInfo?.id) {
 <style scoped>
 .page-grid { display: grid; gap: 16px; }
 .card-header { font-weight: 600; margin-bottom: 12px; color: var(--color-text); }
+.policy-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.policy-count {
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+
+.engine-tip {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border-light);
+  background: var(--color-fill-light);
+  color: var(--color-text-primary);
+  font-size: 13px;
+}
 .hint-text { color: var(--color-text-secondary); font-size: 12px; }
-.table-pagination { display: flex; justify-content: flex-end; margin-top: 12px; }
+.policy-pagination { margin-top: 14px; display: flex; justify-content: flex-end; }
 .record-head {
   display: flex;
   justify-content: space-between;
@@ -563,16 +587,12 @@ if (!form.value.userId && userStore.userInfo?.id) {
   align-items: center;
 }
 
-.subject-table-wrap {
-  overflow-x: auto;
-}
-
 .comment-cell {
   white-space: normal;
   word-break: break-word;
 }
 
-:deep(.page-table) {
+:deep(.el-table) {
   min-width: 1560px;
   --el-table-bg-color: transparent;
   --el-table-tr-bg-color: transparent;
@@ -583,30 +603,39 @@ if (!form.value.userId && userStore.userInfo?.id) {
   --el-table-header-text-color: var(--color-text-secondary);
 }
 
-:deep(.page-table .el-table__row) {
+:deep(.el-table .el-table__row) {
   height: 56px;
 }
 
-:deep(.page-table .el-table__cell) {
+:deep(.el-table .el-table__cell) {
   font-size: 13px;
+  word-break: break-word;
 }
 
-:deep(.page-table .el-table__body-wrapper) {
+:deep(.el-table .el-table__body-wrapper) {
   padding-bottom: 14px;
 }
 
-:deep(.page-table .el-table__fixed-right) {
+:deep(.el-table .el-table__fixed-right) {
   bottom: 14px;
   z-index: 4;
   background: rgba(7, 12, 22, 0.98);
   box-shadow: -8px 0 18px rgba(0, 0, 0, 0.22);
 }
 
-:deep(.page-table .el-table__fixed-right-patch) {
+:deep(.el-table .el-table__fixed-right-patch) {
   height: 14px;
 }
 
-:deep(.page-table .el-table__fixed-right .el-table__fixed-body-wrapper) {
+:deep(.el-table .el-table__fixed-right .el-table__fixed-body-wrapper) {
   bottom: 14px;
+}
+
+@media (max-width: 900px) {
+  .policy-head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
 }
 </style>

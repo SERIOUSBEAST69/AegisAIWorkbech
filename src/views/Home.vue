@@ -1,5 +1,5 @@
 <template>
-  <div class="workbench-home" ref="stageRef">
+  <div class="workbench-home" :class="{ 'immersive-war-room': adversarialPanelOpen }" ref="stageRef">
     <section class="hero-scene card-glass scene-block" ref="heroRef">
       <div class="hero-copy">
         <div class="eyebrow">{{ personaExperience.kicker }}</div>
@@ -37,7 +37,16 @@
       />
     </div>
 
-    <section class="trace-grid scene-block" :class="{ 'trace-grid-admin': isAdmin }">
+    <HomeAiAnalysisHub
+      :hub="homeAiHubData"
+      :loading="homeAiHubLoading"
+      @refresh="refreshHomeAiHub"
+      @jump="handleHubJump"
+      @scope-change="handleHubScopeChange"
+      @detail="handleHubDetail"
+    />
+
+    <section v-if="!compactHomeEnabled" class="trace-grid scene-block" :class="{ 'trace-grid-admin': isAdmin }">
       <el-card class="trace-card card-glass">
         <div class="panel-head">
           <div>
@@ -103,7 +112,7 @@
       </el-card>
     </section>
 
-    <el-card class="trace-modules-card card-glass scene-block">
+    <el-card v-if="!compactHomeEnabled" class="trace-modules-card card-glass scene-block">
       <div class="panel-head">
         <div>
           <div class="card-header">模块追溯下钻</div>
@@ -163,7 +172,12 @@
           </div>
         </div>
         <div class="pulse-signal-list">
-          <article v-for="signal in governanceOverviewSignals" :key="signal.title" class="pulse-signal-item">
+          <article
+            v-for="(signal, idx) in governanceOverviewSignals"
+            :key="signal.title"
+            class="pulse-signal-item"
+            :class="{ 'pulse-signal-new': shouldFlashSignal(signal.title) }"
+          >
             <div class="pulse-signal-top">
               <strong>{{ signal.title }}</strong>
               <span :class="['pulse-tone', signal.tone]">{{ signal.value }}</span>
@@ -212,31 +226,31 @@
       </div>
     </el-card>
 
-    <el-card class="todo-card card-glass scene-block">
+    <el-card class="module-entry-card card-glass scene-block">
       <div class="panel-head">
         <div>
-          <div class="card-header">治理待办编排</div>
-          <p class="panel-subtitle">按优先级执行</p>
+          <div class="card-header">能力模块入口</div>
+          <p class="panel-subtitle">高频治理能力快速进入</p>
         </div>
       </div>
-      <div class="todo-list">
+      <div class="module-entry-grid">
         <button
-          v-for="item in overview.todos"
+          v-for="item in homeModuleEntries"
           :key="item.title"
-          class="todo-item clickable"
+          class="module-entry-item clickable"
           @click="$router.push(item.route)"
         >
-          <div class="todo-priority">{{ item.priority }}</div>
-          <div class="todo-copy">
+          <div class="module-entry-tag">{{ item.priority }}</div>
+          <div class="module-entry-copy">
             <strong>{{ item.title }}</strong>
             <p>{{ item.description }}</p>
           </div>
-          <div class="todo-metric">{{ item.metric }}</div>
+          <div class="module-entry-metric">{{ item.metric }}</div>
         </button>
       </div>
     </el-card>
 
-    <el-card class="ai-workbench-card card-glass scene-block" style="grid-column: 1 / -1">
+    <el-card v-if="!compactHomeEnabled" class="ai-workbench-card card-glass scene-block" style="grid-column: 1 / -1">
       <div class="panel-head">
         <div>
           <div class="card-header">AI 调用审计日志</div>
@@ -278,143 +292,275 @@
       </button>
 
       <Transition name="fade-slide">
-        <section v-if="adversarialPanelOpen" class="adversarial-panel card-glass">
+        <section v-if="adversarialPanelOpen" class="adversarial-panel card-glass" :class="{ 'adversarial-panel-max': adversarialPanelMax }">
           <header class="adversarial-head">
             <div>
               <div class="card-header">攻防演练面板</div>
               <p class="panel-subtitle">演练进度与回放记录</p>
             </div>
-            <button class="adversarial-close" type="button" @click="adversarialPanelOpen = false">关闭</button>
+            <div class="adversarial-head-actions">
+              <button class="adversarial-close" type="button" @click="adversarialPanelMax = !adversarialPanelMax">
+                {{ adversarialPanelMax ? '收起大屏' : '全屏战场' }}
+              </button>
+              <button class="adversarial-close" type="button" @click="closeAdversarialPanel">关闭</button>
+            </div>
           </header>
 
           <div class="adversarial-config">
             <select v-model="adversarialConfig.scenario" :disabled="adversarialRunning">
-              <option v-for="scene in adversarialMeta.scenarios" :key="scene.code" :value="scene.code">
-                {{ scene.code }}
+              <option v-for="scene in adversarialScenarioOptions" :key="scene.code" :value="scene.code">
+                {{ scene.title }}
               </option>
             </select>
-            <input v-model.number="adversarialConfig.rounds" type="number" min="1" max="100" :disabled="adversarialRunning" />
-            <input v-model="adversarialConfig.seed" type="number" placeholder="seed(可选)" :disabled="adversarialRunning" />
             <button class="adversarial-run" type="button" :disabled="adversarialRunning" @click="runAdversarialBattle">
-              {{ adversarialRunning ? '运行中...' : '开始演练' }}
+              {{ adversarialRunning ? '真实训练执行中...' : '开始真实演练' }}
             </button>
+            <button class="adversarial-close" type="button" :disabled="adversarialLogsLoading" @click="viewAdversarialTrainingLogs">
+              {{ adversarialLogsLoading ? '加载日志...' : '查看训练日志' }}
+            </button>
+            <button class="adversarial-close" type="button" :disabled="adversarialReportLoading" @click="exportAdversarialOptimizationReport">
+              {{ adversarialReportLoading ? '导出中...' : '导出模型优化报告' }}
+            </button>
+            <button class="adversarial-close" type="button" @click="adversarialAdvancedOpen = !adversarialAdvancedOpen">
+              {{ adversarialAdvancedOpen ? '收起高级设置' : '高级设置' }}
+            </button>
+          </div>
+
+          <div class="adversarial-scene-desc">
+            <strong>{{ adversarialCurrentScenarioText.title }}</strong>
+            <span>{{ adversarialCurrentScenarioText.desc }}</span>
+            <em>任务ID：{{ adversarialTaskId || '未启动' }} · 状态：{{ adversarialTaskStatus }}</em>
+          </div>
+
+          <div v-if="adversarialAdvancedOpen" class="adversarial-config adversarial-config-advanced">
+            <input v-model.number="adversarialConfig.rounds" type="number" min="10" max="30" :disabled="adversarialRunning" placeholder="轮数(10-30)" />
+            <input v-model="adversarialConfig.seed" type="number" placeholder="seed(可选)" :disabled="adversarialRunning" />
+            <select v-model="adversarialHardeningLevel" :disabled="adversarialRunning">
+              <option value="normal">常规强化</option>
+              <option value="strong">强力强化</option>
+              <option value="extreme">极限强化</option>
+            </select>
           </div>
 
           <p v-if="adversarialError" class="adversarial-error">{{ adversarialError }}</p>
 
-          <div v-if="adversarialBattle" class="adversarial-summary-grid">
-            <article>
-              <span>胜方</span>
-              <strong>{{ adversarialWinnerText }}</strong>
-            </article>
-            <article>
-              <span>攻击成功率</span>
-              <strong>{{ Math.round((adversarialBattle.attack_success_rate || 0) * 100) }}%</strong>
-            </article>
-            <article>
-              <span>最终比分</span>
-              <strong>{{ adversarialBattle.attacker_final_score }} : {{ adversarialBattle.defender_final_score }}</strong>
-            </article>
-            <article>
-              <span>防御强度</span>
-              <strong>{{ adversarialDefenseStrengthText }}</strong>
-            </article>
-          </div>
+          <div class="adversarial-layout">
+            <div class="adversarial-stage-column">
+              <div class="adversarial-cinematic-stage" :class="[`stage-${adversarialSceneState}`, { 'stage-finale-active': adversarialFinaleActive }]">
+                <div class="stage-hud">
+                  <span>场景 {{ adversarialScenarioLabel }}</span>
+                  <span>进度 {{ adversarialProgressText }}</span>
+                  <span>轮次 {{ adversarialCurrentRoundText }}</span>
+                  <span>分镜 {{ adversarialBeatLabel }}</span>
+                </div>
 
-          <div v-if="adversarialVisibleRounds.length" class="adversarial-stream">
-            <article v-for="round in adversarialVisibleRounds" :key="`adver-${round.round_num}`" class="adversarial-round">
-              <div class="adversarial-round-top">
-                <strong>第 {{ round.round_num }} 轮</strong>
-                <span :class="round.attack_success ? 'hit' : 'block'">{{ round.attack_success ? '突破' : '阻断' }}</span>
+                <Transition name="fade-slide">
+                  <div v-if="adversarialFinaleActive" class="stage-finale-banner">
+                    <strong>{{ adversarialWinnerText }}</strong>
+                    <span>{{ adversarialHardeningConclusion }}</span>
+                  </div>
+                </Transition>
+
+                <div class="stage-field">
+                  <article class="battle-actor actor-attacker" :class="[`attacker-${adversarialAttackerPersona.kind}`, `attacker-pattern-${adversarialAttackerPattern}`]">
+                    <div class="actor-badge">{{ adversarialAttackerPersona.badge }}</div>
+                    <div class="actor-avatar attacker-avatar">
+                      <img class="battle-asset attacker-asset" :src="adversarialAttackerAssetUrl" alt="Attacker Pattern" />
+                      <div v-if="adversarialAttackerPersona.kind === 'openclaw'" class="openclaw-mark" aria-hidden="true">
+                        <i class="shrimp-core"></i>
+                        <i class="shrimp-claw claw-left"></i>
+                        <i class="shrimp-claw claw-right"></i>
+                        <i class="shrimp-tail"></i>
+                      </div>
+                      <div v-else-if="adversarialAttackerPattern === 'helix'" class="attacker-helix-mark" aria-hidden="true">
+                        <i v-for="idx in 8" :key="`helix-${idx}`"></i>
+                      </div>
+                      <div v-else-if="adversarialAttackerPattern === 'shard'" class="attacker-shard-mark" aria-hidden="true">
+                        <i v-for="idx in 6" :key="`shard-${idx}`"></i>
+                      </div>
+                      <div v-else-if="adversarialAttackerPattern === 'swarm'" class="attacker-swarm-mark" aria-hidden="true">
+                        <i v-for="idx in 12" :key="`swarm-${idx}`"></i>
+                      </div>
+                      <div v-else class="attacker-mark-grid" aria-hidden="true">
+                        <i v-for="idx in 9" :key="`grid-${idx}`"></i>
+                      </div>
+                    </div>
+                    <strong>{{ adversarialAttackerPersona.title }}</strong>
+                    <p>{{ adversarialAttackerPersona.subtitle }}</p>
+                  </article>
+
+                  <div class="battle-mid">
+                    <div class="battle-lane">
+                      <i class="lane-pulse"></i>
+                    </div>
+                    <div class="battle-impact" :class="`impact-${adversarialImpactState}`">
+                      <strong>{{ adversarialImpactLabel }}</strong>
+                      <span>{{ adversarialImpactMetric }}</span>
+                    </div>
+                  </div>
+
+                  <article class="battle-actor actor-defender" :class="[adversarialDefenderPoseClass, `defender-pattern-${adversarialDefenderPattern}`]">
+                    <div class="actor-badge">DEFENSE</div>
+                    <div class="actor-avatar defender-avatar" :class="`defender-${adversarialDefenderPattern}`">
+                      <img class="battle-asset defender-asset" :src="adversarialDefenderAssetUrl" alt="Defender Pattern" />
+                      <div class="defender-shield-rings" aria-hidden="true">
+                        <i></i>
+                        <i></i>
+                        <i></i>
+                      </div>
+                      <img class="defender-core-logo" :src="defenderLogoUrl" alt="Aegis Defender" />
+                      <div class="defender-side-panels" aria-hidden="true">
+                        <i class="panel-left"></i>
+                        <i class="panel-right"></i>
+                      </div>
+                    </div>
+                    <strong>Logo Guardian Sentinel</strong>
+                    <p>自适应防御策略与实时加固联动</p>
+                  </article>
+                </div>
+
+                <p class="stage-narrative">{{ adversarialNarrativeText }}</p>
+                <p class="stage-subtitle">{{ adversarialSubtitleText }}</p>
+
+                <div v-if="adversarialComparisonVisible" class="stage-hardening-overlay">
+                  <div class="overlay-title">强化前后对比（真实回执）</div>
+                  <article>
+                    <div class="overlay-head">
+                      <strong>攻击成功率</strong>
+                      <span>{{ adversarialAttackRateCompareText }}</span>
+                    </div>
+                    <div class="overlay-meter">
+                      <i class="before" :style="{ width: `${adversarialAttackBeforeWidth}%` }"></i>
+                      <i class="after" :style="{ width: `${adversarialAttackAfterWidth}%` }"></i>
+                    </div>
+                  </article>
+                  <article>
+                    <div class="overlay-head">
+                      <strong>防御强度</strong>
+                      <span>{{ adversarialDefenseCompareText }}</span>
+                    </div>
+                    <div class="overlay-meter">
+                      <i class="before defense" :style="{ width: `${adversarialDefenseBeforeWidth}%` }"></i>
+                      <i class="after defense" :style="{ width: `${adversarialDefenseAfterWidth}%` }"></i>
+                    </div>
+                  </article>
+                </div>
               </div>
-              <p>{{ round.attack_strategy }} vs {{ round.defense_strategy }} · 突破率 {{ Math.round((round.final_effectiveness || 0) * 100) }}%</p>
-              <em>{{ round.narrative }}</em>
-            </article>
-          </div>
 
-          <div v-if="adversarialBattle?.recommendations?.length" class="adversarial-recommendations">
-            <h4>防御优化建议</h4>
-            <p v-for="tip in adversarialBattle.recommendations" :key="tip">{{ tip }}</p>
-            <div class="adversarial-recommendation-actions" v-if="adversarialCanApplyHardening">
-              <el-button type="warning" size="small" :loading="adversarialHardeningApplying" @click="applyAdversarialHardening">
-                人工确认并应用防御加固
-              </el-button>
-              <span class="trace-note">仅应用真实规则/训练加固，不修改展示数据。</span>
+              <div v-if="adversarialBattle" class="adversarial-summary-grid">
+                <article>
+                  <span>胜方</span>
+                  <strong>{{ adversarialWinnerText }}</strong>
+                </article>
+                <article>
+                  <span>当前攻击成功率</span>
+                  <strong>{{ Math.round((adversarialBattle.attack_success_rate || 0) * 100) }}%</strong>
+                </article>
+                <article>
+                  <span>当前防御拦截率</span>
+                  <strong>{{ Math.round(((adversarialBattle.defense_intercept_rate ?? (1 - (adversarialBattle.attack_success_rate || 0))) || 0) * 100) }}%</strong>
+                </article>
+                <article>
+                  <span>防御模型强度评分</span>
+                  <strong>{{ Math.round(Number(adversarialBattle.defense_strength_score || 0)) }}/100</strong>
+                </article>
+              </div>
             </div>
-          </div>
 
-          <div v-if="adversarialComparisonVisible" class="adversarial-compare-grid">
-            <article>
-              <span>攻击成功率变化</span>
-              <strong>{{ adversarialAttackRateCompareText }}</strong>
-            </article>
-            <article>
-              <span>防御强度变化</span>
-              <strong>{{ adversarialDefenseCompareText }}</strong>
-            </article>
-            <article>
-              <span>当前结论</span>
-              <strong>{{ adversarialHardeningConclusion }}</strong>
-            </article>
+            <div class="adversarial-feed-column">
+              <div v-if="adversarialVisibleRounds.length" class="adversarial-stream">
+                <article v-for="round in adversarialVisibleRounds" :key="`adver-${round.round_num}`" class="adversarial-round">
+                  <div class="adversarial-round-top">
+                    <strong>第 {{ round.round_num }} 轮</strong>
+                    <span :class="round.attack_success ? 'hit' : 'block'">{{ round.attack_success ? '突破' : '阻断' }}</span>
+                  </div>
+                  <p>{{ round.attack_strategy }} vs {{ round.defense_strategy }} · 攻击成功率 {{ Math.round((round.attack_success_rate ?? round.final_effectiveness ?? 0) * 100) }}%</p>
+                  <em>{{ round.explain || round.narrative }}</em>
+                </article>
+              </div>
+
+              <div v-if="adversarialCurveHasData" class="adversarial-curve-panel">
+                <h4>攻防变化曲线（轮次实时）</h4>
+                <svg viewBox="0 0 100 40" preserveAspectRatio="none" class="adversarial-curve-svg" aria-label="attack-defense-curve">
+                  <polyline class="curve curve-attack" :points="adversarialCurveAttackPoints" />
+                  <polyline class="curve curve-defense" :points="adversarialCurveDefensePoints" />
+                </svg>
+                <div class="adversarial-curve-legend">
+                  <span class="attack">攻击成功率</span>
+                  <span class="defense">防御拦截率</span>
+                </div>
+              </div>
+
+              <div v-if="adversarialBattle?.recommendations?.length" class="adversarial-recommendations">
+                <h4>模型优化建议（基于真实轮次）</h4>
+                <p v-for="tip in adversarialBattle.recommendations" :key="tip">{{ tip }}</p>
+                <div class="adversarial-recommendation-actions" v-if="adversarialCanApplyHardening">
+                  <el-button class="adversarial-harden-btn" type="warning" size="small" :loading="adversarialHardeningApplying" @click="applyAdversarialHardening">
+                    应用动态加固并重演
+                  </el-button>
+                  <span class="trace-note">仅应用真实规则/训练加固，不修改展示数据。</span>
+                </div>
+              </div>
+
+              <div v-if="adversarialKeyChanges.length" class="adversarial-recommendations">
+                <h4>关键变化分析</h4>
+                <p v-for="item in adversarialKeyChanges" :key="`change-${item.round}`">
+                  第{{ item.round }}轮：{{ item.analysis }}
+                </p>
+              </div>
+
+              <div v-if="adversarialComparisonVisible" class="adversarial-compare-grid">
+                <article>
+                  <span>攻击成功率变化</span>
+                  <strong>{{ adversarialAttackRateCompareText }}</strong>
+                </article>
+                <article>
+                  <span>防御强度变化</span>
+                  <strong>{{ adversarialDefenseCompareText }}</strong>
+                </article>
+                <article>
+                  <span>当前结论</span>
+                  <strong>{{ adversarialHardeningConclusion }}</strong>
+                </article>
+              </div>
+            </div>
           </div>
         </section>
       </Transition>
     </div>
 
-    <el-card class="sandbox-card card-glass scene-block" style="grid-column: 1 / -1">
-      <div class="panel-head">
-        <div>
-          <div class="card-header">攻防演练沙盒闭环</div>
-          <p class="panel-subtitle">真实触发链路：检测触发 -> 告警处置 -> 稳定性复核，动画与时间线仅由真实接口回执驱动。</p>
-        </div>
-        <div class="panel-actions sandbox-actions">
-          <el-button :loading="sandboxDetectLoading" @click="triggerSandboxDetect">触发检测</el-button>
-          <el-button type="warning" :loading="sandboxDisposeLoading" @click="triggerSandboxDispose">执行处置</el-button>
-          <el-button type="success" :loading="sandboxVerifyLoading" @click="triggerSandboxVerify">复核验证</el-button>
-          <el-button type="primary" :loading="sandboxRunAllLoading" @click="runSandboxClosedLoop">一键闭环</el-button>
-        </div>
+    <el-drawer
+      v-model="adversarialLogsVisible"
+      size="56%"
+      :close-on-click-modal="false"
+      title="真实攻防训练日志"
+    >
+      <div class="adversarial-log-head">
+        <span>任务ID：{{ adversarialTaskId || '-' }}</span>
+        <span>状态：{{ adversarialTaskStatus }}</span>
+        <span>事件日志：{{ adversarialEventLogs.length }} 条</span>
       </div>
-
-      <div class="sandbox-summary-grid">
-        <article>
-          <span>当前威胁态势</span>
-          <strong>{{ sandboxState.threatLevel || '-' }}</strong>
-        </article>
-        <article>
-          <span>风险分值</span>
-          <strong>{{ sandboxState.riskScore ?? 0 }}</strong>
-        </article>
-        <article>
-          <span>待处置告警</span>
-          <strong>{{ sandboxState.pendingCount ?? 0 }}</strong>
-        </article>
-        <article>
-          <span>闭环结果</span>
-          <strong>{{ sandboxState.closedLoopStatus || '待执行' }}</strong>
-        </article>
+      <div class="adversarial-log-grid">
+        <section>
+          <h4>训练过程日志</h4>
+          <div v-if="!adversarialTrainingLogs.length" class="empty-state">暂无训练日志</div>
+          <article v-for="item in adversarialTrainingLogs" :key="`${item.time}-${item.round}-${item.phase}`" class="adversarial-log-item">
+            <strong>[{{ item.phase || '-' }}] Round {{ item.round || '-' }}</strong>
+            <span>{{ item.time || '-' }}</span>
+            <p>{{ item.message || '-' }}</p>
+          </article>
+        </section>
+        <section>
+          <h4>拦截/绕过解释记录</h4>
+          <div v-if="!adversarialEventLogs.length" class="empty-state">暂无解释日志</div>
+          <article v-for="item in adversarialEventLogs" :key="`${item.time}-${item.round}-${item.eventType}`" class="adversarial-log-item">
+            <strong>Round {{ item.round || '-' }} · {{ item.eventType || '-' }}</strong>
+            <span>{{ item.time || '-' }}</span>
+            <p>{{ item.explain || '-' }}</p>
+          </article>
+        </section>
       </div>
-
-      <div class="sandbox-timeline">
-        <article
-          v-for="node in sandboxTimeline"
-          :key="node.id"
-          class="sandbox-step"
-          :class="`status-${node.status}`"
-        >
-          <div class="sandbox-step-head">
-            <strong>{{ node.title }}</strong>
-            <el-tag size="small" :type="node.status === 'done' ? 'success' : (node.status === 'running' ? 'warning' : 'info')">
-              {{ node.status === 'done' ? '完成' : (node.status === 'running' ? '执行中' : '待执行') }}
-            </el-tag>
-          </div>
-          <p>{{ node.message }}</p>
-          <div class="sandbox-step-meta">
-            <span>{{ node.time || '-' }}</span>
-            <el-button link type="primary" @click="openSandboxModuleJump(node)">跳转{{ node.moduleLabel }}</el-button>
-          </div>
-        </article>
-      </div>
-    </el-card>
+    </el-drawer>
 
     <AIPrivacyShield ref="privacyShieldRef" />
 
@@ -437,6 +583,36 @@
         </article>
       </div>
     </el-dialog>
+
+    <el-drawer
+      v-model="hubDetailVisible"
+      size="58%"
+      :close-on-click-modal="false"
+      :title="hubDetail.title || 'AI中枢证据下钻'"
+    >
+      <div class="hub-detail-head">
+        <span>类型：{{ hubDetail.kind || '-' }}</span>
+        <span>标识：{{ hubDetail.key || '-' }}</span>
+        <span>记录数：{{ hubDetail.records.length }}</span>
+      </div>
+      <p v-if="hubDetail.description" class="hub-detail-desc">{{ hubDetail.description }}</p>
+      <div v-if="hubDetailLoading" class="empty-state">加载中...</div>
+      <div v-else-if="!hubDetail.records.length" class="empty-state">暂无明细记录</div>
+      <el-table v-else :data="hubDetail.records" border size="small" height="62vh">
+        <el-table-column
+          v-for="col in hubDetailColumns"
+          :key="col"
+          :prop="col"
+          :label="hubDetailColumnLabel(col)"
+          min-width="140"
+          show-overflow-tooltip
+        >
+          <template #default="scope">
+            {{ formatHubDetailValue(scope.row[col]) }}
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-drawer>
   </div>
 </template>
 
@@ -448,6 +624,14 @@ import { dashboardApi } from '../api/dashboard';
 import request from '../api/request';
 import StatCard from '../components/StatCard.vue';
 import AIPrivacyShield from '../components/AIPrivacyShield.vue';
+import HomeAiAnalysisHub from '../components/home/HomeAiAnalysisHub.vue';
+import defenderLogoUrl from '../assets/logo.svg';
+import attackerAssetLattice from '../assets/adversarial/attacker-lattice.svg';
+import attackerAssetHelix from '../assets/adversarial/attacker-helix.svg';
+import attackerAssetSwarm from '../assets/adversarial/attacker-swarm.svg';
+import defenderAssetAegis from '../assets/adversarial/defender-aegis.svg';
+import defenderAssetFortress from '../assets/adversarial/defender-fortress.svg';
+import defenderAssetPrism from '../assets/adversarial/defender-prism.svg';
 import { useUserStore } from '../store/user';
 import { getPersonaExperience, personalizeWorkbench } from '../utils/persona';
 import { useRouter } from 'vue-router';
@@ -566,6 +750,8 @@ const forecastRefreshing = ref(false);
 const aiAuditLoading = ref(false);
 const aiAuditLogs = ref([]);
 const aiAuditVerify = ref({ loading: false, passed: false, checkedRows: 0, violationCount: 0 });
+const governanceSignalSeen = ref(new Set());
+const governanceSignalFlash = ref(new Set());
 const isAdmin = computed(() => {
   const role = String(userStore.userInfo?.roleCode || userStore.userInfo?.role || '')
     .trim()
@@ -573,58 +759,49 @@ const isAdmin = computed(() => {
   return role === 'ADMIN';
 });
 const adversarialMeta = ref({ scenarios: [] });
-const adversarialConfig = ref({ scenario: 'random', rounds: 10, seed: '' });
+const adversarialConfig = ref({ scenario: 'random', rounds: 12, seed: '' });
 const adversarialPanelOpen = ref(false);
+const adversarialPanelMax = ref(true);
+const adversarialHardeningLevel = ref('strong');
+const adversarialAdvancedOpen = ref(false);
 const adversarialError = ref('');
 const adversarialRunning = ref(false);
+const adversarialTaskId = ref('');
+const adversarialTaskStatus = ref('idle');
 const adversarialBattle = ref(null);
 const adversarialVisibleRounds = ref([]);
 const adversarialHardeningApplying = ref(false);
 const adversarialBeforeHardening = ref(null);
-const sandboxState = ref({
-  threatLevel: '-',
-  riskScore: 0,
-  pendingCount: 0,
-  closedLoopStatus: '待执行',
+const adversarialBeat = ref('idle');
+const adversarialFinaleActive = ref(false);
+const adversarialVisualSeed = ref(0);
+const adversarialEventLogs = ref([]);
+const adversarialTrainingLogs = ref([]);
+const adversarialLogsVisible = ref(false);
+const adversarialLogsLoading = ref(false);
+const adversarialReportLoading = ref(false);
+const hubScope = ref({ level: 'company', department: '', username: '' });
+const compactHomeEnabled = ref(true);
+const homeAiHubRemote = ref(null);
+const homeAiHubLoading = ref(false);
+const homeAiHubCursor = ref(0);
+const homeAiHubStreamConnected = ref(false);
+const hubDetailVisible = ref(false);
+const hubDetailLoading = ref(false);
+const hubDetail = ref({
+  kind: '',
+  key: '',
+  title: '',
+  description: '',
+  records: [],
 });
-const sandboxTimeline = ref([
-  {
-    id: 'detect',
-    title: '阶段1：威胁检测触发',
-    moduleLabel: '安全态势',
-    route: '/operations-command',
-    query: {},
-    status: 'pending',
-    message: '等待触发实时威胁检测。',
-    time: '',
-  },
-  {
-    id: 'dispose',
-    title: '阶段2：处置闭环执行',
-    moduleLabel: '告警中心',
-    route: '/threat-monitor',
-    query: { tab: 'alertCenter' },
-    status: 'pending',
-    message: '等待执行阻断并触发攻防验证。',
-    time: '',
-  },
-  {
-    id: 'verify',
-    title: '阶段3：稳定性复核',
-    moduleLabel: '演练报告',
-    route: '/ops-observability',
-    query: {},
-    status: 'pending',
-    message: '等待完成可靠性复核。',
-    time: '',
-  },
-]);
-const sandboxDetectLoading = ref(false);
-const sandboxDisposeLoading = ref(false);
-const sandboxVerifyLoading = ref(false);
-const sandboxRunAllLoading = ref(false);
 let adversarialPlaybackTimer = null;
+let adversarialTaskPollTimer = null;
+let adversarialBeatTimers = [];
+let adversarialFinaleTimer = null;
 let homeLoadFrameId = null;
+let homeAiHubStreamHandle = null;
+let homeAiHubReconnectTimer = null;
 
 function selectedModel() {
   return aiModelOptions.value.find(item => item.modelCode === selectedAiModelCode.value)
@@ -850,158 +1027,101 @@ function stopAdversarialPlayback() {
     clearInterval(adversarialPlaybackTimer);
     adversarialPlaybackTimer = null;
   }
+  adversarialBeatTimers.forEach(timer => window.clearTimeout(timer));
+  adversarialBeatTimers = [];
+  adversarialBeat.value = adversarialBattle.value ? 'freeze' : 'idle';
 }
 
-function formatSandboxTime() {
-  return new Date().toLocaleString('zh-CN', { hour12: false });
+function triggerAdversarialFinale() {
+  if (adversarialFinaleTimer) {
+    window.clearTimeout(adversarialFinaleTimer);
+    adversarialFinaleTimer = null;
+  }
+  adversarialFinaleActive.value = true;
+  adversarialBeat.value = 'freeze';
+  adversarialFinaleTimer = window.setTimeout(() => {
+    adversarialFinaleActive.value = false;
+    adversarialFinaleTimer = null;
+  }, 980);
 }
 
-function updateSandboxStep(stepId, patch) {
-  sandboxTimeline.value = sandboxTimeline.value.map(item => {
-    if (item.id !== stepId) return item;
+function startAdversarialBeat(success) {
+  adversarialBeatTimers.forEach(timer => window.clearTimeout(timer));
+  adversarialBeatTimers = [];
+  adversarialBeat.value = 'charge';
+  adversarialBeatTimers.push(window.setTimeout(() => {
+    adversarialBeat.value = 'dash';
+  }, 140));
+  adversarialBeatTimers.push(window.setTimeout(() => {
+    adversarialBeat.value = success ? 'hit' : 'block';
+  }, 300));
+  adversarialBeatTimers.push(window.setTimeout(() => {
+    adversarialBeat.value = 'freeze';
+  }, 500));
+}
+
+function randomizeAdversarialVisualSeed() {
+  adversarialVisualSeed.value = Math.floor(Math.random() * 1000000);
+}
+
+function stopAdversarialTaskPolling() {
+  if (adversarialTaskPollTimer) {
+    clearInterval(adversarialTaskPollTimer);
+    adversarialTaskPollTimer = null;
+  }
+}
+
+const adversarialScenePreset = {
+  random: { title: '综合攻防演练（Random Mix）', desc: '多攻击向量随机组合，检验整体韧性。' },
+  prompt_injection_blitz: { title: '提示注入攻防（Prompt Injection）', desc: '聚焦上下文污染、越权提示与防注入策略。' },
+  stealth_exfil: { title: '数据泄露攻防（Stealth Exfil）', desc: '模拟隐蔽外传链路，验证DLP与上下文锁。' },
+  supply_chain_apt: { title: '供应链攻击攻防（Supply Chain APT）', desc: '覆盖依赖投毒与制品完整性防护。' },
+  real_threat_check: { title: '实时威胁检测（Real Threat Check）', desc: '基于真实日志进行即时态势评估。' },
+};
+
+const adversarialScenarioOptions = computed(() => {
+  const scenes = Array.isArray(adversarialMeta.value?.scenarios) ? adversarialMeta.value.scenarios : [];
+  const filtered = scenes.filter(item => String(item?.code || '').toLowerCase() !== 'real-threat-check');
+  return (filtered.length ? filtered : scenes).map(item => {
+    const code = String(item?.code || 'random');
+    const key = code.replace(/-/g, '_').toLowerCase();
+    const preset = adversarialScenePreset[key] || adversarialScenePreset[code.toLowerCase()] || null;
     return {
-      ...item,
-      ...patch,
-      time: patch.time !== undefined ? patch.time : formatSandboxTime(),
+      code,
+      title: preset?.title || `${code}（${code}）`,
+      desc: preset?.desc || item?.description || '真实Python训练驱动的多轮攻防。',
     };
   });
-}
+});
 
-async function refreshSandboxPending() {
-  try {
-    const data = await request.get('/alert-center/list', {
-      params: { page: 1, pageSize: 1, status: 'pending' },
-    });
-    const stats = data?.stats || {};
-    sandboxState.value.pendingCount = Number(stats.pending || 0);
-  } catch {
-    sandboxState.value.pendingCount = 0;
-  }
-}
-
-async function triggerSandboxDetect() {
-  sandboxDetectLoading.value = true;
-  updateSandboxStep('detect', { status: 'running', message: '正在执行实时威胁检测...' });
-  try {
-    const result = await request.post('/ai/adversarial/run', { scenario: 'real-threat-check', rounds: 10 });
-    const level = String(result?.threatLevel || result?.battle?.winner || '-');
-    const risk = Number(result?.riskScoreAdjusted ?? result?.riskScore ?? 0);
-    sandboxState.value.threatLevel = level;
-    sandboxState.value.riskScore = risk;
-    updateSandboxStep('detect', {
-      status: 'done',
-      message: `检测完成：态势 ${level}，风险分 ${risk}`,
-    });
-    await refreshSandboxPending();
-  } catch (error) {
-    updateSandboxStep('detect', {
-      status: 'pending',
-      message: error?.message || '检测失败，请重试。',
-    });
-    ElMessage.error(error?.message || '沙盒检测失败');
-  } finally {
-    sandboxDetectLoading.value = false;
-  }
-}
-
-async function triggerSandboxDispose() {
-  sandboxDisposeLoading.value = true;
-  updateSandboxStep('dispose', { status: 'running', message: '正在获取待处置告警并执行闭环处置...' });
-  try {
-    const listRes = await request.get('/alert-center/list', {
-      params: { page: 1, pageSize: 1, status: 'pending' },
-    });
-    const target = Array.isArray(listRes?.list) ? listRes.list[0] : null;
-    if (!target?.id) {
-      updateSandboxStep('dispose', { status: 'done', message: '当前无待处置告警，闭环处置已完成。' });
-      sandboxState.value.closedLoopStatus = '无待处置项';
-      await refreshSandboxPending();
-      return;
-    }
-
-    const disposeRes = await request.post('/alert-center/dispose', {
-      id: target.id,
-      status: 'blocked',
-      note: '沙盒闭环自动处置：阻断并验证',
-      triggerSimulation: true,
-      rounds: 12,
-    });
-    const validation = disposeRes?.validation || {};
-    const summary = validation?.battle?.winner || validation?.mode || '已处置';
-    updateSandboxStep('dispose', {
-      status: 'done',
-      message: `已处置告警 #${target.id}，验证结果：${summary}`,
-    });
-    sandboxState.value.closedLoopStatus = '处置完成';
-    await refreshSandboxPending();
-  } catch (error) {
-    updateSandboxStep('dispose', {
-      status: 'pending',
-      message: error?.message || '处置失败，请检查权限或告警状态。',
-    });
-    ElMessage.error(error?.message || '沙盒处置失败');
-  } finally {
-    sandboxDisposeLoading.value = false;
-  }
-}
-
-async function triggerSandboxVerify() {
-  sandboxVerifyLoading.value = true;
-  updateSandboxStep('verify', { status: 'running', message: '正在执行稳定性复核...' });
-  try {
-    const drill = await request.post('/award/reliability/drill/run', {
-      scenario: 'sandbox-closed-loop-verify',
-      probeCount: 3,
-    });
-    const availability = Number(drill?.sliAvailability ?? drill?.sli_availability ?? 0);
-    updateSandboxStep('verify', {
-      status: 'done',
-      message: `复核完成：可用性 ${availability.toFixed(2)}%，证据已入库。`,
-    });
-    sandboxState.value.closedLoopStatus = availability >= 99.0 ? '闭环通过' : '闭环待优化';
-  } catch (error) {
-    updateSandboxStep('verify', {
-      status: 'pending',
-      message: error?.message || '复核失败，请稍后重试。',
-    });
-    ElMessage.error(error?.message || '沙盒复核失败');
-  } finally {
-    sandboxVerifyLoading.value = false;
-  }
-}
-
-async function runSandboxClosedLoop() {
-  if (sandboxRunAllLoading.value) return;
-  sandboxRunAllLoading.value = true;
-  try {
-    await triggerSandboxDetect();
-    await triggerSandboxDispose();
-    await triggerSandboxVerify();
-    ElMessage.success('沙盒闭环流程已执行完成');
-  } finally {
-    sandboxRunAllLoading.value = false;
-  }
-}
-
-function openSandboxModuleJump(node) {
-  if (!node?.route) return;
-  router.push({ path: node.route, query: node.query || {} });
-}
+const adversarialCurrentScenarioText = computed(() => {
+  const code = String(adversarialConfig.value?.scenario || 'random');
+  return adversarialScenarioOptions.value.find(item => item.code === code) || adversarialScenarioOptions.value[0] || {
+    code,
+    title: code,
+    desc: '真实Python训练驱动的多轮攻防。',
+  };
+});
 
 function startAdversarialPlayback(rounds) {
   stopAdversarialPlayback();
   adversarialVisibleRounds.value = [];
   if (!Array.isArray(rounds) || rounds.length === 0) {
+    adversarialBeat.value = adversarialRunning.value ? 'charge' : 'idle';
     return;
   }
   let cursor = 0;
+  startAdversarialBeat(Boolean(rounds[0]?.attack_success));
   adversarialPlaybackTimer = window.setInterval(() => {
+    const currentRound = rounds[cursor];
     adversarialVisibleRounds.value = rounds.slice(0, cursor + 1);
+    startAdversarialBeat(Boolean(currentRound?.attack_success));
     cursor += 1;
     if (cursor >= rounds.length) {
       stopAdversarialPlayback();
+      triggerAdversarialFinale();
     }
-  }, 520);
+  }, 620);
 }
 
 async function fetchAdversarialMeta() {
@@ -1010,8 +1130,8 @@ async function fetchAdversarialMeta() {
   }
   const data = await request.get('/ai/adversarial/meta');
   adversarialMeta.value = data || { scenarios: [] };
-  if (Array.isArray(adversarialMeta.value.scenarios) && adversarialMeta.value.scenarios.length > 0) {
-    adversarialConfig.value.scenario = adversarialMeta.value.scenarios[0].code;
+  if (adversarialScenarioOptions.value.length > 0) {
+    adversarialConfig.value.scenario = adversarialScenarioOptions.value[0].code;
   }
 }
 
@@ -1019,12 +1139,18 @@ async function toggleAdversarialPanel() {
   adversarialPanelOpen.value = !adversarialPanelOpen.value;
   if (adversarialPanelOpen.value) {
     adversarialError.value = '';
+    randomizeAdversarialVisualSeed();
     try {
       await fetchAdversarialMeta();
     } catch (error) {
       adversarialError.value = error?.message || '攻防元数据加载失败';
     }
   }
+}
+
+function closeAdversarialPanel() {
+  adversarialPanelOpen.value = false;
+  stopAdversarialTaskPolling();
 }
 
 async function launchAdversarialDrill() {
@@ -1037,39 +1163,122 @@ async function launchAdversarialDrill() {
 async function runAdversarialBattle() {
   adversarialError.value = '';
   adversarialRunning.value = true;
+  adversarialTaskStatus.value = 'running';
+  adversarialFinaleActive.value = false;
+  randomizeAdversarialVisualSeed();
   stopAdversarialPlayback();
+  stopAdversarialTaskPolling();
+  adversarialBeat.value = 'charge';
   try {
     const payload = {
       scenario: adversarialConfig.value.scenario || 'random',
-      rounds: Math.max(1, Math.min(100, Number(adversarialConfig.value.rounds || 10))),
+      rounds: Math.max(10, Math.min(30, Number(adversarialConfig.value.rounds || 12))),
     };
     if (String(adversarialConfig.value.seed || '').trim()) {
       payload.seed = Number(adversarialConfig.value.seed);
     }
-    const data = await request.post('/ai/adversarial/run', payload);
-    if (data?.mode === 'real-threat-assessment') {
-      adversarialBattle.value = {
-        ...(data?.battle || {}),
-        recommendations: Array.isArray(data?.optimizationSuggestions) ? data.optimizationSuggestions : (data?.battle?.recommendations || []),
-        defense_strength_score: Number(data?.defenseStrengthScore ?? data?.battle?.defense_strength_score ?? 0),
-        hardening_status: data?.hardeningStatus || data?.battle?.hardening_status || 'pending_manual_apply',
-      };
-      adversarialVisibleRounds.value = [];
-      ElMessage.success('已完成实时态势检测');
-      return;
+    const task = await request.post('/ai/adversarial/task/start', payload);
+    const taskId = String(task?.taskId || '');
+    if (!taskId) {
+      throw new Error(task?.error || '真实攻防任务创建失败');
     }
-    if (!data?.ok || !data?.battle) {
-      throw new Error(data?.error || '对弈执行失败');
-    }
-    adversarialBattle.value = data.battle;
-    if (data.meta) {
-      adversarialMeta.value = data.meta;
-    }
-    startAdversarialPlayback(data.battle.rounds || []);
+    adversarialTaskId.value = taskId;
+    await syncAdversarialTaskStatus(taskId);
+    adversarialTaskPollTimer = window.setInterval(() => {
+      syncAdversarialTaskStatus(taskId, true);
+    }, 1200);
+    ElMessage.success('真实攻防任务已启动');
   } catch (error) {
     adversarialError.value = error?.message || '攻防对弈失败';
+    adversarialTaskStatus.value = 'failed';
+    adversarialBeat.value = 'idle';
+    adversarialFinaleActive.value = false;
   } finally {
     adversarialRunning.value = false;
+  }
+}
+
+async function syncAdversarialTaskStatus(taskId, silent = false) {
+  try {
+    const data = await request.get(`/ai/adversarial/task/${taskId}`);
+    adversarialTaskStatus.value = String(data?.status || 'running');
+    if (data?.battle) {
+      adversarialBattle.value = data.battle;
+      const rounds = Array.isArray(data?.battle?.rounds) ? data.battle.rounds : [];
+      const completed = Math.max(0, Math.min(rounds.length, Number(data?.completedRounds || rounds.length)));
+      adversarialVisibleRounds.value = rounds.slice(0, completed);
+      if (completed > 0) {
+        const last = adversarialVisibleRounds.value[adversarialVisibleRounds.value.length - 1];
+        startAdversarialBeat(Boolean(last?.attack_success));
+      }
+    }
+    if (adversarialTaskStatus.value === 'completed') {
+      stopAdversarialTaskPolling();
+      adversarialRunning.value = false;
+      triggerAdversarialFinale();
+      if (!silent) {
+        ElMessage.success('真实攻防训练已完成');
+      }
+    }
+    if (adversarialTaskStatus.value === 'failed') {
+      stopAdversarialTaskPolling();
+      adversarialRunning.value = false;
+      adversarialError.value = data?.error || '真实攻防任务失败';
+      if (!silent) {
+        ElMessage.error(adversarialError.value);
+      }
+    }
+  } catch (error) {
+    if (!silent) {
+      adversarialError.value = error?.message || '任务状态同步失败';
+      ElMessage.error(adversarialError.value);
+    }
+  }
+}
+
+async function viewAdversarialTrainingLogs() {
+  if (!adversarialTaskId.value) {
+    ElMessage.warning('请先启动一次真实攻防演练');
+    return;
+  }
+  adversarialLogsLoading.value = true;
+  try {
+    const data = await request.get(`/ai/adversarial/task/${adversarialTaskId.value}/logs`, {
+      params: { offset: 0, limit: 300 },
+    });
+    adversarialEventLogs.value = Array.isArray(data?.eventLogs) ? data.eventLogs : [];
+    adversarialTrainingLogs.value = Array.isArray(data?.trainingLogs) ? data.trainingLogs : [];
+    adversarialLogsVisible.value = true;
+  } catch (error) {
+    ElMessage.error(error?.message || '训练日志加载失败');
+  } finally {
+    adversarialLogsLoading.value = false;
+  }
+}
+
+async function exportAdversarialOptimizationReport() {
+  if (!adversarialTaskId.value) {
+    ElMessage.warning('请先完成一次真实攻防演练');
+    return;
+  }
+  adversarialReportLoading.value = true;
+  try {
+    const data = await request.get(`/ai/adversarial/task/${adversarialTaskId.value}/report`);
+    const payload = data?.report || data || {};
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `adversarial-optimization-${adversarialTaskId.value}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+    ElMessage.success('模型优化报告已导出');
+  } catch (error) {
+    ElMessage.error(error?.message || '导出优化报告失败');
+  } finally {
+    adversarialReportLoading.value = false;
   }
 }
 
@@ -1079,17 +1288,25 @@ async function applyAdversarialHardening() {
   }
   adversarialHardeningApplying.value = true;
   try {
+    const profileMap = {
+      normal: { thresholdReductionPct: 12, roundsBoost: 0, label: '常规强化' },
+      strong: { thresholdReductionPct: 22, roundsBoost: 4, label: '强力强化' },
+      extreme: { thresholdReductionPct: 35, roundsBoost: 8, label: '极限强化' },
+    };
+    const profile = profileMap[adversarialHardeningLevel.value] || profileMap.strong;
     adversarialBeforeHardening.value = {
       attackSuccessRate: Number(adversarialBattle.value?.attack_success_rate || 0),
       defenseStrength: Number(adversarialBattle.value?.defense_strength_score || 0),
     };
     const data = await request.post('/ai/adversarial/apply-hardening', {
-      thresholdReductionPct: 15,
+      thresholdReductionPct: profile.thresholdReductionPct,
       scenario: adversarialConfig.value.scenario || 'real-threat-check',
     });
+    adversarialConfig.value.rounds = Math.min(100, Number(adversarialConfig.value.rounds || 10) + profile.roundsBoost);
+    randomizeAdversarialVisualSeed();
     const before = Number(data?.beforeAlertThresholdBytes || 0);
     const after = Number(data?.afterAlertThresholdBytes || 0);
-    ElMessage.success(`防御加固已应用：阈值 ${before} -> ${after}`);
+    ElMessage.success(`${profile.label}已应用：阈值 ${before} -> ${after}`);
     await runAdversarialBattle();
   } catch (error) {
     ElMessage.error(error?.message || '应用防御加固失败');
@@ -1212,6 +1429,50 @@ const traceModuleEntries = computed(() => {
       count: Number(val.count || 0),
     }));
 });
+const homeModuleEntries = computed(() => {
+  const todos = Array.isArray(overview.value?.todos) ? overview.value.todos : [];
+  const base = todos.slice(0, 6).map(item => ({
+    title: item.title,
+    description: item.description,
+    route: item.route,
+    metric: item.metric,
+    priority: item.priority,
+  }));
+  if (base.length >= 4) {
+    return base;
+  }
+  return [
+    ...base,
+    {
+      title: '威胁监控中心',
+      description: '聚焦待处置告警与阻断结果，追踪治理闭环。',
+      route: '/threat-monitor',
+      metric: `待处置 ${traceContext.value?.monitorPending ?? 0}`,
+      priority: 'P0',
+    },
+    {
+      title: '影子AI治理',
+      description: '定位白名单外模型调用，执行审批和策略收敛。',
+      route: '/shadow-ai',
+      metric: `异常 ${traceContext.value?.monitorAnomaly ?? 0}`,
+      priority: 'P1',
+    },
+    {
+      title: '隐私防护态势',
+      description: '按账号与部门审查隐私风险并补齐证据链。',
+      route: '/privacy-monitor',
+      metric: `隐私 ${traceContext.value?.monitorPrivacy ?? 0}`,
+      priority: 'P1',
+    },
+    {
+      title: '模型治理与发布',
+      description: '查看漂移状态、候选发布与回滚路径。',
+      route: '/ai/model-governance',
+      metric: modelReleaseText.value,
+      priority: 'P2',
+    },
+  ].slice(0, 6);
+});
 const latestSensitiveRun = computed(() => {
   const latestByModel = modelLineage.value?.latestByModel || {};
   if (latestByModel.sensitive_clf) {
@@ -1328,11 +1589,285 @@ const governanceOverviewSignals = computed(() => {
 
   return merged.slice(0, 6);
 });
+
+function shouldFlashSignal(title) {
+  return governanceSignalFlash.value.has(String(title || ''));
+}
+
+watch(
+  governanceOverviewSignals,
+  list => {
+    for (const item of list || []) {
+      const title = String(item?.title || '').trim();
+      if (!title || governanceSignalSeen.value.has(title)) continue;
+      governanceSignalSeen.value.add(title);
+      governanceSignalFlash.value.add(title);
+      window.setTimeout(() => {
+        governanceSignalFlash.value.delete(title);
+      }, 1000);
+    }
+  },
+  { immediate: true, deep: true }
+);
+const homeAiHubData = computed(() => {
+  if (homeAiHubRemote.value) {
+    return homeAiHubRemote.value;
+  }
+  const metrics = Array.isArray(overview.value?.metrics) ? overview.value.metrics : [];
+  const metricMap = new Map(metrics.map(item => [String(item?.key || ''), Number(item?.value || 0)]));
+  const riskScore = Number(trustPulse.value?.score || 0);
+  const kpis = [
+    {
+      key: 'assetTotal',
+      label: '资产库对象',
+      value: String(metricMap.get('assets') || 0),
+      note: 'Data Asset Snapshot',
+    },
+    {
+      key: 'riskEvents',
+      label: '风险事件总量',
+      value: String(metricMap.get('alerts') || 0),
+      note: 'Risk Event Aggregation',
+    },
+    {
+      key: 'aiCalls',
+      label: '模型调用总量',
+      value: String(metricMap.get('aiCalls') || 0),
+      note: 'AI Call Audit',
+    },
+    {
+      key: 'auditLogs',
+      label: '审计留痕记录',
+      value: String(metricMap.get('audits') || 0),
+      note: 'Audit Chain',
+    },
+    {
+      key: 'governanceScore',
+      label: '治理脉冲分',
+      value: String(riskScore),
+      note: `Scope: ${hubScope.value.level}`,
+    },
+  ];
+
+  const graphNodes = [
+    { id: 'company', label: `公司#${traceContext.value?.companyId ?? '-'}`, value: 8, color: '#38bdf8' },
+    { id: 'asset', label: '资产库', value: Math.max(2, Number(metricMap.get('assets') || 0)), color: '#22d3ee' },
+    { id: 'risk', label: '风险事件', value: Math.max(2, Number(metricMap.get('alerts') || 0)), color: '#f97316' },
+    { id: 'audit', label: '审计日志', value: Math.max(2, Number(metricMap.get('audits') || 0)), color: '#a78bfa' },
+    { id: 'ai', label: '模型调用', value: Math.max(2, Number(metricMap.get('aiCalls') || 0)), color: '#34d399' },
+  ];
+  const graphEdges = [
+    { source: 'company', target: 'asset', value: 2, color: 'rgba(34,211,238,0.75)' },
+    { source: 'company', target: 'risk', value: 3, color: 'rgba(249,115,22,0.8)' },
+    { source: 'company', target: 'audit', value: 2, color: 'rgba(167,139,250,0.78)' },
+    { source: 'asset', target: 'ai', value: 2, color: 'rgba(52,211,153,0.72)' },
+    { source: 'ai', target: 'risk', value: 3, color: 'rgba(251,146,60,0.76)' },
+    { source: 'risk', target: 'audit', value: 2, color: 'rgba(147,197,253,0.7)' },
+  ];
+
+  const radarDimensions = (trustPulse.value?.dimensions || []).map(item => ({
+    code: item?.code || item?.label,
+    label: item?.label || '-',
+    value: Math.max(0, Math.min(100, Number(item?.score || 0))),
+  }));
+
+  const timeline = (overview.value?.feeds || []).slice(0, 6).map((item, idx) => ({
+    id: item?.id || `feed-${idx}`,
+    title: item?.title || '治理事件',
+    summary: item?.description || item?.content || '状态已同步',
+    time: item?.time || item?.createTime || '-',
+  }));
+
+  const recommendations = governanceOverviewSignals.value.slice(0, 5).map(item => ({
+    title: item?.title || '策略建议',
+    priority: item?.tone === 'danger' ? 'P0' : (item?.tone === 'warning' ? 'P1' : 'P2'),
+    action: item?.action || '建议持续跟进',
+    targetLabel: routeLabelFromSignal(item),
+    route: routePathFromSignal(item),
+    query: routeQueryFromSignal(item),
+  }));
+
+  return {
+    kpis,
+    graph: { nodes: graphNodes, edges: graphEdges },
+    radar: { dimensions: radarDimensions },
+    timeline,
+    recommendations,
+  };
+});
 const adversarialWinnerText = computed(() => {
   const winner = String(adversarialBattle.value?.winner || '-');
   if (winner.includes('攻击方')) return '攻方模拟器';
   if (winner.includes('防御方')) return '防御策略';
   return winner.replace(/\([^)]*\)/g, '').trim() || '-';
+});
+const adversarialAllRounds = computed(() => {
+  return Array.isArray(adversarialBattle.value?.rounds) ? adversarialBattle.value.rounds : [];
+});
+const adversarialCurrentRound = computed(() => {
+  if (adversarialVisibleRounds.value.length) {
+    return adversarialVisibleRounds.value[adversarialVisibleRounds.value.length - 1];
+  }
+  if (adversarialAllRounds.value.length) {
+    return adversarialAllRounds.value[0];
+  }
+  return null;
+});
+const adversarialCurrentRoundText = computed(() => {
+  const current = Number(adversarialCurrentRound.value?.round_num || 0);
+  const total = Math.max(1, Number(adversarialAllRounds.value.length || adversarialConfig.value?.rounds || 1));
+  if (current > 0) {
+    return `${current}/${total}`;
+  }
+  if (adversarialRunning.value) {
+    return `0/${total}`;
+  }
+  return '-';
+});
+const adversarialRoundSeed = computed(() => {
+  return Number(adversarialCurrentRound.value?.round_num || 0);
+});
+const adversarialProgressRatio = computed(() => {
+  const total = Math.max(1, Number(adversarialAllRounds.value.length || adversarialConfig.value?.rounds || 1));
+  if (adversarialVisibleRounds.value.length > 0) {
+    return Math.min(1, adversarialVisibleRounds.value.length / total);
+  }
+  if (adversarialRunning.value) {
+    return 0.08;
+  }
+  if (adversarialBattle.value) {
+    return 1;
+  }
+  return 0;
+});
+const adversarialProgressText = computed(() => {
+  return `${Math.round(adversarialProgressRatio.value * 100)}%`;
+});
+const adversarialScenarioLabel = computed(() => {
+  return adversarialCurrentScenarioText.value?.title || String(adversarialConfig.value?.scenario || 'random').toUpperCase();
+});
+const adversarialBeatLabel = computed(() => {
+  if (adversarialBeat.value === 'charge') return '蓄力';
+  if (adversarialBeat.value === 'dash') return '突进';
+  if (adversarialBeat.value === 'hit') return '冲击';
+  if (adversarialBeat.value === 'block') return '拦截';
+  if (adversarialBeat.value === 'freeze') return '定格';
+  return '待命';
+});
+const adversarialAttackerPersona = computed(() => {
+  const scenario = String(adversarialConfig.value?.scenario || '').toLowerCase();
+  const attacker = String(adversarialBattle.value?.attacker || '').toLowerCase();
+  const hints = `${scenario} ${attacker}`;
+  if (hints.includes('openclaw') || hints.includes('claw') || hints.includes('shrimp') || hints.includes('虾')) {
+    return {
+      kind: 'openclaw',
+      badge: 'OPENCLAW',
+      title: 'OpenClaw Predator',
+      subtitle: 'Shrimp-form adaptive intrusion swarm',
+    };
+  }
+  if (hints.includes('inject') || hints.includes('prompt')) {
+    return {
+      kind: 'injector',
+      badge: 'INJECTOR',
+      title: 'Prompt Injector',
+      subtitle: 'Context poisoning and jailbreak mutation',
+    };
+  }
+  return {
+    kind: 'neural',
+    badge: 'NEURAL',
+    title: 'Adversarial Neural Agent',
+    subtitle: 'Stochastic strategy search and lateral probing',
+  };
+});
+const adversarialAttackerPattern = computed(() => {
+  const seedOffset = Number(adversarialVisualSeed.value || 0);
+  if (adversarialAttackerPersona.value.kind === 'openclaw') {
+    const openclawPatterns = ['claw-a', 'claw-b', 'claw-c'];
+    return openclawPatterns[(adversarialRoundSeed.value + seedOffset) % openclawPatterns.length];
+  }
+  const patterns = ['grid', 'helix', 'shard', 'swarm'];
+  return patterns[(adversarialRoundSeed.value + seedOffset) % patterns.length];
+});
+const adversarialAttackerAssetUrl = computed(() => {
+  if (adversarialAttackerPattern.value === 'helix') return attackerAssetHelix;
+  if (adversarialAttackerPattern.value === 'swarm') return attackerAssetSwarm;
+  return attackerAssetLattice;
+});
+const adversarialDefenderPattern = computed(() => {
+  const seedOffset = Number(adversarialVisualSeed.value || 0);
+  if (adversarialBeat.value === 'block') return 'fortress';
+  if (adversarialBeat.value === 'dash') return 'vector';
+  if (adversarialBeat.value === 'hit') return 'prism';
+  const patterns = ['aegis', 'fortress', 'vector', 'prism'];
+  return patterns[(adversarialRoundSeed.value + seedOffset) % patterns.length];
+});
+const adversarialDefenderAssetUrl = computed(() => {
+  if (adversarialDefenderPattern.value === 'fortress') return defenderAssetFortress;
+  if (adversarialDefenderPattern.value === 'prism') return defenderAssetPrism;
+  return defenderAssetAegis;
+});
+const adversarialImpactState = computed(() => {
+  if (adversarialBeat.value === 'dash') return 'dash';
+  if (adversarialBeat.value === 'hit') return 'hit';
+  if (adversarialBeat.value === 'block') return 'block';
+  if (adversarialBeat.value === 'charge') return 'charge';
+  if (adversarialRunning.value && !adversarialCurrentRound.value) return 'charge';
+  if (adversarialCurrentRound.value?.attack_success === true) return 'hit';
+  if (adversarialCurrentRound.value?.attack_success === false) return 'block';
+  if (adversarialBattle.value) {
+    return String(adversarialBattle.value?.winner || '').includes('防御方') ? 'block' : 'hit';
+  }
+  return 'idle';
+});
+const adversarialImpactLabel = computed(() => {
+  if (adversarialImpactState.value === 'dash') return '战场突进';
+  if (adversarialImpactState.value === 'charge') return '模型蓄能';
+  if (adversarialImpactState.value === 'hit') return '攻方突破';
+  if (adversarialImpactState.value === 'block') return '守方拦截';
+  return '等待演练';
+});
+const adversarialImpactMetric = computed(() => {
+  if (adversarialCurrentRound.value) {
+    return `有效率 ${Math.round((adversarialCurrentRound.value.final_effectiveness || 0) * 100)}%`;
+  }
+  if (adversarialBattle.value) {
+    return `攻击成功率 ${Math.round((adversarialBattle.value.attack_success_rate || 0) * 100)}%`;
+  }
+  return '尚未执行';
+});
+const adversarialDefenderPoseClass = computed(() => {
+  return adversarialImpactState.value === 'hit' ? 'pose-guard' : 'pose-counter';
+});
+const adversarialSceneState = computed(() => {
+  if (adversarialRunning.value) return 'running';
+  if (!adversarialBattle.value) return 'idle';
+  return String(adversarialBattle.value?.winner || '').includes('防御方') ? 'defense' : 'breach';
+});
+const adversarialNarrativeText = computed(() => {
+  if (adversarialCurrentRound.value?.narrative) {
+    return adversarialCurrentRound.value.narrative;
+  }
+  if (adversarialBattle.value?.summary) {
+    return adversarialBattle.value.summary;
+  }
+  if (adversarialRunning.value) {
+    return '战场中枢正在同步策略迭代与对抗推演...';
+  }
+  return '点击开始演练，进入双角色实战推演。';
+});
+const adversarialSubtitleText = computed(() => {
+  if (adversarialFinaleActive.value && adversarialBattle.value) {
+    const score = `${adversarialBattle.value.attacker_final_score || 0} : ${adversarialBattle.value.defender_final_score || 0}`;
+    return `慢放定格：${adversarialWinnerText.value} · 终局比分 ${score}`;
+  }
+  if (adversarialBeat.value === 'charge') return '镜头一：攻方聚合策略特征并锁定突破面。';
+  if (adversarialBeat.value === 'dash') return '镜头二：对抗样本突进，守方开始重排防线。';
+  if (adversarialBeat.value === 'hit') return '镜头三：冲击发生，实时评估突破强度。';
+  if (adversarialBeat.value === 'block') return '镜头三：拦截成立，防御规则命中关键路径。';
+  if (adversarialBeat.value === 'freeze') return '镜头四：战场定格，等待下一轮策略迭代。';
+  return '电影化战报待命中。';
 });
 const adversarialDefenseStrengthText = computed(() => {
   const score = Number(adversarialBattle.value?.defense_strength_score || 0);
@@ -1346,6 +1881,31 @@ const adversarialCanApplyHardening = computed(() => {
 });
 const adversarialComparisonVisible = computed(() => {
   return Boolean(adversarialBeforeHardening.value) && Boolean(adversarialBattle.value);
+});
+const adversarialAttackBeforeWidth = computed(() => {
+  const before = Number(adversarialBeforeHardening.value?.attackSuccessRate ?? NaN);
+  if (!Number.isFinite(before)) return 0;
+  return Math.max(0, Math.min(100, Math.round(before * 100)));
+});
+const adversarialAttackAfterWidth = computed(() => {
+  const after = Number(adversarialBattle.value?.attack_success_rate ?? NaN);
+  if (!Number.isFinite(after)) return 0;
+  return Math.max(0, Math.min(100, Math.round(after * 100)));
+});
+const adversarialDefenseGaugeMax = computed(() => {
+  const before = Number(adversarialBeforeHardening.value?.defenseStrength ?? 0);
+  const after = Number(adversarialBattle.value?.defense_strength_score ?? 0);
+  return Math.max(1, Math.ceil(Math.max(100, before, after)));
+});
+const adversarialDefenseBeforeWidth = computed(() => {
+  const before = Number(adversarialBeforeHardening.value?.defenseStrength ?? NaN);
+  if (!Number.isFinite(before)) return 0;
+  return Math.max(0, Math.min(100, Math.round((before / adversarialDefenseGaugeMax.value) * 100)));
+});
+const adversarialDefenseAfterWidth = computed(() => {
+  const after = Number(adversarialBattle.value?.defense_strength_score ?? NaN);
+  if (!Number.isFinite(after)) return 0;
+  return Math.max(0, Math.min(100, Math.round((after / adversarialDefenseGaugeMax.value) * 100)));
 });
 const adversarialAttackRateCompareText = computed(() => {
   const before = Number(adversarialBeforeHardening.value?.attackSuccessRate ?? NaN);
@@ -1376,6 +1936,65 @@ const adversarialHardeningConclusion = computed(() => {
   const improved = afterRate <= beforeRate && afterDefense >= beforeDefense;
   return improved ? '防御提升已验证' : '建议继续加固并复测';
 });
+const adversarialCurveSeries = computed(() => {
+  return adversarialVisibleRounds.value.map(round => {
+    const attack = Number(round?.attack_success_rate ?? round?.final_effectiveness ?? 0);
+    const defense = Number(round?.defense_intercept_rate ?? (1 - attack));
+    return {
+      attack: Math.max(0, Math.min(1, attack)),
+      defense: Math.max(0, Math.min(1, defense)),
+    };
+  });
+});
+const adversarialCurveHasData = computed(() => adversarialCurveSeries.value.length >= 2);
+
+function buildCurvePoints(values) {
+  if (!values.length) {
+    return '0,40 100,40';
+  }
+  if (values.length === 1) {
+    const y = 40 - (values[0] * 40);
+    return `0,${y.toFixed(2)} 100,${y.toFixed(2)}`;
+  }
+  return values
+    .map((value, index) => {
+      const x = (index / (values.length - 1)) * 100;
+      const y = 40 - (value * 40);
+      return `${x.toFixed(2)},${y.toFixed(2)}`;
+    })
+    .join(' ');
+}
+
+const adversarialCurveAttackPoints = computed(() => {
+  return buildCurvePoints(adversarialCurveSeries.value.map(item => item.attack));
+});
+const adversarialCurveDefensePoints = computed(() => {
+  return buildCurvePoints(adversarialCurveSeries.value.map(item => item.defense));
+});
+const adversarialKeyChanges = computed(() => {
+  const rounds = adversarialVisibleRounds.value;
+  if (!Array.isArray(rounds) || rounds.length < 2) {
+    return [];
+  }
+  const out = [];
+  for (let idx = 1; idx < rounds.length; idx += 1) {
+    const prev = rounds[idx - 1];
+    const current = rounds[idx];
+    const prevRate = Number(prev?.attack_success_rate ?? prev?.final_effectiveness ?? 0);
+    const currRate = Number(current?.attack_success_rate ?? current?.final_effectiveness ?? 0);
+    if (Math.abs(currRate - prevRate) < 0.08) {
+      continue;
+    }
+    out.push({
+      round: current?.round_num || idx + 1,
+      analysis: current?.explain || current?.narrative || `${current?.rule_id || 'RULE_UNKNOWN'} 触发策略变化`,
+    });
+    if (out.length >= 5) {
+      break;
+    }
+  }
+  return out;
+});
 
 function riskTone(level) {
   const value = String(level || '').toLowerCase();
@@ -1383,6 +2002,252 @@ function riskTone(level) {
   if (value.includes('中') || value.includes('medium') || value.includes('processing') || value.includes('p1')) return 'warning';
   if (value.includes('低') || value.includes('low')) return 'safe';
   return 'neutral';
+}
+
+function routePathFromSignal(signal) {
+  const text = `${signal?.title || ''} ${signal?.action || ''}`.toLowerCase();
+  if (text.includes('影子') || text.includes('ai')) return '/shadow-ai';
+  if (text.includes('审计')) return '/audit-center';
+  if (text.includes('风险')) return '/risk-event-manage';
+  if (text.includes('告警') || text.includes('阻断')) return '/operations-command';
+  return '/ops-observability';
+}
+
+function routeLabelFromSignal(signal) {
+  const path = routePathFromSignal(signal);
+  if (path === '/shadow-ai') return '影子AI';
+  if (path === '/audit-center') return '审计中心';
+  if (path === '/risk-event-manage') return '风险事件';
+  if (path === '/operations-command') return '安全指挥台';
+  return '治理观测';
+}
+
+function routeQueryFromSignal(signal) {
+  const path = routePathFromSignal(signal);
+  if (path === '/operations-command') return { status: 'pending' };
+  if (path === '/shadow-ai') return { tab: 'risk' };
+  return {};
+}
+
+function handleHubScopeChange(scope) {
+  hubScope.value = { ...hubScope.value, ...scope };
+  refreshHomeAiHub();
+  restartHomeAiHubStream();
+}
+
+function handleHubJump(rec) {
+  if (!rec?.route) return;
+  router.push({ path: rec.route, query: rec.query || {} });
+}
+
+const hubDetailColumns = computed(() => {
+  const rows = Array.isArray(hubDetail.value?.records) ? hubDetail.value.records : [];
+  if (!rows.length || typeof rows[0] !== 'object' || rows[0] == null) return [];
+  return Object.keys(rows[0]);
+});
+
+function hubDetailColumnLabel(key) {
+  const map = {
+    id: 'ID',
+    userId: '用户ID',
+    username: '账号',
+    eventType: '事件类型',
+    severity: '风险级别',
+    status: '状态',
+    sourceModule: '来源模块',
+    operation: '操作',
+    operationTime: '操作时间',
+    createTime: '创建时间',
+    eventTime: '事件时间',
+    durationMs: '耗时(ms)',
+    modelCode: '模型编码',
+    provider: '供应商',
+    name: '名称',
+    type: '类型',
+    sensitivityLevel: '敏感级别',
+    ownerId: '责任人',
+    title: '标题',
+    label: '指标',
+    value: '数值',
+    note: '说明',
+    key: '键',
+  };
+  if (map[key]) return map[key];
+  return String(key || '')
+    .replace(/([A-Z])/g, ' $1')
+    .replace(/^./, s => s.toUpperCase())
+    .trim();
+}
+
+function formatHubDetailValue(value) {
+  if (value == null || value === '') return '-';
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+  return String(value);
+}
+
+async function handleHubDetail(event) {
+  if (!event?.kind || !event?.key) return;
+  hubDetailVisible.value = true;
+  hubDetailLoading.value = true;
+  hubDetail.value = {
+    kind: event.kind,
+    key: event.key,
+    title: event.label || '中枢明细',
+    description: '',
+    records: [],
+  };
+
+  try {
+    const payload = await dashboardApi.getHomeAiHubDetail({
+      ...normalizedHubScopeParams(),
+      kind: event.kind,
+      key: event.key,
+      source: event.source,
+      target: event.target,
+      limit: 30,
+    });
+    hubDetail.value = {
+      kind: payload?.kind || event.kind,
+      key: payload?.key || event.key,
+      title: payload?.title || event.label || '中枢明细',
+      description: payload?.description || '',
+      records: Array.isArray(payload?.records) ? payload.records : [],
+    };
+  } catch (error) {
+    hubDetail.value = {
+      kind: event.kind,
+      key: event.key,
+      title: event.label || '中枢明细',
+      description: '',
+      records: [],
+    };
+    ElMessage.error(error?.message || 'AI中枢明细加载失败');
+  } finally {
+    hubDetailLoading.value = false;
+  }
+}
+
+function normalizedHubScopeParams() {
+  const level = String(hubScope.value?.level || 'company').toLowerCase();
+  const params = { scopeLevel: level };
+  if (level === 'department' && String(hubScope.value?.department || '').trim()) {
+    params.department = String(hubScope.value.department).trim();
+  }
+  if (level === 'user' && String(hubScope.value?.username || '').trim()) {
+    params.username = String(hubScope.value.username).trim();
+  }
+  return params;
+}
+
+async function refreshHomeAiHub() {
+  homeAiHubLoading.value = true;
+  try {
+    const data = await dashboardApi.getHomeAiHub(normalizedHubScopeParams());
+    if (data && typeof data === 'object') {
+      homeAiHubRemote.value = {
+        kpis: Array.isArray(data.kpis) ? data.kpis : [],
+        graph: data.graph || { nodes: [], edges: [] },
+        radar: data.radar || { dimensions: [] },
+        timeline: Array.isArray(data.timeline) ? data.timeline : [],
+        recommendations: Array.isArray(data.recommendations) ? data.recommendations : [],
+      };
+      homeAiHubCursor.value = Number(data.cursor || 0);
+    }
+  } catch (error) {
+    ElMessage.error(error?.message || '首页AI中枢数据加载失败');
+  } finally {
+    homeAiHubLoading.value = false;
+  }
+}
+
+function mergeHomeAiHubDelta(payload) {
+  if (!payload || !homeAiHubRemote.value) return;
+  const current = homeAiHubRemote.value;
+  const timelineDelta = Array.isArray(payload.timelineDelta) ? payload.timelineDelta : [];
+  const mergedTimeline = [...timelineDelta, ...(current.timeline || [])];
+  const dedup = [];
+  const seen = new Set();
+  for (const item of mergedTimeline) {
+    const key = String(item?.id || '');
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    dedup.push(item);
+    if (dedup.length >= 24) break;
+  }
+  homeAiHubRemote.value = {
+    ...current,
+    timeline: dedup,
+    kpis: Array.isArray(payload.kpis) && payload.kpis.length ? payload.kpis : current.kpis,
+  };
+  homeAiHubCursor.value = Math.max(homeAiHubCursor.value, Number(payload.cursor || 0));
+}
+
+function clearHomeAiHubReconnect() {
+  if (homeAiHubReconnectTimer) {
+    window.clearTimeout(homeAiHubReconnectTimer);
+    homeAiHubReconnectTimer = null;
+  }
+}
+
+function stopHomeAiHubStream() {
+  if (homeAiHubStreamHandle) {
+    homeAiHubStreamHandle.close();
+    homeAiHubStreamHandle = null;
+  }
+  homeAiHubStreamConnected.value = false;
+  clearHomeAiHubReconnect();
+}
+
+function scheduleHomeAiHubReconnect() {
+  if (homeAiHubReconnectTimer) return;
+  homeAiHubReconnectTimer = window.setTimeout(() => {
+    homeAiHubReconnectTimer = null;
+    startHomeAiHubStream();
+  }, 4000);
+}
+
+function startHomeAiHubStream() {
+  stopHomeAiHubStream();
+  const params = normalizedHubScopeParams();
+  try {
+    homeAiHubStreamHandle = dashboardApi.openHomeAiHubStream({
+      ...params,
+      cursor: homeAiHubCursor.value,
+      onSnapshot: payload => {
+        homeAiHubStreamConnected.value = true;
+        if (!payload || typeof payload !== 'object') return;
+        homeAiHubRemote.value = {
+          kpis: Array.isArray(payload.kpis) ? payload.kpis : [],
+          graph: payload.graph || { nodes: [], edges: [] },
+          radar: payload.radar || { dimensions: [] },
+          timeline: Array.isArray(payload.timeline) ? payload.timeline : [],
+          recommendations: Array.isArray(payload.recommendations) ? payload.recommendations : [],
+        };
+        homeAiHubCursor.value = Number(payload.cursor || homeAiHubCursor.value || 0);
+      },
+      onDelta: payload => {
+        homeAiHubStreamConnected.value = true;
+        mergeHomeAiHubDelta(payload);
+      },
+      onError: () => {
+        homeAiHubStreamConnected.value = false;
+        scheduleHomeAiHubReconnect();
+      },
+    });
+  } catch {
+    homeAiHubStreamConnected.value = false;
+    scheduleHomeAiHubReconnect();
+  }
+}
+
+function restartHomeAiHubStream() {
+  startHomeAiHubStream();
 }
 
 function clampSeriesOutliers(series, lowQ = 0.05, highQ = 0.95) {
@@ -1740,10 +2605,11 @@ watch(() => overview.value.trend, async () => {
 onMounted(() => {
   homeLoadFrameId = window.requestAnimationFrame(() => {
     fetchData();
+    refreshHomeAiHub();
+    startHomeAiHubStream();
     fetchModelGovernance();
     fetchAwardReadiness();
     loadAiAuditLogs();
-    refreshSandboxPending();
     homeLoadFrameId = null;
   });
   resizeHandler = () => {
@@ -1760,7 +2626,13 @@ onBeforeUnmount(() => {
     homeLoadFrameId = null;
   }
   if (primaryChartRenderTimer) clearTimeout(primaryChartRenderTimer);
+  if (adversarialFinaleTimer) {
+    window.clearTimeout(adversarialFinaleTimer);
+    adversarialFinaleTimer = null;
+  }
+  stopHomeAiHubStream();
   stopAdversarialPlayback();
+  stopAdversarialTaskPolling();
   trendChart?.dispose();
   riskChart?.dispose();
 });
@@ -1902,88 +2774,6 @@ onBeforeUnmount(() => {
   margin-top: 4px;
 }
 
-.sandbox-card {
-  min-height: 240px;
-}
-
-.sandbox-actions {
-  flex-wrap: wrap;
-}
-
-.sandbox-summary-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-  margin: 8px 0 14px;
-}
-
-.sandbox-summary-grid article {
-  border: 1px solid rgba(133, 170, 226, 0.24);
-  border-radius: 10px;
-  background: rgba(12, 25, 47, 0.45);
-  padding: 10px;
-}
-
-.sandbox-summary-grid span {
-  color: #9eb4d8;
-  font-size: 12px;
-}
-
-.sandbox-summary-grid strong {
-  display: block;
-  margin-top: 6px;
-  color: #f3f7ff;
-  font-size: 22px;
-}
-
-.sandbox-timeline {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.sandbox-step {
-  border: 1px solid rgba(139, 174, 225, 0.22);
-  border-radius: 12px;
-  background: rgba(12, 23, 42, 0.5);
-  padding: 11px;
-}
-
-.sandbox-step.status-running {
-  border-color: rgba(249, 115, 22, 0.5);
-}
-
-.sandbox-step.status-done {
-  border-color: rgba(34, 197, 94, 0.5);
-}
-
-.sandbox-step-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  align-items: center;
-}
-
-.sandbox-step p {
-  margin: 8px 0;
-  min-height: 40px;
-  color: #a6bade;
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.sandbox-step-meta {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  align-items: center;
-}
-
-.sandbox-step-meta span {
-  color: #8ea7cc;
-  font-size: 12px;
-}
-
 @media (max-width: 1100px) {
   .trace-grid {
     grid-template-columns: 1fr;
@@ -2010,20 +2800,52 @@ onBeforeUnmount(() => {
   .compare-grid {
     grid-template-columns: 1fr;
   }
-
-  .sandbox-summary-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .sandbox-timeline {
-    grid-template-columns: 1fr;
-  }
 }
 
 .workbench-home {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 20px;
+  position: relative;
+  background:
+    radial-gradient(circle at 8% 12%, rgba(77, 145, 255, 0.18), transparent 36%),
+    radial-gradient(circle at 86% 8%, rgba(70, 220, 202, 0.12), transparent 32%),
+    linear-gradient(180deg, #0a0f1f 0%, #0a1022 100%);
+  border-radius: 18px;
+  padding: 12px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.workbench-home::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(137, 178, 255, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(137, 178, 255, 0.08) 1px, transparent 1px);
+  background-size: 42px 42px;
+  opacity: 0.2;
+  animation: homeGridShift 12s linear infinite;
+  pointer-events: none;
+}
+
+.workbench-home > * {
+  position: relative;
+  z-index: 1;
+}
+
+.workbench-home.immersive-war-room > :not(.adversarial-floating-wrap) {
+  filter: blur(2px) brightness(0.42) saturate(0.72);
+  transform: scale(0.992);
+  pointer-events: none;
+  user-select: none;
+  transition: filter 0.28s ease, transform 0.28s ease;
+}
+
+.workbench-home.immersive-war-room .adversarial-floating-wrap {
+  right: 0;
+  bottom: 0;
 }
 
 .trace-grid {
@@ -2119,6 +2941,28 @@ onBeforeUnmount(() => {
   border-radius: 10px;
   background: rgba(11, 19, 35, 0.45);
   color: #dbe7ff;
+  font-size: 12px;
+}
+
+.hub-detail-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.hub-detail-head span {
+  padding: 6px 10px;
+  border: 1px solid rgba(140, 172, 239, 0.2);
+  border-radius: 10px;
+  background: rgba(11, 19, 35, 0.45);
+  color: #dbe7ff;
+  font-size: 12px;
+}
+
+.hub-detail-desc {
+  margin: 0 0 10px;
+  color: #a9bfdf;
   font-size: 12px;
 }
 
@@ -2454,6 +3298,10 @@ onBeforeUnmount(() => {
   background: rgba(255,255,255,0.03);
 }
 
+.pulse-signal-item.pulse-signal-new {
+  animation: signalBlink 1s ease-in-out;
+}
+
 .pulse-signal-top {
   display: flex;
   align-items: center;
@@ -2485,13 +3333,37 @@ onBeforeUnmount(() => {
   color: #dce8ff;
 }
 
+@keyframes signalBlink {
+  0% {
+    border-color: rgba(255, 128, 128, 0.2);
+    box-shadow: 0 0 0 rgba(255, 128, 128, 0);
+  }
+  45% {
+    border-color: rgba(255, 126, 126, 0.75);
+    box-shadow: 0 0 16px rgba(255, 126, 126, 0.36);
+  }
+  100% {
+    border-color: rgba(255,255,255,0.06);
+    box-shadow: 0 0 0 rgba(255, 128, 128, 0);
+  }
+}
+
+@keyframes homeGridShift {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(42px, 42px, 0);
+  }
+}
+
 .pulse-tone.safe {
   background: rgba(105, 169, 255, 0.12);
   color: #dcefff;
 }
 
 .chart-card,
-.todo-card {
+.module-entry-card {
   padding: 22px;
 }
 
@@ -2616,12 +3488,13 @@ onBeforeUnmount(() => {
   color: #90a0b8;
 }
 
-.todo-list {
+.module-entry-grid {
   display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 
-.todo-item {
+.module-entry-item {
   display: grid;
   grid-template-columns: auto 1fr auto;
   gap: 16px;
@@ -2635,12 +3508,12 @@ onBeforeUnmount(() => {
   transition: border-color 0.15s ease, background 0.15s ease;
 }
 
-.todo-item:hover {
+.module-entry-item:hover {
   border-color: rgba(115, 164, 255, 0.28);
   background: rgba(255,255,255,0.05);
 }
 
-.todo-priority {
+.module-entry-tag {
   min-width: 48px;
   padding: 8px 10px;
   border-radius: 12px;
@@ -2651,15 +3524,23 @@ onBeforeUnmount(() => {
   text-align: center;
 }
 
-.todo-copy p {
+.module-entry-copy p {
   margin: 6px 0 0;
   line-height: 1.6;
 }
 
-.todo-metric {
+.module-entry-metric {
   color: #e4ecfa;
   font-size: 13px;
   font-weight: 700;
+}
+
+.module-entry-copy strong {
+  color: #f6f8fe;
+}
+
+.module-entry-copy p {
+  color: #90a0b8;
 }
 
 @media (max-width: 1280px) {
@@ -2686,15 +3567,19 @@ onBeforeUnmount(() => {
 
   .hero-scene,
   .chart-card,
-  .todo-card {
+  .module-entry-card {
     padding: 18px;
   }
 
-  .todo-item {
+  .module-entry-grid {
     grid-template-columns: 1fr;
   }
 
-  .todo-metric {
+  .module-entry-item {
+    grid-template-columns: 1fr;
+  }
+
+  .module-entry-metric {
     text-align: left;
   }
 }
@@ -3025,13 +3910,55 @@ onBeforeUnmount(() => {
 }
 
 .adversarial-panel {
-  width: min(480px, calc(100vw - 28px));
-  margin-top: 10px;
-  padding: 14px;
+  position: fixed;
+  right: 2vw;
+  bottom: 2vh;
+  width: min(1420px, 96vw);
+  height: min(88vh, 980px);
+  margin-top: 0;
+  padding: 16px;
   border-radius: 18px;
   border: 1px solid rgba(110, 162, 255, 0.24);
-  max-height: min(72vh, 760px);
+  background:
+    radial-gradient(circle at 18% 16%, rgba(64, 121, 255, 0.16), transparent 34%),
+    radial-gradient(circle at 82% 14%, rgba(63, 218, 196, 0.1), transparent 28%),
+    linear-gradient(180deg, rgba(7, 14, 28, 0.96), rgba(9, 17, 33, 0.94));
+  max-height: min(88vh, 980px);
   overflow: auto;
+}
+
+.adversarial-panel.adversarial-panel-max {
+  right: 0.8vw;
+  bottom: 0.8vh;
+  width: min(1680px, 99vw);
+  height: min(96vh, 1080px);
+  max-height: min(96vh, 1080px);
+}
+
+.adversarial-layout {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(320px, 1fr);
+  gap: 12px;
+  min-height: 0;
+}
+
+.adversarial-stage-column,
+.adversarial-feed-column {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-height: 0;
+}
+
+.adversarial-feed-column {
+  max-height: calc(min(88vh, 980px) - 175px);
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.adversarial-panel.adversarial-panel-max .adversarial-feed-column {
+  max-height: calc(min(96vh, 1080px) - 180px);
 }
 
 .adversarial-head {
@@ -3039,6 +3966,13 @@ onBeforeUnmount(() => {
   align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
+}
+
+.adversarial-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
 }
 
 .adversarial-close {
@@ -3051,11 +3985,38 @@ onBeforeUnmount(() => {
   cursor: pointer;
 }
 
+.adversarial-close:hover {
+  border-color: rgba(170, 214, 255, 0.46);
+  background: rgba(57, 105, 184, 0.2);
+}
+
 .adversarial-config {
   margin-top: 8px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 86px 96px auto;
+  grid-template-columns: minmax(220px, 1fr) repeat(4, auto);
   gap: 8px;
+}
+
+.adversarial-config-advanced {
+  grid-template-columns: repeat(3, minmax(140px, 1fr));
+}
+
+.adversarial-scene-desc {
+  margin-top: 10px;
+  display: grid;
+  gap: 4px;
+  color: #a7b9d9;
+  font-size: 12px;
+}
+
+.adversarial-scene-desc strong {
+  color: #e6efff;
+  font-size: 13px;
+}
+
+.adversarial-scene-desc em {
+  color: #85a0cc;
+  font-style: normal;
 }
 
 .adversarial-config select,
@@ -3091,8 +4052,50 @@ onBeforeUnmount(() => {
 .adversarial-summary-grid {
   margin-top: 10px;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
+}
+
+.adversarial-log-head {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  color: #9bb0d5;
+  font-size: 12px;
+  margin-bottom: 10px;
+}
+
+.adversarial-log-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.adversarial-log-item {
+  border: 1px solid rgba(136, 170, 221, 0.2);
+  border-radius: 10px;
+  background: rgba(10, 19, 36, 0.52);
+  padding: 10px;
+  display: grid;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.adversarial-log-item strong {
+  color: #e6f1ff;
+  font-size: 12px;
+}
+
+.adversarial-log-item span {
+  color: #8fa9d2;
+  font-size: 11px;
+}
+
+.adversarial-log-item p {
+  color: #bacbe8;
+  font-size: 12px;
+  margin: 0;
+  line-height: 1.5;
 }
 
 .adversarial-summary-grid article {
@@ -3114,10 +4117,698 @@ onBeforeUnmount(() => {
   font-size: 13px;
 }
 
-.adversarial-stream {
+.adversarial-curve-panel {
   margin-top: 10px;
+  border: 1px solid rgba(129, 173, 232, 0.2);
+  border-radius: 12px;
+  background: rgba(12, 23, 43, 0.52);
+  padding: 10px;
+}
+
+.adversarial-curve-panel h4 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: #dce8ff;
+}
+
+.adversarial-curve-svg {
+  width: 100%;
+  height: 120px;
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.01));
+}
+
+.adversarial-curve-svg .curve {
+  fill: none;
+  stroke-width: 1.8;
+}
+
+.adversarial-curve-svg .curve-attack {
+  stroke: #ff8f70;
+}
+
+.adversarial-curve-svg .curve-defense {
+  stroke: #72b8ff;
+}
+
+.adversarial-curve-legend {
+  margin-top: 8px;
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+}
+
+.adversarial-curve-legend .attack {
+  color: #ffbfaa;
+}
+
+.adversarial-curve-legend .defense {
+  color: #a9d3ff;
+}
+
+.adversarial-cinematic-stage {
+  margin-top: 0;
+  border: 1px solid rgba(117, 177, 255, 0.22);
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 26% 40%, rgba(255, 116, 76, 0.18), transparent 42%),
+    radial-gradient(circle at 78% 28%, rgba(74, 188, 255, 0.2), transparent 40%),
+    linear-gradient(135deg, rgba(7, 14, 28, 0.94), rgba(11, 23, 46, 0.92));
+  padding: 14px;
+  overflow: hidden;
+  position: relative;
+  min-height: clamp(350px, 48vh, 520px);
+}
+
+.adversarial-panel.adversarial-panel-max .adversarial-cinematic-stage {
+  min-height: clamp(460px, 62vh, 680px);
+}
+
+.adversarial-cinematic-stage::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(129, 171, 253, 0.12) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(129, 171, 253, 0.1) 1px, transparent 1px);
+  background-size: 34px 34px;
+  opacity: 0.2;
+  pointer-events: none;
+}
+
+.adversarial-cinematic-stage::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 50% 46%, rgba(194, 228, 255, 0.14), transparent 46%);
+  opacity: 0;
+  transition: opacity 0.22s ease;
+  pointer-events: none;
+}
+
+.stage-hud,
+.stage-field,
+.stage-narrative {
+  position: relative;
+  z-index: 1;
+}
+
+.stage-hud {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.stage-hud span {
+  border: 1px solid rgba(126, 176, 255, 0.24);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 11px;
+  color: #d6e8ff;
+  background: rgba(9, 18, 36, 0.7);
+}
+
+.stage-finale-banner {
+  margin-top: 8px;
+  border: 1px solid rgba(162, 214, 255, 0.42);
+  border-radius: 12px;
+  background: linear-gradient(90deg, rgba(14, 38, 69, 0.9), rgba(12, 25, 46, 0.9));
+  padding: 8px 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.stage-finale-banner strong {
+  color: #f4f9ff;
+  font-size: 13px;
+}
+
+.stage-finale-banner span {
+  color: #b5d4ff;
+  font-size: 11px;
+}
+
+.stage-field {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) minmax(160px, 0.9fr) minmax(160px, 1fr);
+  gap: 10px;
+  align-items: center;
+}
+
+.adversarial-panel.adversarial-panel-max .stage-field {
+  grid-template-columns: minmax(220px, 1fr) minmax(220px, 0.9fr) minmax(220px, 1fr);
+}
+
+.battle-actor {
+  border: 1px solid rgba(121, 175, 255, 0.2);
+  border-radius: 12px;
+  background: rgba(7, 16, 32, 0.8);
+  padding: 8px;
+  display: grid;
+  justify-items: center;
+  text-align: center;
+  gap: 6px;
+}
+
+.actor-badge {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: #9ec6ff;
+}
+
+.actor-avatar {
+  width: 110px;
+  height: 110px;
+  border-radius: 50%;
+  border: 1px solid rgba(130, 184, 255, 0.24);
+  background: rgba(12, 24, 47, 0.85);
+  display: grid;
+  place-items: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.battle-asset {
+  position: absolute;
+  inset: 9%;
+  width: 82%;
+  height: 82%;
+  object-fit: contain;
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.attacker-asset {
+  filter: drop-shadow(0 0 10px rgba(255, 130, 90, 0.4));
+}
+
+.defender-asset {
+  filter: drop-shadow(0 0 10px rgba(120, 199, 255, 0.34));
+}
+
+.adversarial-panel.adversarial-panel-max .actor-avatar {
+  width: 132px;
+  height: 132px;
+}
+
+.battle-actor strong {
+  color: #f0f6ff;
+  font-size: 13px;
+}
+
+.battle-actor p {
+  margin: 0;
+  color: #9fb8dd;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.attacker-mark-grid {
+  width: 66px;
+  height: 66px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px;
+}
+
+.attacker-mark-grid i {
+  border-radius: 4px;
+  background: linear-gradient(160deg, rgba(255, 122, 72, 0.95), rgba(255, 82, 112, 0.8));
+  box-shadow: 0 0 8px rgba(255, 124, 72, 0.46);
+}
+
+.openclaw-mark {
+  width: 78px;
+  height: 78px;
+  position: relative;
+}
+
+.attacker-helix-mark,
+.attacker-shard-mark,
+.attacker-swarm-mark {
+  width: 70px;
+  height: 70px;
+  position: relative;
+}
+
+.attacker-helix-mark i {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  margin: -4.5px;
+  border-radius: 50%;
+  background: rgba(255, 124, 89, 0.92);
+  box-shadow: 0 0 8px rgba(255, 124, 89, 0.58);
+  transform: rotate(calc(var(--idx, 0) * 45deg)) translateY(-24px);
+}
+
+.attacker-helix-mark i:nth-child(1) { --idx: 0; }
+.attacker-helix-mark i:nth-child(2) { --idx: 1; }
+.attacker-helix-mark i:nth-child(3) { --idx: 2; }
+.attacker-helix-mark i:nth-child(4) { --idx: 3; }
+.attacker-helix-mark i:nth-child(5) { --idx: 4; }
+.attacker-helix-mark i:nth-child(6) { --idx: 5; }
+.attacker-helix-mark i:nth-child(7) { --idx: 6; }
+.attacker-helix-mark i:nth-child(8) { --idx: 7; }
+
+.attacker-shard-mark i {
+  position: absolute;
+  width: 22px;
+  height: 8px;
+  left: 50%;
+  top: 50%;
+  margin-left: -11px;
+  margin-top: -4px;
+  border-radius: 99px;
+  background: linear-gradient(90deg, rgba(255, 168, 83, 0.94), rgba(255, 99, 136, 0.88));
+  transform-origin: center;
+}
+
+.attacker-shard-mark i:nth-child(1) { transform: rotate(0deg) translateY(-22px); }
+.attacker-shard-mark i:nth-child(2) { transform: rotate(60deg) translateY(-22px); }
+.attacker-shard-mark i:nth-child(3) { transform: rotate(120deg) translateY(-22px); }
+.attacker-shard-mark i:nth-child(4) { transform: rotate(180deg) translateY(-22px); }
+.attacker-shard-mark i:nth-child(5) { transform: rotate(240deg) translateY(-22px); }
+.attacker-shard-mark i:nth-child(6) { transform: rotate(300deg) translateY(-22px); }
+
+.attacker-swarm-mark i {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(255, 134, 103, 0.94);
+  box-shadow: 0 0 7px rgba(255, 134, 103, 0.54);
+}
+
+.attacker-swarm-mark i:nth-child(1) { left: 8px; top: 14px; }
+.attacker-swarm-mark i:nth-child(2) { left: 18px; top: 8px; }
+.attacker-swarm-mark i:nth-child(3) { left: 30px; top: 12px; }
+.attacker-swarm-mark i:nth-child(4) { left: 44px; top: 9px; }
+.attacker-swarm-mark i:nth-child(5) { left: 56px; top: 16px; }
+.attacker-swarm-mark i:nth-child(6) { left: 10px; top: 30px; }
+.attacker-swarm-mark i:nth-child(7) { left: 24px; top: 25px; }
+.attacker-swarm-mark i:nth-child(8) { left: 38px; top: 28px; }
+.attacker-swarm-mark i:nth-child(9) { left: 52px; top: 26px; }
+.attacker-swarm-mark i:nth-child(10) { left: 14px; top: 44px; }
+.attacker-swarm-mark i:nth-child(11) { left: 30px; top: 48px; }
+.attacker-swarm-mark i:nth-child(12) { left: 48px; top: 43px; }
+
+.openclaw-mark i {
+  position: absolute;
+  display: block;
+}
+
+.shrimp-core {
+  width: 26px;
+  height: 34px;
+  left: 16px;
+  top: 10px;
+  border-radius: 50% 50% 40% 40%;
+  background: linear-gradient(180deg, #ff8748, #ff4f75);
+  box-shadow: 0 0 10px rgba(255, 116, 75, 0.52);
+}
+
+.shrimp-claw {
+  width: 15px;
+  height: 15px;
+  top: 14px;
+  border-radius: 50% 50% 50% 10%;
+  border: 2px solid rgba(255, 145, 105, 0.92);
+  border-left: none;
+  border-bottom: none;
+}
+
+.shrimp-claw.claw-left {
+  left: 3px;
+  transform: rotate(-132deg);
+}
+
+.shrimp-claw.claw-right {
+  right: 2px;
+  transform: rotate(46deg);
+}
+
+.shrimp-tail {
+  width: 20px;
+  height: 16px;
+  left: 20px;
+  bottom: 3px;
+  border-radius: 20px 20px 40% 40%;
+  border: 2px solid rgba(255, 190, 148, 0.95);
+  border-top: none;
+}
+
+.actor-attacker {
+  box-shadow: inset 0 0 28px rgba(255, 88, 94, 0.12);
+}
+
+.actor-attacker.attacker-openclaw .actor-avatar {
+  animation: openclawWave 1.2s ease-in-out infinite;
+}
+
+.actor-attacker.attacker-pattern-claw-a .shrimp-core {
+  filter: hue-rotate(0deg);
+}
+
+.actor-attacker.attacker-pattern-claw-b .shrimp-core {
+  filter: hue-rotate(24deg) saturate(1.2);
+}
+
+.actor-attacker.attacker-pattern-claw-c .shrimp-core {
+  filter: hue-rotate(-20deg) saturate(1.25);
+}
+
+.actor-attacker.attacker-pattern-claw-c .shrimp-tail {
+  width: 24px;
+  left: 18px;
+}
+
+.actor-attacker.attacker-openclaw .attacker-asset {
+  opacity: 0.34;
+}
+
+.actor-attacker.attacker-pattern-helix .actor-avatar {
+  animation: attackerSpin 4.8s linear infinite;
+}
+
+.actor-attacker.attacker-pattern-shard .actor-avatar {
+  box-shadow: inset 0 0 20px rgba(255, 122, 84, 0.24), 0 0 16px rgba(255, 122, 84, 0.22);
+}
+
+.actor-attacker.attacker-pattern-swarm .actor-avatar {
+  animation: swarmPulse 1.6s ease-in-out infinite;
+}
+
+.battle-mid {
   display: grid;
   gap: 8px;
+  align-items: center;
+}
+
+.battle-lane {
+  border: 1px solid rgba(132, 185, 255, 0.2);
+  border-radius: 999px;
+  background: rgba(10, 19, 38, 0.72);
+  height: 12px;
+  overflow: hidden;
+}
+
+.lane-pulse {
+  display: block;
+  width: 38%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(255, 118, 86, 0.92), rgba(104, 205, 255, 0.9));
+  animation: laneRush 1.6s linear infinite;
+}
+
+.battle-impact {
+  border-radius: 10px;
+  border: 1px solid rgba(130, 181, 255, 0.22);
+  background: rgba(9, 17, 34, 0.82);
+  padding: 8px;
+  text-align: center;
+}
+
+.battle-impact strong {
+  display: block;
+  color: #eff6ff;
+  font-size: 12px;
+}
+
+.battle-impact span {
+  display: block;
+  margin-top: 4px;
+  color: #9fc0ea;
+  font-size: 11px;
+}
+
+.impact-hit {
+  border-color: rgba(255, 113, 93, 0.48);
+  box-shadow: 0 0 12px rgba(255, 106, 93, 0.34);
+}
+
+.impact-block {
+  border-color: rgba(73, 209, 159, 0.45);
+  box-shadow: 0 0 12px rgba(73, 209, 159, 0.3);
+}
+
+.impact-charge {
+  border-color: rgba(124, 186, 255, 0.48);
+  box-shadow: 0 0 12px rgba(124, 186, 255, 0.28);
+}
+
+.impact-dash {
+  border-color: rgba(255, 166, 90, 0.5);
+  box-shadow: 0 0 14px rgba(255, 166, 90, 0.34);
+}
+
+.defender-avatar {
+  background: radial-gradient(circle at 50% 26%, rgba(113, 195, 255, 0.3), rgba(9, 20, 44, 0.92));
+}
+
+.defender-core-logo {
+  width: 30px;
+  height: 30px;
+  position: relative;
+  z-index: 2;
+  filter: drop-shadow(0 0 6px rgba(120, 199, 255, 0.6));
+}
+
+.defender-shield-rings {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+
+.defender-shield-rings i {
+  position: absolute;
+  border-radius: 50%;
+  border: 1px solid rgba(132, 203, 255, 0.38);
+}
+
+.defender-shield-rings i:nth-child(1) {
+  width: 42px;
+  height: 42px;
+}
+
+.defender-shield-rings i:nth-child(2) {
+  width: 62px;
+  height: 62px;
+}
+
+.defender-shield-rings i:nth-child(3) {
+  width: 82px;
+  height: 82px;
+  border-color: rgba(132, 203, 255, 0.22);
+}
+
+.defender-side-panels {
+  position: absolute;
+  inset: 0;
+}
+
+.defender-side-panels i {
+  position: absolute;
+  top: 42px;
+  width: 18px;
+  height: 28px;
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(118, 201, 255, 0.85), rgba(72, 147, 255, 0.76));
+}
+
+.defender-side-panels .panel-left {
+  left: 14px;
+  transform: skewY(12deg);
+}
+
+.defender-side-panels .panel-right {
+  right: 14px;
+  transform: skewY(-12deg);
+}
+
+.defender-fortress .defender-shield-rings i {
+  animation: defenderRing 1.6s ease-in-out infinite;
+}
+
+.defender-vector .defender-side-panels i {
+  animation: defenderWing 1s ease-in-out infinite;
+}
+
+.defender-prism {
+  box-shadow: inset 0 0 26px rgba(141, 226, 255, 0.2), 0 0 16px rgba(117, 214, 255, 0.24);
+}
+
+.defender-fortress .defender-asset {
+  opacity: 0.62;
+}
+
+.defender-prism .defender-asset {
+  opacity: 0.58;
+}
+
+.guard-torso {
+  width: 12px;
+  height: 26px;
+  top: 26px;
+  left: 33px;
+}
+
+.actor-defender.pose-counter .defender-avatar {
+  animation: guardianCounter 1.4s ease-in-out infinite;
+}
+
+.actor-defender.pose-guard .defender-avatar {
+  animation: guardianGuard 0.9s ease-in-out infinite;
+}
+
+.stage-running .actor-attacker .actor-avatar {
+  animation: attackerDash 0.7s ease-in-out infinite;
+}
+
+.stage-defense .actor-defender .actor-avatar {
+  box-shadow: 0 0 16px rgba(78, 220, 169, 0.35);
+}
+
+.stage-breach .actor-attacker .actor-avatar {
+  box-shadow: 0 0 18px rgba(255, 109, 94, 0.4);
+}
+
+.stage-narrative {
+  margin: 10px 0 0;
+  color: #d7e8ff;
+  font-size: 12px;
+  line-height: 1.58;
+  min-height: 38px;
+}
+
+.stage-subtitle {
+  margin: 6px 0 0;
+  color: #9ec2ec;
+  font-size: 11px;
+  line-height: 1.55;
+  min-height: 18px;
+}
+
+.stage-breach {
+  box-shadow: inset 0 0 34px rgba(255, 89, 89, 0.12);
+}
+
+.stage-defense {
+  box-shadow: inset 0 0 34px rgba(70, 224, 169, 0.12);
+}
+
+.stage-running {
+  box-shadow: inset 0 0 34px rgba(100, 179, 255, 0.1);
+}
+
+.stage-finale-active {
+  animation: stageFinaleFlash 0.52s ease-in-out 1;
+}
+
+.stage-finale-active::after {
+  opacity: 1;
+}
+
+.stage-finale-active .lane-pulse {
+  animation-duration: 3.2s;
+  opacity: 0.72;
+}
+
+.stage-finale-active .battle-actor {
+  transform: scale(1.02);
+  filter: saturate(1.15) contrast(1.06);
+}
+
+.stage-hardening-overlay {
+  margin-top: 10px;
+  border: 1px solid rgba(125, 184, 255, 0.2);
+  border-radius: 11px;
+  background: rgba(9, 18, 35, 0.74);
+  padding: 9px;
+  display: grid;
+  gap: 8px;
+}
+
+.overlay-title {
+  color: #d7e8ff;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.stage-hardening-overlay article {
+  display: grid;
+  gap: 6px;
+}
+
+.overlay-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.overlay-head strong {
+  color: #eff5ff;
+  font-size: 12px;
+}
+
+.overlay-head span {
+  color: #9eb8dc;
+  font-size: 11px;
+}
+
+.overlay-meter {
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  position: relative;
+  overflow: hidden;
+}
+
+.overlay-meter i {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: inherit;
+  transition: width 0.36s ease;
+}
+
+.overlay-meter i.before {
+  background: linear-gradient(90deg, rgba(255, 145, 112, 0.85), rgba(255, 96, 128, 0.72));
+}
+
+.overlay-meter i.after {
+  background: linear-gradient(90deg, rgba(108, 205, 255, 0.95), rgba(73, 214, 168, 0.82));
+  opacity: 0.9;
+}
+
+.overlay-meter i.before.defense {
+  background: linear-gradient(90deg, rgba(134, 173, 255, 0.8), rgba(95, 136, 224, 0.72));
+}
+
+.overlay-meter i.after.defense {
+  background: linear-gradient(90deg, rgba(74, 222, 190, 0.9), rgba(49, 196, 136, 0.84));
+}
+
+.adversarial-stream {
+  margin-top: 0;
+  display: grid;
+  gap: 8px;
+  max-height: 360px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.adversarial-panel.adversarial-panel-max .adversarial-stream {
+  max-height: 440px;
 }
 
 .adversarial-round {
@@ -3198,6 +4889,118 @@ onBeforeUnmount(() => {
   gap: 10px;
 }
 
+.adversarial-harden-btn {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  box-shadow: 0 0 16px rgba(255, 172, 89, 0.28);
+}
+
+.adversarial-feed-column .adversarial-compare-grid {
+  margin-top: 0;
+}
+
+@keyframes laneRush {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(260%);
+  }
+}
+
+@keyframes openclawWave {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-4px) rotate(-3deg);
+  }
+}
+
+@keyframes guardianCounter {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-3px) scale(1.03);
+  }
+}
+
+@keyframes guardianGuard {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(-3px);
+  }
+}
+
+@keyframes attackerDash {
+  0%,
+  100% {
+    transform: translateX(0) scale(1);
+  }
+  50% {
+    transform: translateX(3px) scale(1.04);
+  }
+}
+
+@keyframes attackerSpin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes swarmPulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.06);
+  }
+}
+
+@keyframes defenderRing {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(0.96);
+  }
+  50% {
+    opacity: 0.95;
+    transform: scale(1.04);
+  }
+}
+
+@keyframes defenderWing {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-2px);
+  }
+}
+
+@keyframes stageFinaleFlash {
+  0% {
+    filter: brightness(1);
+  }
+  40% {
+    filter: brightness(1.2);
+  }
+  100% {
+    filter: brightness(1);
+  }
+}
+
 @media (max-width: 768px) {
   .ai-config-row,
   .security-surface {
@@ -3220,8 +5023,26 @@ onBeforeUnmount(() => {
   }
 
   .adversarial-panel {
+    right: 10px;
+    bottom: 10px;
     width: calc(100vw - 20px);
-    max-height: 74vh;
+    height: calc(100vh - 20px);
+    max-height: calc(100vh - 20px);
+  }
+
+  .adversarial-panel.adversarial-panel-max {
+    width: calc(100vw - 12px);
+    height: calc(100vh - 12px);
+    max-height: calc(100vh - 12px);
+  }
+
+  .adversarial-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .adversarial-feed-column {
+    max-height: none;
+    overflow: visible;
   }
 
   .adversarial-config,
@@ -3229,7 +5050,19 @@ onBeforeUnmount(() => {
     grid-template-columns: 1fr;
   }
 
+  .stage-field {
+    grid-template-columns: 1fr;
+  }
+
+  .battle-mid {
+    order: 3;
+  }
+
   .adversarial-compare-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .adversarial-log-grid {
     grid-template-columns: 1fr;
   }
 }

@@ -86,6 +86,8 @@ public class SecurityConfig {
                         "/api/security/events/report",
                         // 驾驶舱 SSE 通道，鉴权在控制器内通过 token 参数完成
                         "/api/security-cockpit/alerts/stream",
+                        // 首页 AI 中枢 SSE 通道，鉴权在控制器内通过 token 参数完成
+                        "/api/dashboard/ai-hub/stream",
                         "/uploads/**",
                         "/v3/api-docs/**",
                         "/swagger-ui/**",

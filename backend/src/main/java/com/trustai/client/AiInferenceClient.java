@@ -106,4 +106,18 @@ public interface AiInferenceClient {
 
     @PostMapping("/api/adversarial/start")
     Map<String, Object> adversarialStart(@RequestBody Map<String, Object> payload);
+
+    @PostMapping("/api/adversarial/task/start")
+    Map<String, Object> adversarialTaskStart(@RequestBody Map<String, Object> payload);
+
+    @GetMapping("/api/adversarial/task/status")
+    Map<String, Object> adversarialTaskStatus(@RequestParam("taskId") String taskId);
+
+    @GetMapping("/api/adversarial/task/logs")
+    Map<String, Object> adversarialTaskLogs(@RequestParam("taskId") String taskId,
+                                            @RequestParam("offset") int offset,
+                                            @RequestParam("limit") int limit);
+
+    @GetMapping("/api/adversarial/task/report")
+    Map<String, Object> adversarialTaskReport(@RequestParam("taskId") String taskId);
 }

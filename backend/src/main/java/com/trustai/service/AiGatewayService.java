@@ -61,6 +61,7 @@ public class AiGatewayService {
     private final CompanyScopeService companyScopeService;
     private final CurrentUserService currentUserService;
     private final PrivacyShieldConfigService privacyShieldConfigService;
+    private final AdversarialTaskPersistenceService adversarialTaskPersistenceService;
 
     public AiGatewayService(AiCallAuditService aiCallAuditService,
                             AiModelService aiModelService,
@@ -72,7 +73,8 @@ public class AiGatewayService {
                             AuditLogService auditLogService,
                             CompanyScopeService companyScopeService,
                             CurrentUserService currentUserService,
-                            PrivacyShieldConfigService privacyShieldConfigService) {
+                            PrivacyShieldConfigService privacyShieldConfigService,
+                            AdversarialTaskPersistenceService adversarialTaskPersistenceService) {
         this.aiCallAuditService = aiCallAuditService;
         this.aiModelService = aiModelService;
         this.aiModelAccessGuardService = aiModelAccessGuardService;
@@ -84,6 +86,7 @@ public class AiGatewayService {
         this.companyScopeService = companyScopeService;
         this.currentUserService = currentUserService;
         this.privacyShieldConfigService = privacyShieldConfigService;
+        this.adversarialTaskPersistenceService = adversarialTaskPersistenceService;
     }
 
     public Map<String, Object> modelMetrics() {
@@ -561,6 +564,124 @@ public class AiGatewayService {
         result.put("trainFeedback", trainFeedback);
         result.put("appliedAt", System.currentTimeMillis());
         return result;
+    }
+
+    public Map<String, Object> adversarialTaskStart(BattleReq req) {
+        String scenario = req == null || req.getScenario() == null || req.getScenario().isBlank()
+            ? "random"
+            : req.getScenario().trim();
+        int rounds = req == null || req.getRounds() == null ? 12 : Math.max(10, Math.min(30, req.getRounds()));
+        Integer seed = req == null ? null : req.getSeed();
+
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("scenario", scenario);
+        payload.put("rounds", rounds);
+        if (seed != null) {
+            payload.put("seed", seed);
+        }
+
+        User currentUser = currentUserService.requireCurrentUser();
+        payload.put("companyId", currentUser.getCompanyId());
+        payload.put("userId", currentUser.getId());
+        payload.put("username", currentUser.getUsername());
+
+        try {
+            Map<String, Object> remote = aiInferenceClient.adversarialTaskStart(payload);
+            String taskId = String.valueOf(remote == null ? "" : remote.get("taskId"));
+            if (taskId.isBlank() || "null".equalsIgnoreCase(taskId)) {
+                throw new BizException(500, "真实攻防任务创建失败：未返回 taskId");
+            }
+            Map<String, Object> response = new HashMap<>();
+            response.putAll(remote);
+            response.put("taskId", taskId);
+            response.put("scenario", scenario);
+            response.put("rounds", rounds);
+            response.put("engine", "python-real-training");
+            response.put("createdAt", System.currentTimeMillis());
+
+            try {
+                adversarialTaskPersistenceService.recordTaskStart(
+                    currentUser.getCompanyId(),
+                    currentUser.getId(),
+                    currentUser.getUsername(),
+                    taskId,
+                    scenario,
+                    rounds,
+                    seed,
+                    response
+                );
+            } catch (Exception ignored) {
+                // Persistence is best-effort and must not block the live adversarial task flow.
+            }
+            return response;
+        } catch (Exception ex) {
+            throw new BizException(503, "真实攻防训练引擎不可用: " + (ex.getMessage() == null ? "unknown" : ex.getMessage()));
+        }
+    }
+
+    public Map<String, Object> adversarialTaskStatus(String taskId) {
+        if (taskId == null || taskId.isBlank()) {
+            throw new BizException(400, "taskId 不能为空");
+        }
+        try {
+            Map<String, Object> remote = aiInferenceClient.adversarialTaskStatus(taskId);
+            if (remote == null || remote.isEmpty()) {
+                throw new BizException(502, "未获取到任务状态");
+            }
+            try {
+                Long companyId = currentUserService.requireCurrentUser().getCompanyId();
+                adversarialTaskPersistenceService.recordTaskStatus(companyId, taskId, remote);
+            } catch (Exception ignored) {
+                // ignore persistence failures in status passthrough
+            }
+            return remote;
+        } catch (Exception ex) {
+            throw new BizException(503, "获取真实攻防任务状态失败: " + (ex.getMessage() == null ? "unknown" : ex.getMessage()));
+        }
+    }
+
+    public Map<String, Object> adversarialTaskLogs(String taskId, Integer offset, Integer limit) {
+        if (taskId == null || taskId.isBlank()) {
+            throw new BizException(400, "taskId 不能为空");
+        }
+        int safeOffset = offset == null ? 0 : Math.max(0, offset);
+        int safeLimit = limit == null ? 200 : Math.max(1, Math.min(500, limit));
+        try {
+            Map<String, Object> remote = aiInferenceClient.adversarialTaskLogs(taskId, safeOffset, safeLimit);
+            if (remote == null) {
+                throw new BizException(502, "未获取到任务日志");
+            }
+            try {
+                Long companyId = currentUserService.requireCurrentUser().getCompanyId();
+                adversarialTaskPersistenceService.recordTaskLogs(companyId, taskId, remote);
+            } catch (Exception ignored) {
+                // ignore persistence failures in logs passthrough
+            }
+            return remote;
+        } catch (Exception ex) {
+            throw new BizException(503, "获取真实攻防任务日志失败: " + (ex.getMessage() == null ? "unknown" : ex.getMessage()));
+        }
+    }
+
+    public Map<String, Object> adversarialTaskReport(String taskId) {
+        if (taskId == null || taskId.isBlank()) {
+            throw new BizException(400, "taskId 不能为空");
+        }
+        try {
+            Map<String, Object> remote = aiInferenceClient.adversarialTaskReport(taskId);
+            if (remote == null || remote.isEmpty()) {
+                throw new BizException(502, "未获取到任务报告");
+            }
+            try {
+                Long companyId = currentUserService.requireCurrentUser().getCompanyId();
+                adversarialTaskPersistenceService.recordTaskReport(companyId, taskId, remote);
+            } catch (Exception ignored) {
+                // ignore persistence failures in report passthrough
+            }
+            return remote;
+        } catch (Exception ex) {
+            throw new BizException(503, "导出真实攻防优化报告失败: " + (ex.getMessage() == null ? "unknown" : ex.getMessage()));
+        }
     }
 
     private Map<String, Object> buildThreatAssessment(boolean immediateCheck) {
