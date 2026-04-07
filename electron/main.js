@@ -25,13 +25,13 @@ const { createClipboardMonitor } = require('./scanner/clipboardMonitor');
 /** 服务端地址，优先读取环境变量或本地配置文件 */
 const CONFIG_PATH = path.join(app.getPath('userData'), 'config.json');
 
-const DEFAULT_SERVER_URL = 'http://localhost:5173'; // Vue 前端地址（供 BrowserWindow 加载）
+const DEFAULT_SERVER_URL = app.isPackaged ? 'http://localhost:3000' : 'http://localhost:5173'; // 安装版默认连生产前端，开发版连 Vite
 const DEFAULT_API_URL    = 'http://localhost:8080'; // Spring Boot 后端 API 地址（供扫描器上报）
 
 function loadConfig() {
   const defaults = {
-    serverUrl: 'http://localhost:5173',
-    backendUrl: 'http://localhost:8080',
+    serverUrl: DEFAULT_SERVER_URL,
+    backendUrl: DEFAULT_API_URL,
     clientIngressToken: '',
     companyId: 1,
     scanIntervalMinutes: 30,
@@ -77,6 +77,74 @@ function loadConfig() {
     }
   } catch { /* ignore */ }
   return defaults;
+}
+
+function buildOfflineHtml(workbenchUrl, reason) {
+  const safeUrl = String(workbenchUrl || '').replace(/[<>&"']/g, (ch) => ({
+    '<': '&lt;',
+    '>': '&gt;',
+    '&': '&amp;',
+    '"': '&quot;',
+    "'": '&#39;'
+  }[ch] || ch));
+  const safeReason = String(reason || '连接失败').replace(/[<>&"']/g, (ch) => ({
+    '<': '&lt;',
+    '>': '&gt;',
+    '&': '&amp;',
+    '"': '&quot;',
+    "'": '&#39;'
+  }[ch] || ch));
+
+  return `<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Aegis 客户端</title>
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: radial-gradient(circle at 20% 20%, #0f2542, #050710 60%);
+        color: #b6c8df;
+        font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      }
+      .panel {
+        width: min(720px, calc(100vw - 48px));
+        border: 1px solid rgba(102, 163, 255, 0.28);
+        border-radius: 14px;
+        background: rgba(8, 14, 28, 0.92);
+        box-shadow: 0 16px 42px rgba(0, 0, 0, 0.45);
+        padding: 24px;
+      }
+      h2 { margin: 0 0 10px; color: #64acff; }
+      p { margin: 8px 0; line-height: 1.55; }
+      code {
+        display: block;
+        margin-top: 12px;
+        padding: 10px 12px;
+        border-radius: 8px;
+        background: rgba(15, 28, 52, 0.9);
+        color: #d5e6ff;
+        word-break: break-all;
+      }
+      .hint { color: #7f97b6; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <section class="panel">
+      <h2>Aegis 客户端连接失败</h2>
+      <p>当前无法加载工作台页面，请检查服务端或前端容器状态。</p>
+      <p>目标地址：</p>
+      <code>${safeUrl}</code>
+      <p>失败原因：${safeReason}</p>
+      <p class="hint">可在托盘菜单「服务器设置」中修改工作台地址。</p>
+    </section>
+  </body>
+</html>`;
 }
 
 function saveConfig(cfg) {
@@ -153,24 +221,47 @@ function createWindow() {
     show: false, // 先隐藏，等内容加载好再显示
   });
 
-  // 加载工作台
-  const workbenchUrl = process.env.AEGIS_DEV_URL || config.serverUrl;
-  mainWindow.loadURL(workbenchUrl).catch(() => {
-    // 如果无法连接服务端，展示一个简单的离线提示页
-    mainWindow.loadURL(`data:text/html;charset=utf-8,
-      <html style="background:#050710;color:#8ab4d4;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
-        <div style="text-align:center">
-          <h2 style="color:#64acff">Aegis 客户端</h2>
-          <p>无法连接到服务端：${workbenchUrl}</p>
-          <p style="font-size:12px;color:#555">请检查服务端是否运行，或在托盘菜单中修改服务器地址。</p>
-        </div>
-      </html>
-    `);
+  const ensureWindowVisible = () => {
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+      mainWindow.show();
+    }
+  };
+
+  // 加载工作台（安装版默认连接 3000；失败时一定回退到可见的离线提示页）
+  const workbenchUrl = process.env.AEGIS_DEV_URL || config.serverUrl || DEFAULT_SERVER_URL;
+  const loadOfflineFallback = (reason) => {
+    const html = buildOfflineHtml(workbenchUrl, reason);
+    const dataUrl = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+    return mainWindow.loadURL(dataUrl).catch(() => {
+      mainWindow.loadURL('about:blank').catch(() => {});
+    }).finally(() => {
+      ensureWindowVisible();
+    });
+  };
+
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    if (!isMainFrame) return;
+    if (!validatedURL || !validatedURL.startsWith('data:text/html')) {
+      loadOfflineFallback(`${errorDescription || 'load-failed'} (${errorCode})`);
+    }
+  });
+
+  mainWindow.webContents.on('did-finish-load', () => {
+    ensureWindowVisible();
+  });
+
+  mainWindow.loadURL(workbenchUrl).catch((err) => {
+    loadOfflineFallback(err?.message || 'load-url-failed');
   });
 
   mainWindow.once('ready-to-show', () => {
-    mainWindow.show();
+    ensureWindowVisible();
   });
+
+  // 兜底：极端情况下 ready-to-show 可能不触发，避免窗口长期不可见误判为黑屏。
+  setTimeout(() => {
+    ensureWindowVisible();
+  }, 2500);
 
   mainWindow.on('close', (event) => {
     if (config.minimizeToTray && !app.isQuitting) {

@@ -16,20 +16,20 @@
               <MagicRings
                 color="#4f8dff"
                 color-two="#63d6ff"
-                :ring-count="6"
-                :speed="1"
-                :attenuation="11"
-                :line-thickness="2"
-                :base-radius="0.02"
-                :radius-step="0.045"
-                :scale-rate="0.42"
-                :opacity="1"
+                :ring-count="8"
+                :speed="1.12"
+                :attenuation="9.2"
+                :line-thickness="2.4"
+                :base-radius="0.04"
+                :radius-step="0.075"
+                :scale-rate="0.88"
+                :opacity="0.96"
                 :blur="0"
-                :noise-amount="0.08"
+                :noise-amount="0.06"
                 :rotation="0"
-                :ring-gap="1.44"
-                :fade-in="0.08"
-                :fade-out="0.6"
+                :ring-gap="1.22"
+                :fade-in="0.02"
+                :fade-out="0.92"
                 :follow-mouse="false"
                 :mouse-influence="0.2"
                 :hover-scale="1.08"
@@ -37,8 +37,8 @@
                 :click-burst="false"
               />
             </div>
-            <h1 class="hero-headline">
-              <span class="hero-title-primary workbench-title-core" data-workbench-title-anchor="home">{{ heroHeadline.primary }}</span>
+            <h1 class="hero-headline workbench-title-core" data-workbench-title-anchor="home">
+              <span class="hero-title-primary">{{ heroHeadline.primary }}</span>
               <span v-if="heroHeadline.suffix" class="hero-title-suffix">{{ heroHeadline.suffix }}</span>
             </h1>
           </div>
@@ -3176,21 +3176,22 @@ onBeforeUnmount(() => {
 
 .hero-headline-wrap {
   position: relative;
-  width: min(760px, 100%);
-  display: grid;
-  justify-items: center;
-  padding: 24px 14px;
+  width: 100%;
+  max-width: 1200px;
+  display: flex;
+  justify-content: center;
+  padding: 26px 10px;
 }
 
 .hero-title-rings {
   position: absolute;
   top: 50%;
-  left: 50%;
-  width: min(680px, 92vw);
-  height: clamp(180px, 30vw, 260px);
+  left: calc(50% - 260px);
+  width: min(1400px, calc(100% + 220px));
+  height: clamp(240px, 34vw, 380px);
   transform: translate(-50%, -50%);
   pointer-events: none;
-  opacity: 0.84;
+  opacity: 0.96;
   z-index: 0;
   mix-blend-mode: screen;
 }
@@ -3260,11 +3261,13 @@ onBeforeUnmount(() => {
   position: relative;
   z-index: 1;
   margin: 18px 0 14px;
+  width: fit-content;
+  max-width: 100%;
   font-size: clamp(36px, 4vw, 52px);
   line-height: 1.04;
   letter-spacing: -0.04em;
   color: #d9eaff;
-  display: flex;
+  display: inline-flex;
   flex-wrap: wrap;
   align-items: baseline;
   justify-content: center;

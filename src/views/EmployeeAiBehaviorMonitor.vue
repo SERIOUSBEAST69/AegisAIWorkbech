@@ -207,12 +207,24 @@ function anomalyAccountId(ev) {
 
 function anomalyRole(ev) {
   const user = anomalyUser(ev);
-  return user?.roleCode || '-';
+  if (!user) return '-';
+  const primaryRoleCode = Array.isArray(user.roleCodes) && user.roleCodes.length > 0
+    ? String(user.roleCodes[0] || '').trim()
+    : '';
+  if (primaryRoleCode) return primaryRoleCode;
+  const singleRoleCode = String(user.roleCode || '').trim();
+  return singleRoleCode || '-';
 }
 
 function hasBoundRole(ev) {
-  const roleCode = String(anomalyRole(ev) || '').trim();
-  return roleCode.length > 0 && roleCode !== '-';
+  const user = anomalyUser(ev);
+  if (!user) return false;
+  const roleCodes = Array.isArray(user.roleCodes)
+    ? user.roleCodes.map(item => String(item || '').trim()).filter(Boolean)
+    : [];
+  if (roleCodes.length > 0) return true;
+  const roleCode = String(user.roleCode || '').trim();
+  return roleCode.length > 0;
 }
 
 function anomalyPosition(ev) {

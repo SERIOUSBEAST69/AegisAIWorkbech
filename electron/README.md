@@ -53,12 +53,14 @@ AEGIS_DEV_URL=http://localhost:5173 npm start
 
 ```json
 {
-  "serverUrl": "http://your-server-ip:8080",
+  "serverUrl": "http://your-server-ip:3000",
   "scanIntervalMinutes": 30,
   "autoStart": true,
   "minimizeToTray": true
 }
 ```
+
+说明：`serverUrl` 必须指向前端工作台地址（例如 3000 端口的 Nginx/Vite 页面），不要填写后端 API 地址（8080），否则会出现空白/黑屏页面。
 
 也可以在托盘菜单 → **服务器设置** 中修改。
 
