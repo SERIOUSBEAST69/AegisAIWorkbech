@@ -1,20 +1,54 @@
 <template>
-  <div class="workbench-home" :class="{ 'immersive-war-room': adversarialPanelOpen }" ref="stageRef">
+  <div
+    class="workbench-home"
+    :class="[
+      { 'immersive-war-room': adversarialPanelOpen, 'reduce-motion': prefersReducedMotion },
+      `motion-tier-${motionTier}`
+    ]"
+    ref="stageRef"
+  >
     <section class="hero-scene card-glass scene-block" ref="heroRef">
-      <div class="hero-copy">
-        <div class="eyebrow">{{ personaExperience.kicker }}</div>
-        <h1 class="hero-headline">
-          <span class="hero-title-primary workbench-title-core" data-workbench-title-anchor="home">{{ heroHeadline.primary }}</span>
-          <span v-if="heroHeadline.suffix" class="hero-title-suffix">{{ heroHeadline.suffix }}</span>
-        </h1>
-        <p>{{ heroSubheadline }}</p>
-        <div class="scene-tags">
-          <span v-for="tag in overview.sceneTags" :key="tag" class="scene-tag">{{ tag }}</span>
-        </div>
-        <div class="operator-ribbon">
-          <div class="operator-label">当前指挥席位</div>
-          <div class="operator-name">{{ overview.operator.displayName }}</div>
-          <div class="operator-meta">{{ overview.operator.roleName }} · {{ overview.operator.department }}</div>
+      <div class="hero-rings-bg" aria-hidden="true">
+        <MagicRings
+          color="#4f8dff"
+          color-two="#63d6ff"
+          :ring-count="6"
+          :speed="1"
+          :attenuation="10"
+          :line-thickness="2"
+          :base-radius="0.35"
+          :radius-step="0.1"
+          :scale-rate="0.1"
+          :opacity="1"
+          :blur="0"
+          :noise-amount="0.08"
+          :rotation="0"
+          :ring-gap="1.5"
+          :fade-in="0.7"
+          :fade-out="0.5"
+          :follow-mouse="false"
+          :mouse-influence="0.2"
+          :hover-scale="1.08"
+          :parallax="0.03"
+          :click-burst="false"
+        />
+      </div>
+      <div class="hero-stage">
+        <div class="hero-copy">
+          <div class="eyebrow">{{ personaExperience.kicker }}</div>
+          <h1 class="hero-headline">
+            <span class="hero-title-primary workbench-title-core" data-workbench-title-anchor="home">{{ heroHeadline.primary }}</span>
+            <span v-if="heroHeadline.suffix" class="hero-title-suffix">{{ heroHeadline.suffix }}</span>
+          </h1>
+          <p>{{ heroSubheadline }}</p>
+          <div class="scene-tags">
+            <span v-for="tag in overview.sceneTags" :key="tag" class="scene-tag">{{ tag }}</span>
+          </div>
+          <div class="operator-ribbon">
+            <div class="operator-label">当前指挥席位</div>
+            <div class="operator-name">{{ overview.operator.displayName }}</div>
+            <div class="operator-meta">{{ overview.operator.roleName }} · {{ overview.operator.department }}</div>
+          </div>
         </div>
       </div>
       <div class="hero-quick-row">
@@ -40,6 +74,8 @@
     <HomeAiAnalysisHub
       :hub="homeAiHubData"
       :loading="homeAiHubLoading"
+      :motion-tier="motionTier"
+      :reduced-motion="prefersReducedMotion"
       @refresh="refreshHomeAiHub"
       @jump="handleHubJump"
       @scope-change="handleHubScopeChange"
@@ -622,6 +658,7 @@ import { dashboardApi } from '../api/dashboard';
 import request from '../api/request';
 import StatCard from '../components/StatCard.vue';
 import HomeAiAnalysisHub from '../components/home/HomeAiAnalysisHub.vue';
+import MagicRings from '../components/home/MagicRings.vue';
 import defenderLogoUrl from '../assets/logo.svg';
 import attackerAssetLattice from '../assets/adversarial/attacker-lattice.svg';
 import attackerAssetHelix from '../assets/adversarial/attacker-helix.svg';
@@ -746,6 +783,8 @@ const aiAuditLogs = ref([]);
 const aiAuditVerify = ref({ loading: false, passed: false, checkedRows: 0, violationCount: 0 });
 const governanceSignalSeen = ref(new Set());
 const governanceSignalFlash = ref(new Set());
+const motionTier = ref('high');
+const prefersReducedMotion = ref(false);
 const isAdmin = computed(() => {
   const role = String(userStore.userInfo?.roleCode || userStore.userInfo?.role || '')
     .trim()
@@ -796,6 +835,41 @@ let adversarialFinaleTimer = null;
 let homeLoadFrameId = null;
 let homeAiHubStreamHandle = null;
 let homeAiHubReconnectTimer = null;
+let reducedMotionQuery = null;
+
+function evaluateMotionProfile() {
+  if (typeof window === 'undefined') {
+    motionTier.value = 'medium';
+    prefersReducedMotion.value = false;
+    return;
+  }
+  const mediaReduce = typeof window.matchMedia === 'function'
+    ? window.matchMedia('(prefers-reduced-motion: reduce)')
+    : null;
+  prefersReducedMotion.value = Boolean(mediaReduce?.matches);
+
+  if (prefersReducedMotion.value) {
+    motionTier.value = 'low';
+    return;
+  }
+
+  const cores = Number(navigator.hardwareConcurrency || 4);
+  const memory = Number(navigator.deviceMemory || 4);
+  const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+  const saveData = Boolean(conn?.saveData);
+  const isSlowConnection = /(2g|slow-2g)/i.test(String(conn?.effectiveType || ''));
+
+  let score = 0;
+  if (cores >= 8) score += 2;
+  else if (cores >= 4) score += 1;
+  if (memory >= 8) score += 2;
+  else if (memory >= 4) score += 1;
+  if (!saveData && !isSlowConnection) score += 1;
+
+  if (score >= 4) motionTier.value = 'high';
+  else if (score >= 2) motionTier.value = 'medium';
+  else motionTier.value = 'low';
+}
 
 function selectedModel() {
   return aiModelOptions.value.find(item => item.modelCode === selectedAiModelCode.value)
@@ -2310,8 +2384,13 @@ async function renderTrendChart() {
     : [];
   const leftAxisMax = resolveYAxisMax([riskWithForecast, forecastWithPad, [...auditSeries, ...forecastPad], [...aiCallSeries, ...forecastPad]]);
   const rightAxisMax = resolveYAxisMax([[...costSeries, ...forecastPad]]);
+  const chartAnimation = !prefersReducedMotion.value && motionTier.value !== 'low';
+  const chartAnimDuration = motionTier.value === 'high' ? 460 : 280;
 
   trendChart.setOption({
+    animation: chartAnimation,
+    animationDuration: chartAnimDuration,
+    animationDurationUpdate: Math.round(chartAnimDuration * 0.8),
     backgroundColor: 'transparent',
     tooltip: { trigger: 'axis' },
     legend: {
@@ -2414,7 +2493,12 @@ async function renderRiskChart() {
   if (!riskChart) {
     riskChart = echarts.init(riskChartRef.value);
   }
+  const chartAnimation = !prefersReducedMotion.value && motionTier.value !== 'low';
+  const chartAnimDuration = motionTier.value === 'high' ? 420 : 220;
   riskChart.setOption({
+    animation: chartAnimation,
+    animationDuration: chartAnimDuration,
+    animationDurationUpdate: Math.round(chartAnimDuration * 0.75),
     backgroundColor: 'transparent',
     tooltip: { trigger: 'item' },
     series: [
@@ -2452,21 +2536,20 @@ function playEntryScene() {
   const blocks = Array.from(stageRef.value.querySelectorAll('.scene-block'));
   const cinematicEntry = sessionStorage.getItem('aegis.transition.origin') === 'login';
   sessionStorage.removeItem('aegis.transition.origin');
-  const prefersReducedMotion = typeof window.matchMedia === 'function'
-    && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-  if (cinematicEntry || prefersReducedMotion) {
+  if (cinematicEntry || prefersReducedMotion.value || motionTier.value === 'low') {
     gsap.set(blocks, { opacity: 1, y: 0 });
     return;
   }
 
+  const duration = motionTier.value === 'high' ? 0.28 : 0.2;
+  const stagger = motionTier.value === 'high' ? 0.045 : 0.03;
   gsap.set(blocks, { opacity: 0, y: 8 });
-  gsap.to(heroRef.value, { opacity: 1, y: 0, duration: 0.22, ease: 'power1.out' });
+  gsap.to(heroRef.value, { opacity: 1, y: 0, duration, ease: 'power1.out' });
   gsap.to(blocks.filter(block => block !== heroRef.value), {
     opacity: 1,
     y: 0,
-    duration: 0.16,
-    stagger: 0.035,
+    duration: Math.max(0.14, duration - 0.08),
+    stagger,
     ease: 'power1.out'
   });
 }
@@ -2609,6 +2692,17 @@ watch(() => overview.value.trend, async () => {
 }, { deep: true });
 
 onMounted(() => {
+  evaluateMotionProfile();
+  if (typeof window.matchMedia === 'function') {
+    reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const handler = () => evaluateMotionProfile();
+    if (typeof reducedMotionQuery.addEventListener === 'function') {
+      reducedMotionQuery.addEventListener('change', handler);
+    } else if (typeof reducedMotionQuery.addListener === 'function') {
+      reducedMotionQuery.addListener(handler);
+    }
+    reducedMotionQuery.__aegisHandler = handler;
+  }
   homeLoadFrameId = window.requestAnimationFrame(() => {
     fetchData();
     refreshHomeAiHub();
@@ -2626,6 +2720,14 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  if (reducedMotionQuery && reducedMotionQuery.__aegisHandler) {
+    const handler = reducedMotionQuery.__aegisHandler;
+    if (typeof reducedMotionQuery.removeEventListener === 'function') {
+      reducedMotionQuery.removeEventListener('change', handler);
+    } else if (typeof reducedMotionQuery.removeListener === 'function') {
+      reducedMotionQuery.removeListener(handler);
+    }
+  }
   window.removeEventListener('resize', resizeHandler);
   if (homeLoadFrameId != null) {
     window.cancelAnimationFrame(homeLoadFrameId);
@@ -2823,6 +2925,17 @@ onBeforeUnmount(() => {
   overflow-x: hidden;
   overflow-y: visible;
   touch-action: pan-y;
+}
+
+.workbench-home.motion-tier-low * {
+  will-change: auto !important;
+}
+
+.workbench-home.reduce-motion * {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
 }
 
 .workbench-home::before {
@@ -3051,19 +3164,38 @@ onBeforeUnmount(() => {
   position: relative;
   overflow: visible;
   background:
-    radial-gradient(circle at 8% 18%, rgba(70, 118, 255, 0.28), transparent 30%),
-    radial-gradient(circle at 82% 20%, rgba(34, 208, 181, 0.18), transparent 28%),
-    linear-gradient(135deg, rgba(9, 14, 24, 0.98), rgba(12, 18, 31, 0.92));
+    radial-gradient(circle at 12% 18%, rgba(116, 176, 255, 0.22), transparent 36%),
+    radial-gradient(circle at 82% 16%, rgba(88, 136, 255, 0.16), transparent 34%),
+    linear-gradient(138deg, rgba(7, 12, 25, 0.98), rgba(10, 20, 38, 0.94));
+  border: 1px solid rgba(132, 176, 255, 0.2);
+  box-shadow: inset 0 1px 0 rgba(197, 222, 255, 0.08), 0 24px 48px rgba(4, 10, 24, 0.44);
+}
+
+.hero-rings-bg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.78;
 }
 
 .hero-scene::before {
   content: '';
   position: absolute;
   inset: 0;
-  background-image: linear-gradient(rgba(255,255,255,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px);
+  background-image: linear-gradient(rgba(148, 190, 255, 0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(122, 169, 255, 0.08) 1px, transparent 1px);
   background-size: 72px 72px;
-  opacity: 0.12;
+  opacity: 0.22;
   mask-image: linear-gradient(180deg, rgba(0,0,0,0.88), transparent 100%);
+}
+
+.hero-stage {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  align-items: stretch;
 }
 
 .hero-copy,
@@ -3072,10 +3204,17 @@ onBeforeUnmount(() => {
   z-index: 1;
 }
 
+.hero-copy {
+  text-align: center;
+  display: grid;
+  justify-items: center;
+}
+
 .hero-quick-row {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+  justify-content: center;
 }
 
 .hero-quick-row span {
@@ -3106,10 +3245,11 @@ onBeforeUnmount(() => {
   font-size: clamp(36px, 4vw, 52px);
   line-height: 1.04;
   letter-spacing: -0.04em;
-  color: #f6f8fe;
+  color: #d9eaff;
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
+  justify-content: center;
   gap: 0.18em 0.34em;
 }
 
@@ -3125,7 +3265,7 @@ onBeforeUnmount(() => {
 .hero-copy p {
   max-width: 720px;
   margin: 0;
-  color: #98a5bb;
+  color: #a9c0df;
   font-size: 16px;
   line-height: 1.8;
 }
@@ -3154,6 +3294,7 @@ onBeforeUnmount(() => {
   border: 1px solid rgba(255,255,255,0.08);
   background: linear-gradient(135deg, rgba(255,255,255,0.07), rgba(255,255,255,0.03));
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
+  text-align: left;
 }
 
 .operator-label {
@@ -3554,12 +3695,20 @@ onBeforeUnmount(() => {
 
 @media (max-width: 1280px) {
   .pulse-grid,
-  .hero-scene,
   .risk-layout,
 
   .pulse-layout {
     grid-template-columns: 1fr;
   }
+
+  .hero-stage {
+    grid-template-columns: 1fr;
+  }
+
+  .hero-copy p {
+    max-width: 100%;
+  }
+
   .stat-grid {
     grid-template-columns: 1fr;
   }
@@ -3591,6 +3740,15 @@ onBeforeUnmount(() => {
   .module-entry-metric {
     text-align: left;
   }
+}
+
+.workbench-home.motion-tier-low .hero-rings-bg,
+.workbench-home.reduce-motion .hero-rings-bg {
+  opacity: 0.45;
+}
+
+.workbench-home.reduce-motion::before {
+  display: none;
 }
 
 .ai-workbench-card {

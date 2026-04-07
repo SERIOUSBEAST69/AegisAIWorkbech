@@ -1,6 +1,7 @@
 <template>
   <section class="ai-hub-wrap scene-block">
-    <div class="ai-hub-shell card-glass">
+    <div class="ai-hub-shell card-glass" :class="[`motion-tier-${motionTierSafe}`, { 'reduce-motion': reducedMotion }]">
+      <div class="hub-ambient-grid" aria-hidden="true"></div>
       <header class="hub-head">
         <div>
           <div class="hub-kicker">AI FULL-DB ANALYSIS CORE</div>
@@ -62,7 +63,18 @@
       </div>
 
       <div class="hub-insight-grid">
-        <el-card class="hub-panel alert-panel" shadow="never">
+        <BorderGlow
+          class="hub-glow"
+          :edge-sensitivity="36"
+          glow-color="218 68 72"
+          background-color="#080b12"
+          :border-radius="24"
+          :glow-radius="34"
+          :glow-intensity="1"
+          :cone-spread="24"
+          :colors="['#6da8ff', '#466bcb', '#1f3e88']"
+        >
+          <el-card class="hub-panel alert-panel" shadow="never">
           <template #header>
             <div class="panel-headline">关键告警看板</div>
           </template>
@@ -87,9 +99,21 @@
             </button>
             <el-empty v-if="alertItems.length === 0" description="暂无关键告警" :image-size="50" />
           </div>
-        </el-card>
+          </el-card>
+        </BorderGlow>
 
-        <el-card class="hub-panel persona-panel" shadow="never">
+        <BorderGlow
+          class="hub-glow"
+          :edge-sensitivity="34"
+          glow-color="216 62 70"
+          background-color="#080b12"
+          :border-radius="24"
+          :glow-radius="34"
+          :glow-intensity="0.95"
+          :cone-spread="22"
+          :colors="['#74b3ff', '#4f7be0', '#244999']"
+        >
+          <el-card class="hub-panel persona-panel" shadow="never">
           <template #header>
             <div class="panel-headline">当前视角画像</div>
           </template>
@@ -108,59 +132,77 @@
               <strong>{{ item.value }}</strong>
             </article>
           </div>
-        </el-card>
+          </el-card>
+        </BorderGlow>
       </div>
 
       <div class="hub-main-grid hub-main-grid-revamped">
-        <el-card class="hub-panel matrix-panel" shadow="never">
+        <BorderGlow
+          class="hub-glow"
+          :edge-sensitivity="38"
+          glow-color="220 66 70"
+          background-color="#060910"
+          :border-radius="26"
+          :glow-radius="42"
+          :glow-intensity="1"
+          :cone-spread="26"
+          :colors="['#79b5ff', '#5388eb', '#2a4ea1']"
+        >
+          <el-card class="hub-panel matrix-panel" shadow="never">
           <template #header>
-            <div class="panel-headline">全库战情矩阵</div>
+            <div class="panel-headline">全库战情矩阵舱</div>
           </template>
-          <div class="matrix-grid">
-            <article
-              v-for="row in matrixRows"
-              :key="row.id"
-              class="matrix-item"
-              @click="$emit('detail', { kind: 'graph-node', key: row.id, label: row.label })"
-            >
-              <div class="matrix-top">
-                <strong>{{ row.label }}</strong>
-                <span>{{ row.score }}</span>
-              </div>
-              <div class="matrix-bar"><i :style="{ width: `${row.score}%`, background: row.color }"></i></div>
-              <p>{{ row.note }}</p>
-            </article>
-          </div>
-        </el-card>
+          <WarMatrixBay
+            :rows="matrixRows"
+            :motion-tier="motionTierSafe"
+            :reduced-motion="reducedMotion"
+            @detail="$emit('detail', $event)"
+            @select="handleMatrixSelect"
+          />
+          </el-card>
+        </BorderGlow>
 
-        <el-card class="hub-panel radar-panel" shadow="never">
+        <BorderGlow
+          class="hub-glow"
+          :edge-sensitivity="32"
+          glow-color="224 72 70"
+          background-color="#070a11"
+          :border-radius="26"
+          :glow-radius="40"
+          :glow-intensity="0.95"
+          :cone-spread="22"
+          :colors="['#7ab6ff', '#5a8ff0', '#2a5aa8']"
+        >
+          <el-card class="hub-panel radar-panel" shadow="never">
           <template #header>
-            <div class="panel-headline">风险热力带</div>
+            <div class="panel-headline">风险热力走廊</div>
           </template>
-          <div class="radar-heat-list">
-            <button
-              v-for="dim in radarSortedDimensions"
-              :key="dim.code"
-              type="button"
-              class="radar-heat-item"
-              @click="$emit('detail', { kind: 'radar-dimension', key: dim.code, label: dim.label })"
-            >
-              <div class="radar-heat-top">
-                <strong>{{ dim.label }}</strong>
-                <span>{{ dim.value }}</span>
-              </div>
-              <div class="radar-heat-track">
-                <i :style="{ width: `${dim.value}%` }"></i>
-              </div>
-            </button>
-          </div>
-          <div class="radar-tip">点击任一热力项可直接下钻到证据细节。</div>
-        </el-card>
+          <RiskHeatCorridor
+            :dimensions="radarSortedDimensions"
+            :focus-code="corridorFocusCode"
+            :boost-by-code="corridorBoostByCode"
+            :motion-tier="motionTierSafe"
+            :reduced-motion="reducedMotion"
+            @detail="$emit('detail', $event)"
+          />
+          </el-card>
+        </BorderGlow>
 
       </div>
 
       <div class="hub-bottom-grid single-panel">
-        <el-card class="hub-panel deepseek-panel" shadow="never">
+        <BorderGlow
+          class="hub-glow"
+          :edge-sensitivity="36"
+          glow-color="223 70 70"
+          background-color="#060812"
+          :border-radius="26"
+          :glow-radius="45"
+          :glow-intensity="1"
+          :cone-spread="28"
+          :colors="['#72afff', '#4a7de0', '#2552a7']"
+        >
+          <el-card class="hub-panel deepseek-panel" shadow="never">
           <template #header>
             <div class="panel-headline panel-headline-between">
               <div class="deepseek-title-block">
@@ -172,18 +214,26 @@
               </div>
             </div>
           </template>
+          <div class="deepseek-whale-stage" aria-hidden="true">
+            <img class="deepseek-icon" :src="deepseekLogoUrl" alt="" />
+          </div>
           <div v-if="deepseekText" class="deepseek-content">{{ deepseekText }}</div>
           <el-empty v-else description="暂无智能解读结果" :image-size="54" />
-        </el-card>
+          </el-card>
+        </BorderGlow>
       </div>
     </div>
   </section>
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import { dashboardApi } from '../../api/dashboard';
+import BorderGlow from '../../components/BorderGlow.vue';
+import WarMatrixBay from './WarMatrixBay.vue';
+import RiskHeatCorridor from './RiskHeatCorridor.vue';
+import deepseekLogoUrl from '../../assets/icons/deepseek-logo.svg';
 
 const props = defineProps({
   hub: {
@@ -199,6 +249,14 @@ const props = defineProps({
     }),
   },
   loading: {
+    type: Boolean,
+    default: false,
+  },
+  motionTier: {
+    type: String,
+    default: 'high',
+  },
+  reducedMotion: {
     type: Boolean,
     default: false,
   },
@@ -220,6 +278,14 @@ const scopeOptions = ref({
 
 const deepseekLoading = ref(false);
 const deepseekText = ref('');
+const corridorFocusCode = ref('');
+const corridorBoostByCode = ref({});
+let corridorFocusTimer = null;
+const motionTierSafe = computed(() => {
+  const raw = String(props.motionTier || 'high').toLowerCase();
+  if (raw === 'low' || raw === 'medium' || raw === 'high') return raw;
+  return 'high';
+});
 const allowedLevels = computed(() => Array.isArray(scopeOptions.value?.allowedLevels) && scopeOptions.value.allowedLevels.length
   ? scopeOptions.value.allowedLevels
   : ['company', 'department', 'user']);
@@ -228,10 +294,43 @@ const userOptionsForScope = computed(() => {
   if (scope.value.level !== 'user') return all;
   return all;
 });
-const alertItems = computed(() => Array.isArray(props.hub?.alertBoard?.items) ? props.hub.alertBoard.items.slice(0, 6) : []);
+function normalizeText(value) {
+  return String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
+}
+
+function hasMojibake(value) {
+  const text = normalizeText(value);
+  if (!text) return false;
+  if (/\uFFFD/.test(text)) return true;
+  if (/[\u0000-\u001F\u007F]/.test(text)) return true;
+  // Common UTF-8/GBK mojibake fragments.
+  if (/(Ã.|Â|Ð|Ñ|Ê|Ë|Ï|ï»¿)/.test(text)) return true;
+  // Typical UTF-8-decoded-as-Latin1 garbage, e.g. "å®¡è®¡".
+  const hasLatin1Noise = /[\u00C0-\u00FF]/.test(text);
+  const hasReadableHan = /[\u4E00-\u9FFF]/.test(text);
+  if (hasLatin1Noise && !hasReadableHan) return true;
+  // High ratio of punctuation/latin fragments usually indicates garbling in this board title.
+  const alnum = text.replace(/[^a-zA-Z0-9\u4E00-\u9FFF]/g, '');
+  if (alnum.length > 0 && alnum.length <= 3 && text.length >= 8) return true;
+  return false;
+}
+
+const alertItems = computed(() => {
+  const rows = Array.isArray(props.hub?.alertBoard?.items) ? props.hub.alertBoard.items : [];
+  return rows
+    .map(item => ({
+      ...item,
+      title: normalizeText(item?.title),
+      eventType: normalizeText(item?.eventType),
+      status: normalizeText(item?.status),
+      username: normalizeText(item?.username),
+      eventTime: normalizeText(item?.eventTime),
+    }))
+    .filter(item => item.title && !hasMojibake(item.title))
+    .slice(0, 6);
+});
 const personaStats = computed(() => Array.isArray(props.hub?.scopePersona?.stats) ? props.hub.scopePersona.stats : []);
 const matrixRows = computed(() => {
-  const nodeMap = new Map((props.hub?.graph?.nodes || []).map(item => [String(item.id), item]));
   const edgeMap = new Map();
   (props.hub?.graph?.edges || []).forEach(edge => {
     const source = String(edge?.source || '');
@@ -265,6 +364,61 @@ const radarSortedDimensions = computed(() => {
     }))
     .sort((a, b) => b.value - a.value);
 });
+
+function clearCorridorFocusTimer() {
+  if (corridorFocusTimer) {
+    window.clearTimeout(corridorFocusTimer);
+    corridorFocusTimer = null;
+  }
+}
+
+function normalizeCode(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function inferCorridorCodeFromText(text) {
+  const raw = normalizeCode(text);
+  if (!raw) return '';
+  if (raw.includes('隐私') || raw.includes('privacy')) return 'privacy';
+  if (raw.includes('漂移') || raw.includes('drift')) return 'drift';
+  if (raw.includes('审批') || raw.includes('approval')) return 'approval';
+  if (raw.includes('资产') || raw.includes('asset')) return 'asset';
+  if (raw.includes('影子') || raw.includes('shadow')) return 'shadow';
+  if (raw.includes('外部') || raw.includes('external')) return 'external';
+  if (raw.includes('风险') || raw.includes('risk')) return 'risk';
+  return '';
+}
+
+function pickCorridorCode(payload) {
+  const hint = normalizeCode(payload?.codeHint);
+  const dims = Array.isArray(props.hub?.radar?.dimensions) ? props.hub.radar.dimensions : [];
+  const codeSet = new Set(dims.map(item => normalizeCode(item?.code)));
+  if (hint && codeSet.has(hint)) return hint;
+
+  const fromLabel = inferCorridorCodeFromText(payload?.label);
+  if (fromLabel && codeSet.has(fromLabel)) return fromLabel;
+
+  const fromId = inferCorridorCodeFromText(payload?.id);
+  if (fromId && codeSet.has(fromId)) return fromId;
+
+  return normalizeCode(dims?.[0]?.code || '');
+}
+
+function handleMatrixSelect(payload) {
+  const focus = pickCorridorCode(payload);
+  if (!focus) return;
+  corridorFocusCode.value = focus;
+  corridorBoostByCode.value = {
+    [focus]: 20,
+  };
+  clearCorridorFocusTimer();
+  corridorFocusTimer = window.setTimeout(() => {
+    corridorFocusCode.value = '';
+    corridorBoostByCode.value = {};
+    corridorFocusTimer = null;
+  }, 8000);
+}
+
 function getScopeParams() {
   const params = { scopeLevel: scope.value.level || 'company' };
   if (scope.value.level === 'department' && scope.value.department) {
@@ -355,6 +509,10 @@ onMounted(() => {
   loadScopeOptions();
   refreshDeepseekAnalysis();
 });
+
+onBeforeUnmount(() => {
+  clearCorridorFocusTimer();
+});
 </script>
 
 <style scoped>
@@ -363,6 +521,8 @@ onMounted(() => {
 }
 
 .ai-hub-shell {
+  position: relative;
+  overflow: hidden;
   border: 1px solid rgba(102, 147, 198, 0.28);
   background:
     radial-gradient(circle at 8% 8%, rgba(22, 84, 171, 0.28), transparent 36%),
@@ -372,7 +532,23 @@ onMounted(() => {
   border-radius: 18px;
 }
 
+.hub-ambient-grid {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at 22% 20%, rgba(135, 194, 255, 0.16), transparent 44%),
+    radial-gradient(circle at 82% 74%, rgba(255, 171, 104, 0.14), transparent 42%),
+    repeating-linear-gradient(112deg, rgba(117, 170, 236, 0.08) 0, rgba(117, 170, 236, 0.08) 1px, transparent 1px, transparent 36px);
+  mix-blend-mode: screen;
+  opacity: 0.46;
+  animation: ambientShift 12s ease-in-out infinite;
+}
+
 .hub-head {
+  position: relative;
+  z-index: 1;
   display: flex;
   justify-content: space-between;
   gap: 12px;
@@ -407,6 +583,8 @@ onMounted(() => {
 }
 
 .hub-kpi-grid {
+  position: relative;
+  z-index: 1;
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
@@ -414,6 +592,8 @@ onMounted(() => {
 }
 
 .hub-insight-grid {
+  position: relative;
+  z-index: 1;
   display: grid;
   grid-template-columns: 1.15fr 0.85fr;
   gap: 10px;
@@ -547,6 +727,8 @@ onMounted(() => {
 }
 
 .hub-main-grid {
+  position: relative;
+  z-index: 1;
   display: grid;
   grid-template-columns: 1.25fr 0.95fr;
   gap: 10px;
@@ -563,6 +745,8 @@ onMounted(() => {
 }
 
 .hub-bottom-grid {
+  position: relative;
+  z-index: 1;
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
@@ -641,7 +825,7 @@ onMounted(() => {
 }
 
 .matrix-top span {
-  color: #ffcd8e;
+  color: #9fcbff;
   font-size: 12px;
 }
 
@@ -695,7 +879,7 @@ onMounted(() => {
 }
 
 .radar-heat-top span {
-  color: #fbbf24;
+  color: #93c3ff;
   font-size: 12px;
 }
 
@@ -711,7 +895,7 @@ onMounted(() => {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, #fb923c 0%, #60a5fa 100%);
+  background: linear-gradient(90deg, #6eaefc 0%, #5f9df8 100%);
 }
 
 .deepseek-content {
@@ -752,12 +936,213 @@ onMounted(() => {
 }
 
 .radar-dim-item span {
-  color: #fbbf24;
+  color: #93c3ff;
   font-size: 12px;
 }
 
 .radar-dim-item:hover {
   border-color: rgba(251, 191, 36, 0.48);
+}
+
+.hub-glow {
+  min-height: 100%;
+}
+
+.hub-glow :deep(.border-glow-card) {
+  height: 100%;
+}
+
+.hub-glow :deep(.border-glow-inner) {
+  height: 100%;
+}
+
+.hub-panel {
+  border: 1px solid rgba(136, 184, 255, 0.2);
+  background:
+    linear-gradient(145deg, rgba(7, 12, 24, 0.88), rgba(8, 17, 34, 0.78)),
+    radial-gradient(circle at 18% 14%, rgba(108, 168, 255, 0.18), transparent 45%);
+  backdrop-filter: blur(14px) saturate(132%);
+  box-shadow: inset 0 1px 0 rgba(204, 227, 255, 0.09), 0 20px 44px rgba(4, 8, 22, 0.4);
+}
+
+.panel-headline {
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #cbe2ff;
+}
+
+.alert-item,
+.persona-stat-item,
+.persona-tag-row span,
+.matrix-item,
+.radar-heat-item {
+  border-color: rgba(124, 176, 255, 0.24);
+  background: linear-gradient(132deg, rgba(10, 18, 35, 0.78), rgba(7, 13, 26, 0.64));
+}
+
+.alert-item:hover,
+.matrix-item:hover,
+.radar-heat-item:hover {
+  transform: translateY(-1px);
+  border-color: rgba(154, 202, 255, 0.58);
+  box-shadow: 0 0 0 1px rgba(112, 168, 255, 0.2), 0 14px 30px rgba(0, 0, 0, 0.38);
+}
+
+.cinema-matrix-grid {
+  position: relative;
+  overflow: hidden;
+  border-radius: 16px;
+  padding: 4px;
+}
+
+.cinema-matrix-grid::before {
+  content: '';
+  position: absolute;
+  inset: -10% -5%;
+  background: repeating-linear-gradient(
+    115deg,
+    rgba(121, 179, 255, 0.1) 0,
+    rgba(121, 179, 255, 0.1) 1px,
+    transparent 1px,
+    transparent 36px
+  );
+  opacity: 0.46;
+  pointer-events: none;
+}
+
+.matrix-item {
+  position: relative;
+  overflow: hidden;
+  border-radius: 14px;
+}
+
+.matrix-item::after {
+  content: '';
+  position: absolute;
+  inset: auto -14% -70% -14%;
+  height: 70%;
+  background: radial-gradient(ellipse at center, rgba(112, 170, 255, 0.3), transparent 70%);
+  pointer-events: none;
+}
+
+.matrix-bar {
+  height: 9px;
+  background: rgba(183, 216, 255, 0.08);
+}
+
+.matrix-bar i {
+  box-shadow: 0 0 12px rgba(119, 176, 255, 0.42);
+}
+
+.risk-corridor-list {
+  gap: 12px;
+}
+
+.corridor-item {
+  position: relative;
+  border-radius: 16px;
+  padding: 11px 12px 12px 18px;
+}
+
+.corridor-item::before {
+  content: '';
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  margin-top: -3px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(174, 213, 255, 0.96) 0, rgba(92, 154, 255, 0.5) 68%, transparent 100%);
+  box-shadow: 0 0 11px rgba(98, 164, 255, 0.58);
+}
+
+.corridor-item .radar-heat-track {
+  height: 10px;
+  border: 1px solid rgba(146, 194, 255, 0.24);
+  background: linear-gradient(90deg, rgba(105, 167, 255, 0.12), rgba(84, 138, 255, 0.12));
+}
+
+.corridor-item .radar-heat-track i {
+  background: linear-gradient(90deg, #6faeff 0%, #4f82e8 42%, #6ec8ff 100%);
+  animation: corridorFlow 3.5s linear infinite;
+}
+
+.deepseek-panel {
+  position: relative;
+  overflow: hidden;
+}
+
+.deepseek-whale-stage {
+  position: absolute;
+  inset: 44px 12px 12px 56%;
+  pointer-events: none;
+  opacity: 0.9;
+}
+
+.deepseek-icon {
+  width: 76%;
+  max-width: 220px;
+  opacity: 0.92;
+  filter: drop-shadow(0 0 12px rgba(98, 154, 255, 0.34));
+  animation: deepseekFloat 8s ease-in-out infinite;
+}
+
+.deepseek-content {
+  position: relative;
+  z-index: 1;
+  padding-right: 30%;
+  color: #d8e7ff;
+  text-shadow: 0 0 10px rgba(60, 128, 189, 0.22);
+}
+
+.ai-hub-shell.motion-tier-medium .deepseek-icon {
+  animation-duration: 11s;
+}
+
+.ai-hub-shell.motion-tier-low .deepseek-whale-stage {
+  opacity: 0.35;
+}
+
+.ai-hub-shell.motion-tier-low .hub-ambient-grid,
+.ai-hub-shell.reduce-motion .hub-ambient-grid {
+  animation: none;
+  opacity: 0.24;
+}
+
+.ai-hub-shell.motion-tier-low .cinema-matrix-grid::before {
+  display: none;
+}
+
+.ai-hub-shell.motion-tier-low .corridor-item .radar-heat-track i {
+  animation: none;
+}
+
+.ai-hub-shell.reduce-motion * {
+  transition: none !important;
+}
+
+.ai-hub-shell.reduce-motion .deepseek-icon,
+.ai-hub-shell.reduce-motion .corridor-item .radar-heat-track i {
+  animation: none !important;
+}
+
+@keyframes corridorFlow {
+  0% { filter: saturate(1.05) brightness(0.95); }
+  50% { filter: saturate(1.28) brightness(1.12); }
+  100% { filter: saturate(1.05) brightness(0.95); }
+}
+
+@keyframes deepseekFloat {
+  0% { transform: translate3d(0, 6px, 0) scale(1); }
+  50% { transform: translate3d(0, -3px, 0) scale(1.02); }
+  100% { transform: translate3d(0, 6px, 0) scale(1); }
+}
+
+@keyframes ambientShift {
+  0% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(0, -1.5%, 0) scale(1.02); }
+  100% { transform: translate3d(0, 0, 0) scale(1); }
 }
 
 
@@ -801,6 +1186,15 @@ onMounted(() => {
     width: 100%;
     justify-content: space-between;
     flex-wrap: wrap;
+  }
+
+  .deepseek-whale-stage {
+    opacity: 0.58;
+    inset: 52px 8px 10px 62%;
+  }
+
+  .deepseek-content {
+    padding-right: 14%;
   }
 
 }

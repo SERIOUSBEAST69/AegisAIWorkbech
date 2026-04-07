@@ -47,13 +47,9 @@
       <el-table-column label="账号 / 角色" width="220" show-overflow-tooltip>
         <template #default="scope">{{ accountRoleById(scope.row.userId) }}</template>
       </el-table-column>
-      <el-table-column label="部门" width="120">
-        <template #default="scope">{{ userDepartmentById(scope.row.userId) }}</template>
-      </el-table-column>
       <el-table-column label="公司" width="100">
         <template #default="scope">{{ userCompanyById(scope.row.userId) }}</template>
       </el-table-column>
-      <el-table-column prop="assetId" label="资产ID" width="80" />
       <el-table-column prop="operation" label="操作类型" width="130" />
       <el-table-column prop="operationTime" label="操作时间" width="190" />
       <el-table-column prop="result" label="结果" width="90">

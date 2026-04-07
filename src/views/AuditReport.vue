@@ -58,7 +58,7 @@
         <template #title>{{ generated.title }}</template>
         <div class="download-row">
           <span>下载链接：</span>
-          <a :href="generated.downloadUrl" target="_blank" rel="noopener noreferrer">{{ generated.downloadUrl }}</a>
+          <a :href="resolvedDownloadUrl" target="_blank" rel="noopener noreferrer">{{ resolvedDownloadUrl }}</a>
         </div>
       </el-alert>
     </el-card>
@@ -66,7 +66,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import request from '../api/request';
 import { hasPermission } from '../utils/permission';
@@ -85,6 +85,18 @@ const reportRange = ref('');
 const generating = ref(false);
 const generated = ref(null);
 const canGenerate = hasPermission('audit:report:generate');
+
+const resolvedDownloadUrl = computed(() => normalizeDownloadUrl(generated.value?.downloadUrl));
+
+function normalizeDownloadUrl(url) {
+  const raw = String(url || '').trim();
+  if (!raw) return '-';
+  if (/^https?:\/\//i.test(raw)) return raw;
+  if (raw.startsWith('/api/')) return raw;
+  if (raw.startsWith('/reports/')) return `/api${raw}`;
+  if (raw.startsWith('/')) return `/api${raw}`;
+  return raw;
+}
 
 async function compareReport() {
   if (!fromDate.value || !toDate.value) {

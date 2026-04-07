@@ -397,8 +397,8 @@ const DEMO_ROLE_LABELS = {
 const DEMO_LOGIN_ACCOUNTS = [
   { roleCode: 'ADMIN', username: 'admin', realName: '平台管理员', password: 'admin' },
   { roleCode: 'ADMIN_REVIEWER', username: 'admin_reviewer', realName: '治理复核员', password: 'admin' },
-  { roleCode: 'SECOPS', username: 'sec01', realName: '安全官-张三', password: 'Passw0rd!' },
-  { roleCode: 'AUDIT', username: 'audit01', realName: '审计员-王五', password: 'Passw0rd!' },
+  { roleCode: 'SECOPS', username: 'sec01', realName: '安全官-张三', password: 'secpass' },
+  { roleCode: 'AUDIT', username: 'audit01', realName: '审计员-王五', password: 'auditpass' },
   { roleCode: 'SECOPS', username: 'secops.demo', realName: '安全运维负责人', password: 'Passw0rd!' },
   { roleCode: 'BUSINESS_OWNER', username: 'biz.demo', realName: '业务负责人', password: 'Passw0rd!' },
 ];

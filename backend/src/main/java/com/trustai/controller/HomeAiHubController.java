@@ -39,6 +39,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+import java.util.regex.Pattern;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -62,6 +63,16 @@ public class HomeAiHubController {
     );
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final ObjectMapper JSON = new ObjectMapper();
+    private static final Pattern EMAIL_PATTERN = Pattern.compile("([A-Za-z0-9._%+\\-]{1,3})[A-Za-z0-9._%+\\-]*@([A-Za-z0-9.\\-]+\\.[A-Za-z]{2,})");
+    private static final Pattern PHONE_PATTERN = Pattern.compile("(?<!\\d)(1[3-9]\\d)\\d{4}(\\d{4})(?!\\d)");
+    private static final Pattern ID_CARD_PATTERN = Pattern.compile("(?<!\\d)([1-9]\\d{5})\\d{8}(\\d{4}|\\d{3}[Xx])(?!\\d)");
+    private static final Pattern BANK_CARD_PATTERN = Pattern.compile("(?<!\\d)(\\d{4})\\d{8,11}(\\d{4})(?!\\d)");
+    private static final Set<String> PROMPT_SENSITIVE_KEYS = Set.of(
+        "username", "user", "userid", "user_id", "approver", "applicant",
+        "phone", "mobile", "email", "idcard", "id_card", "bankcard", "bank_card",
+        "ip", "ipaddress", "clientid", "client_id", "hostname", "devicefingerprint",
+        "token", "authorization", "raw", "payload", "content"
+    );
 
     private final CurrentUserService currentUserService;
     private final CompanyScopeService companyScopeService;
@@ -587,39 +598,118 @@ public class HomeAiHubController {
         long calls = aiCallAuditService.count(scopeAiCallQuery(selection));
         long audits = auditLogService.count(scopeAuditQuery(selection));
 
+        long highSensitivityAssets = dataAssetService.count(
+            scopeAssetQuery(selection).in("sensitivity_level", List.of("L4", "L5"))
+        );
+        long recentAssets = dataAssetService.count(
+            scopeAssetQuery(selection).ge("create_time", LocalDateTime.now().minusDays(30))
+        );
+
+        long pendingThreats = governanceEventService.count(
+            scopeThreatQuery(selection).in("status", List.of("pending", "reviewing"))
+        );
+        long blockedThreats = governanceEventService.count(
+            scopeThreatQuery(selection).eq("status", "blocked")
+        );
+        long highSeverityThreats = governanceEventService.count(
+            scopeThreatQuery(selection).in("severity", List.of("high", "critical"))
+        );
+
+        long highRiskAudits = auditLogService.count(
+            scopeAuditQuery(selection).in("risk_level", List.of("high", "critical"))
+        );
+        long recentAudits = auditLogService.count(
+            scopeAuditQuery(selection).ge("operation_time", LocalDateTime.now().minusDays(7))
+        );
+
+        List<AiCallLog> callSamples = aiCallAuditService.list(
+            scopeAiCallQuery(selection)
+                .select("status", "duration_ms")
+                .orderByDesc("create_time")
+                .last("LIMIT 1200")
+        );
+        long callFailures = callSamples.stream().filter(item -> isFailureStatus(item.getStatus())).count();
+        long slowCalls = callSamples.stream()
+            .filter(item -> (item.getDurationMs() == null ? 0L : item.getDurationMs()) >= 2500)
+            .count();
+
+        long assetPressure = Math.max(2L, Math.round(assets * 0.55 + highSensitivityAssets * 1.9 + recentAssets * 0.45));
+        long riskPressure = Math.max(2L, Math.round(threats * 0.4 + pendingThreats * 1.5 + blockedThreats * 1.2 + highSeverityThreats * 1.8));
+        long auditPressure = Math.max(2L, Math.round(audits * 0.28 + highRiskAudits * 1.7 + recentAudits * 0.55));
+        long aiPressure = Math.max(2L, Math.round(calls * 0.32 + callFailures * 1.6 + slowCalls * 1.05));
+
+        int companyPulse = clamp((int) Math.round(22
+            + percent(highSensitivityAssets, Math.max(1L, assets)) * 0.22
+            + percent(highSeverityThreats, Math.max(1L, threats)) * 0.26
+            + percent(callFailures, Math.max(1L, callSamples.size())) * 0.18));
+        long companyValue = Math.max(5L, Math.round(companyPulse / 8.0));
+
         List<Map<String, Object>> nodes = List.of(
-            node("company", "公司#" + selection.companyId, 8, "#38bdf8"),
-            node("asset", "资产库", Math.max(2L, assets), "#22d3ee"),
-            node("risk", "风险事件", Math.max(2L, threats), "#f97316"),
-            node("audit", "审计日志", Math.max(2L, audits), "#a78bfa"),
-            node("ai", "模型调用", Math.max(2L, calls), "#34d399")
+            node("company", "公司#" + selection.companyId, companyValue, "#38bdf8"),
+            node("asset", "资产库", assetPressure, "#22d3ee"),
+            node("risk", "风险事件", riskPressure, "#f97316"),
+            node("audit", "审计日志", auditPressure, "#a78bfa"),
+            node("ai", "模型调用", aiPressure, "#34d399")
         );
 
         List<Map<String, Object>> edges = List.of(
-            edge("company", "asset", 2, "rgba(34,211,238,0.75)"),
-            edge("company", "risk", 3, "rgba(249,115,22,0.8)"),
-            edge("company", "audit", 2, "rgba(167,139,250,0.78)"),
-            edge("asset", "ai", 2, "rgba(52,211,153,0.72)"),
-            edge("ai", "risk", 3, "rgba(251,146,60,0.76)"),
-            edge("risk", "audit", 2, "rgba(147,197,253,0.70)")
+            edge("company", "asset", edgeWeight(assetPressure * 0.12 + highSensitivityAssets * 0.3), "rgba(34,211,238,0.75)"),
+            edge("company", "risk", edgeWeight(riskPressure * 0.14 + highSeverityThreats * 0.35), "rgba(249,115,22,0.8)"),
+            edge("company", "audit", edgeWeight(auditPressure * 0.13 + highRiskAudits * 0.35), "rgba(167,139,250,0.78)"),
+            edge("asset", "ai", edgeWeight((assetPressure + aiPressure) * 0.08 + highSensitivityAssets * 0.2), "rgba(52,211,153,0.72)"),
+            edge("ai", "risk", edgeWeight(callFailures * 0.6 + slowCalls * 0.35 + highSeverityThreats * 0.22), "rgba(251,146,60,0.76)"),
+            edge("risk", "audit", edgeWeight((pendingThreats + blockedThreats) * 0.55 + highRiskAudits * 0.25), "rgba(147,197,253,0.70)")
         );
 
         return Map.of("nodes", nodes, "edges", edges);
     }
 
     private List<Map<String, Object>> buildRadar(ScopeSelection selection) {
-        long privacyAlerts = governanceEventService.count(
-            scopeThreatQuery(selection).eq("event_type", "PRIVACY_ALERT")
+        List<GovernanceEvent> events = governanceEventService.list(
+            scopeThreatQuery(selection)
+                .select("event_type", "severity", "status", "event_time")
+                .orderByDesc("event_time")
+                .last("LIMIT 2500")
         );
-        long anomalyAlerts = governanceEventService.count(
-            scopeThreatQuery(selection).eq("event_type", "ANOMALY_ALERT")
-        );
-        long shadowAlerts = governanceEventService.count(
-            scopeThreatQuery(selection).eq("event_type", "SHADOW_AI_ALERT")
-        );
-        long pendingAlerts = governanceEventService.count(
-            scopeThreatQuery(selection).in("status", List.of("pending", "reviewing"))
-        );
+
+        long totalThreats = events.size();
+        long privacyAlerts = events.stream().filter(item -> "PRIVACY_ALERT".equalsIgnoreCase(String.valueOf(item.getEventType()))).count();
+        long anomalyAlerts = events.stream().filter(item -> "ANOMALY_ALERT".equalsIgnoreCase(String.valueOf(item.getEventType()))).count();
+        long shadowAlerts = events.stream().filter(item -> "SHADOW_AI_ALERT".equalsIgnoreCase(String.valueOf(item.getEventType()))).count();
+
+        LocalDateTime since14d = LocalDateTime.now().minusDays(14);
+        long privacyHigh = events.stream()
+            .filter(item -> "PRIVACY_ALERT".equalsIgnoreCase(String.valueOf(item.getEventType())))
+            .filter(item -> isHighSeverity(item.getSeverity()))
+            .count();
+        long anomalyHigh = events.stream()
+            .filter(item -> "ANOMALY_ALERT".equalsIgnoreCase(String.valueOf(item.getEventType())))
+            .filter(item -> isHighSeverity(item.getSeverity()))
+            .count();
+        long shadowHigh = events.stream()
+            .filter(item -> "SHADOW_AI_ALERT".equalsIgnoreCase(String.valueOf(item.getEventType())))
+            .filter(item -> isHighSeverity(item.getSeverity()))
+            .count();
+
+        long privacyRecent = events.stream()
+            .filter(item -> "PRIVACY_ALERT".equalsIgnoreCase(String.valueOf(item.getEventType())))
+            .filter(item -> toLocalDateTime(item.getEventTime()).isAfter(since14d))
+            .count();
+        long anomalyRecent = events.stream()
+            .filter(item -> "ANOMALY_ALERT".equalsIgnoreCase(String.valueOf(item.getEventType())))
+            .filter(item -> toLocalDateTime(item.getEventTime()).isAfter(since14d))
+            .count();
+        long shadowRecent = events.stream()
+            .filter(item -> "SHADOW_AI_ALERT".equalsIgnoreCase(String.valueOf(item.getEventType())))
+            .filter(item -> toLocalDateTime(item.getEventTime()).isAfter(since14d))
+            .count();
+
+        long pendingAlerts = events.stream().filter(item -> isPendingOrReviewing(item.getStatus())).count();
+        long blockedAlerts = events.stream().filter(item -> "blocked".equalsIgnoreCase(String.valueOf(item.getStatus()))).count();
+        long criticalPending = events.stream()
+            .filter(item -> isPendingOrReviewing(item.getStatus()))
+            .filter(item -> isHighSeverity(item.getSeverity()))
+            .count();
 
         List<AiCallLog> calls = aiCallAuditService.list(
             scopeAiCallQuery(selection)
@@ -628,16 +718,59 @@ public class HomeAiHubController {
                 .last("LIMIT 2000")
         );
         long callTotal = calls.size();
-        long callFailure = calls.stream().filter(item -> !"success".equalsIgnoreCase(String.valueOf(item.getStatus()))).count();
-        long avgLatency = callTotal <= 0 ? 0 : Math.round(calls.stream().mapToLong(item -> item.getDurationMs() == null ? 0L : item.getDurationMs()).average().orElse(0D));
+        long callFailure = calls.stream().filter(item -> isFailureStatus(item.getStatus())).count();
+        long slowCalls = calls.stream().filter(item -> (item.getDurationMs() == null ? 0L : item.getDurationMs()) >= 2500).count();
+        long timeoutCalls = calls.stream()
+            .filter(item -> String.valueOf(item.getStatus() == null ? "" : item.getStatus()).toLowerCase(Locale.ROOT).contains("timeout"))
+            .count();
+        List<Long> latencies = calls.stream()
+            .map(item -> item.getDurationMs() == null ? 0L : item.getDurationMs())
+            .sorted()
+            .collect(Collectors.toList());
+        long avgLatency = callTotal <= 0 ? 0 : Math.round(latencies.stream().mapToLong(Long::longValue).average().orElse(0D));
+        long p95Latency = percentile(latencies, 95);
 
-        int privacyRisk = clamp((int) Math.min(100, privacyAlerts * 12 + (privacyAlerts > 0 ? 8 : 0)));
-        int behaviorRisk = clamp((int) Math.min(100, anomalyAlerts * 13 + Math.min(30, callFailure * 100D / Math.max(1, callTotal))));
-        int shadowRisk = clamp((int) Math.min(100, shadowAlerts * 16 + (shadowAlerts > 0 ? 6 : 0)));
-        int complianceRisk = clamp((int) Math.min(100, pendingAlerts * 11 + (pendingAlerts > 0 ? 10 : 0)));
-        int reliabilityRisk = clamp((int) Math.min(100,
-            (avgLatency >= 3000 ? 52 : (avgLatency >= 1800 ? 35 : (avgLatency >= 900 ? 18 : 6)))
-                + Math.min(35, callFailure * 100D / Math.max(1, callTotal))
+        long highRiskAudits = auditLogService.count(
+            scopeAuditQuery(selection).in("risk_level", List.of("high", "critical"))
+        );
+
+        int privacyRisk = clamp((int) Math.round(
+            privacyAlerts * 6.0
+                + privacyHigh * 11.0
+                + privacyRecent * 7.0
+                + percent(privacyAlerts, Math.max(1L, totalThreats)) * 0.18
+                + percent(criticalPending, Math.max(1L, pendingAlerts + blockedAlerts)) * 0.08
+        ));
+
+        int behaviorRisk = clamp((int) Math.round(
+            anomalyAlerts * 5.0
+                + anomalyHigh * 10.0
+                + anomalyRecent * 8.0
+                + percent(callFailure, Math.max(1L, callTotal)) * 0.32
+                + (p95Latency >= 3200 ? 18 : (p95Latency >= 2200 ? 10 : (p95Latency >= 1400 ? 5 : 0)))
+        ));
+
+        int shadowRisk = clamp((int) Math.round(
+            shadowAlerts * 8.0
+                + shadowHigh * 13.0
+                + shadowRecent * 10.0
+                + percent(shadowAlerts, Math.max(1L, totalThreats)) * 0.3
+                + (shadowRecent >= 5 ? 6 : 0)
+        ));
+
+        int complianceRisk = clamp((int) Math.round(
+            pendingAlerts * 8.0
+                + blockedAlerts * 12.0
+                + criticalPending * 13.0
+                + Math.min(24, highRiskAudits * 0.7)
+        ));
+
+        int reliabilityRisk = clamp((int) Math.round(
+            percent(callFailure, Math.max(1L, callTotal)) * 0.55
+                + percent(slowCalls, Math.max(1L, callTotal)) * 0.35
+                + percent(timeoutCalls, Math.max(1L, callTotal)) * 0.3
+                + (avgLatency >= 3000 ? 24 : (avgLatency >= 2000 ? 15 : (avgLatency >= 1200 ? 8 : 3)))
+                + (p95Latency >= 3800 ? 20 : (p95Latency >= 2800 ? 12 : (p95Latency >= 1800 ? 6 : 0)))
         ));
 
         List<Map<String, Object>> dimensions = new ArrayList<>();
@@ -1255,14 +1388,94 @@ public class HomeAiHubController {
 
     private String buildAnalysisPrompt(Map<String, Object> hub) {
         try {
-            String hubJson = JSON.writerWithDefaultPrettyPrinter().writeValueAsString(hub);
-            return "你是AegisAI治理中枢分析助手。请基于以下真实聚合数据输出简洁结论："
+            Map<String, Object> sanitizedHub = sanitizeForPrompt(hub);
+            String hubJson = JSON.writerWithDefaultPrettyPrinter().writeValueAsString(sanitizedHub);
+            return "你是AegisAI治理中枢分析助手。以下数据已做脱敏处理。请基于真实聚合数据输出简洁结论："
                 + "1) 三条核心风险判断；2) 两条优先处置建议；3) 一条可量化追踪指标。"
                 + "要求：严禁编造不存在字段，直接引用数据中的指标或事件。\\n\\n"
                 + hubJson;
         } catch (Exception ex) {
             return "请基于当前治理中枢数据输出风险判断与处置建议。";
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> sanitizeForPrompt(Map<String, Object> source) {
+        if (source == null || source.isEmpty()) {
+            return Map.of();
+        }
+        Object cleaned = sanitizeValue(source, "root", 0);
+        if (cleaned instanceof Map<?, ?> map) {
+            return (Map<String, Object>) map;
+        }
+        return Map.of();
+    }
+
+    private Object sanitizeValue(Object value, String key, int depth) {
+        if (value == null) {
+            return null;
+        }
+        if (depth > 8) {
+            return "[TRUNCATED]";
+        }
+
+        if (value instanceof Map<?, ?> map) {
+            Map<String, Object> out = new LinkedHashMap<>();
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                String childKey = String.valueOf(entry.getKey() == null ? "" : entry.getKey());
+                out.put(childKey, sanitizeValue(entry.getValue(), childKey, depth + 1));
+            }
+            return out;
+        }
+
+        if (value instanceof List<?> list) {
+            List<Object> out = new ArrayList<>(list.size());
+            for (Object item : list) {
+                out.add(sanitizeValue(item, key, depth + 1));
+            }
+            return out;
+        }
+
+        if (value instanceof String text) {
+            String normalizedKey = String.valueOf(key == null ? "" : key).toLowerCase(Locale.ROOT);
+            if (PROMPT_SENSITIVE_KEYS.contains(normalizedKey)) {
+                return maskSensitiveScalar(text);
+            }
+            return redactInline(text);
+        }
+
+        if (value instanceof Number || value instanceof Boolean) {
+            String normalizedKey = String.valueOf(key == null ? "" : key).toLowerCase(Locale.ROOT);
+            if (PROMPT_SENSITIVE_KEYS.contains(normalizedKey)) {
+                return "[REDACTED]";
+            }
+            return value;
+        }
+
+        return "[REDACTED]";
+    }
+
+    private String maskSensitiveScalar(String text) {
+        if (!StringUtils.hasText(text)) {
+            return "[REDACTED]";
+        }
+        String trimmed = text.trim();
+        if (trimmed.length() <= 2) {
+            return "**";
+        }
+        return trimmed.substring(0, 1) + "***" + trimmed.substring(trimmed.length() - 1);
+    }
+
+    private String redactInline(String text) {
+        if (!StringUtils.hasText(text)) {
+            return text;
+        }
+        String result = text;
+        result = EMAIL_PATTERN.matcher(result).replaceAll("$1***@$2");
+        result = PHONE_PATTERN.matcher(result).replaceAll("$1****$2");
+        result = ID_CARD_PATTERN.matcher(result).replaceAll("$1********$2");
+        result = BANK_CARD_PATTERN.matcher(result).replaceAll("$1********$2");
+        return result;
     }
 
     private String runDeepseekAnalysis(String prompt) {
@@ -1406,6 +1619,49 @@ public class HomeAiHubController {
 
     private int clamp(int value) {
         return Math.max(0, Math.min(100, value));
+    }
+
+    private int edgeWeight(double value) {
+        return Math.max(1, Math.min(9, (int) Math.round(value)));
+    }
+
+    private double percent(long part, long total) {
+        if (total <= 0) {
+            return 0D;
+        }
+        return part * 100D / total;
+    }
+
+    private long percentile(List<Long> sorted, int p) {
+        if (sorted == null || sorted.isEmpty()) {
+            return 0L;
+        }
+        int safeP = Math.max(1, Math.min(100, p));
+        int index = (int) Math.ceil(safeP / 100D * sorted.size()) - 1;
+        index = Math.max(0, Math.min(sorted.size() - 1, index));
+        return sorted.get(index);
+    }
+
+    private boolean isPendingOrReviewing(Object status) {
+        String normalized = String.valueOf(status == null ? "" : status).toLowerCase(Locale.ROOT);
+        return "pending".equals(normalized) || "reviewing".equals(normalized);
+    }
+
+    private boolean isHighSeverity(Object severity) {
+        String normalized = String.valueOf(severity == null ? "" : severity).toLowerCase(Locale.ROOT);
+        return "high".equals(normalized) || "critical".equals(normalized);
+    }
+
+    private boolean isFailureStatus(Object status) {
+        String normalized = String.valueOf(status == null ? "" : status).toLowerCase(Locale.ROOT);
+        return !("success".equals(normalized) || "ok".equals(normalized));
+    }
+
+    private LocalDateTime toLocalDateTime(Date date) {
+        if (date == null) {
+            return LocalDateTime.MIN;
+        }
+        return date.toInstant().atZone(ZoneId.systemDefault()).toLocalDateTime();
     }
 
     private Map<String, Object> recommend(String title,
