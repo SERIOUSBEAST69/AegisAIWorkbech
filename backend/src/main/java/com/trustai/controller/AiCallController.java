@@ -71,7 +71,7 @@ public class AiCallController {
     }
 
     @GetMapping("/monitor/summary")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','EXECUTIVE','SECOPS','DATA_ADMIN','AI_BUILDER','BUSINESS_OWNER','EMPLOYEE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','BUSINESS_OWNER')")
     public R<?> monitorSummary(@RequestParam(defaultValue = "30") int days,
                                @RequestParam(defaultValue = "false") boolean includeMeta) {
         try {

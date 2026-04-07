@@ -244,25 +244,9 @@ const editRules = {
 const presetRoleLabelByUsername = Object.freeze({
   admin: '治理管理员 (ADMIN)',
   admin_reviewer: '治理复核员 (ADMIN_REVIEWER)',
-  admin_ops: '治理运维 (ADMIN_OPS)',
-  executive: '管理层 (EXECUTIVE)',
-  executive_2: '管理层 (EXECUTIVE)',
-  executive_3: '管理层 (EXECUTIVE)',
   secops: '安全运维 (SECOPS)',
-  secops_2: '安全运维复核岗 (SECOPS_TRIAGE)',
-  secops_3: '安全运维阻断岗 (SECOPS_RESPONDER)',
-  dataadmin: '数据管理员 (DATA_ADMIN)',
-  dataadmin_2: '数据管理员 (DATA_ADMIN)',
-  dataadmin_3: '数据管理员 (DATA_ADMIN)',
-  aibuilder: 'AI应用开发者 (AI_BUILDER)',
-  aibuilder_2: 'AI应用开发者 (AI_BUILDER)',
-  aibuilder_3: 'AI应用开发者 (AI_BUILDER)',
   bizowner: '业务负责人 (BUSINESS_OWNER)',
-  bizowner_2: '业务负责人 (BUSINESS_OWNER)',
-  bizowner_3: '业务负责人 (BUSINESS_OWNER)',
-  employee1: '普通员工 (EMPLOYEE)',
-  employee2: '普通员工 (EMPLOYEE)',
-  employee3: '普通员工 (EMPLOYEE)',
+  audit01: '审计员 (AUDIT)',
 });
 
 function statusTagType(status) {
@@ -306,15 +290,9 @@ function safeRoleText(name, code) {
   const map = {
     ADMIN: '治理管理员',
     ADMIN_REVIEWER: '治理复核员',
-    ADMIN_OPS: '治理运维',
     SECOPS: '安全运维',
-    SECOPS_TRIAGE: '安全运维复核岗',
-    SECOPS_RESPONDER: '安全运维阻断岗',
-    DATA_ADMIN: '数据管理员',
-    AI_BUILDER: 'AI应用开发者',
     BUSINESS_OWNER: '业务负责人',
-    EXECUTIVE: '管理层',
-    EMPLOYEE: '普通员工',
+    AUDIT: '审计员',
   };
   if (map[upperCode]) {
     return map[upperCode];

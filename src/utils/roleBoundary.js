@@ -2,22 +2,18 @@ import { hasPermissionByUser } from './permission';
 
 const ROLE = {
   ADMIN: 'ADMIN',
-  EXECUTIVE: 'EXECUTIVE',
+  ADMIN_REVIEWER: 'ADMIN_REVIEWER',
   SECOPS: 'SECOPS',
-  DATA_ADMIN: 'DATA_ADMIN',
-  AI_BUILDER: 'AI_BUILDER',
   BUSINESS_OWNER: 'BUSINESS_OWNER',
-  EMPLOYEE: 'EMPLOYEE',
+  AUDIT: 'AUDIT',
 };
 
 const ROLE_FAMILY = {
   ADMIN: ['ADMIN_REVIEWER', 'ADMIN_OPS'],
-  EXECUTIVE: ['EXECUTIVE_COMPLIANCE'],
+  ADMIN_REVIEWER: [],
   SECOPS: ['SECOPS_TRIAGE', 'SECOPS_RESPONDER'],
-  DATA_ADMIN: ['DATA_ADMIN_MAINTAINER'],
-  AI_BUILDER: [],
   BUSINESS_OWNER: ['BUSINESS_OWNER_APPROVER'],
-  EMPLOYEE: ['EMPLOYEE_REQUESTER'],
+  AUDIT: [],
 };
 
 function hasAnyPermissionByUser(user, codes = []) {
@@ -78,7 +74,7 @@ export function isSecOpsResponder(user) {
 }
 
 export function isExecutive(user) {
-  return hasRole(user, ROLE.EXECUTIVE);
+  return false;
 }
 
 export function canSubmitGovernanceChange(user) {
@@ -147,7 +143,7 @@ export function canRejectApprovalFlow(user) {
 }
 
 export function canApproveShareFlow(user) {
-  return hasAnyRole(user, [ROLE.ADMIN, ROLE.DATA_ADMIN]);
+  return hasAnyRole(user, [ROLE.ADMIN, ROLE.ADMIN_REVIEWER]);
 }
 
 export function canRunAdversarialSimulation(user) {
@@ -163,11 +159,11 @@ export function canViewAnomalyEvents(user) {
 }
 
 export function isEmployee(user) {
-  return hasRole(user, ROLE.EMPLOYEE);
+  return false;
 }
 
 export function isEmployeeRequesterFull(user) {
-  return hasRole(user, ROLE.EMPLOYEE);
+  return false;
 }
 
 export function isEmployeeRequesterLimited(user) {
@@ -179,27 +175,15 @@ export function isEmployeeObserver(user) {
 }
 
 export function canCreateSubjectRequest(user) {
-  if (hasAnyRole(user, [ROLE.ADMIN])) {
-    return true;
-  }
-  return isEmployeeRequesterFull(user) || isEmployeeRequesterLimited(user);
+  return false;
 }
 
 export function canCreateSubjectRequestType(user, requestType) {
-  if (hasAnyRole(user, [ROLE.ADMIN])) {
-    return true;
-  }
-  if (isEmployeeRequesterFull(user)) {
-    return true;
-  }
-  if (isEmployeeRequesterLimited(user)) {
-    return String(requestType || '').trim().toLowerCase() !== 'delete';
-  }
   return false;
 }
 
 export function canProcessSubjectRequest(user) {
-  return hasAnyRole(user, [ROLE.ADMIN, ROLE.SECOPS]);
+  return false;
 }
 
 export function canDeleteSubjectRequest(user) {

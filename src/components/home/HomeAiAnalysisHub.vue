@@ -163,8 +163,13 @@
         <el-card class="hub-panel deepseek-panel" shadow="never">
           <template #header>
             <div class="panel-headline panel-headline-between">
-              <span>DeepSeek智能解读</span>
-              <el-button size="small" :loading="deepseekLoading" @click="refreshDeepseekAnalysis">刷新解读</el-button>
+              <div class="deepseek-title-block">
+                <span>DeepSeek智能解读</span>
+                <small>聚焦 DeepSeek 全库治理解读</small>
+              </div>
+              <div class="deepseek-header-actions">
+                <el-button size="small" :loading="deepseekLoading" @click="refreshDeepseekAnalysis">刷新解读</el-button>
+              </div>
             </div>
           </template>
           <div v-if="deepseekText" class="deepseek-content">{{ deepseekText }}</div>
@@ -172,89 +177,12 @@
         </el-card>
       </div>
     </div>
-
-    <button
-      type="button"
-      class="ai-fab"
-      :class="{ active: assistantOpen }"
-      @click="assistantOpen = !assistantOpen"
-      title="AI分析助手"
-    >
-      <span>AI</span>
-    </button>
-
-    <transition name="ai-dock">
-      <section v-if="assistantOpen" class="ai-dock card-glass">
-        <header class="ai-dock-head">
-          <div>
-            <strong>AI分析助手</strong>
-            <p>全库数据实时分析与问答</p>
-          </div>
-          <el-button size="small" @click="assistantOpen = false">关闭</el-button>
-        </header>
-
-        <div class="ai-quick-cards">
-          <button type="button" class="quick-card" :disabled="quickLoading.weekly" @click="runQuickAction('weekly')">
-            <strong>智能周报</strong>
-            <span>{{ quickLoading.weekly ? '生成中...' : '一键汇总近7天态势' }}</span>
-          </button>
-          <button type="button" class="quick-card" :disabled="quickLoading.predict" @click="runQuickAction('predict')">
-            <strong>风险预测</strong>
-            <span>{{ quickLoading.predict ? '分析中...' : '预测未来风险趋势' }}</span>
-          </button>
-          <button type="button" class="quick-card" :disabled="quickLoading.compliance" @click="runQuickAction('compliance')">
-            <strong>合规体检</strong>
-            <span>{{ quickLoading.compliance ? '体检中...' : '生成合规评分与建议' }}</span>
-          </button>
-        </div>
-
-        <div class="ai-presets">
-          <button type="button" @click="sendPreset('总结今日风险')">总结今日风险</button>
-          <button type="button" @click="sendPreset('预测下周高风险部门')">预测下周高风险部门</button>
-          <button type="button" @click="sendPreset('给出合规优化建议')">给出合规优化建议</button>
-        </div>
-
-        <div class="ai-chat-stream">
-          <article v-for="item in chatMessages" :key="item.id" class="chat-item" :class="item.role">
-            <strong>{{ item.role === 'user' ? '你' : 'AI' }}</strong>
-            <template v-if="item.blocks?.length">
-              <template v-for="(block, bidx) in item.blocks" :key="`${item.id}-b-${bidx}`">
-                <p v-if="block.type === 'text'">{{ block.text }}</p>
-                <div v-else-if="block.type === 'bars'" class="mini-bars">
-                  <i
-                    v-for="bar in block.bars"
-                    :key="bar.label"
-                    :style="{ height: `${bar.value}%` }"
-                    :title="`${bar.label} ${bar.value}`"
-                  ></i>
-                </div>
-              </template>
-            </template>
-            <p v-else>{{ item.content }}</p>
-            <div v-if="!item.blocks?.length && item.chart?.length" class="mini-bars">
-              <i v-for="bar in item.chart" :key="bar.label" :style="{ height: `${bar.value}%` }" :title="`${bar.label} ${bar.value}`"></i>
-            </div>
-          </article>
-          <el-empty v-if="chatMessages.length === 0" description="输入问题，AI将结合当前数据库态势回答" :image-size="50" />
-        </div>
-
-        <div class="ai-input-row">
-          <el-input
-            v-model="chatQuestion"
-            placeholder="例如：最近一周哪个部门的影子AI最多？"
-            @keyup.enter="sendQuestion"
-          />
-          <el-button type="primary" :loading="chatSending" @click="sendQuestion">发送</el-button>
-        </div>
-      </section>
-    </transition>
   </section>
 </template>
 
 <script setup>
 import { computed, onMounted, ref } from 'vue';
 import { ElMessage } from 'element-plus';
-import request from '../../api/request';
 import { dashboardApi } from '../../api/dashboard';
 
 const props = defineProps({
@@ -290,15 +218,6 @@ const scopeOptions = ref({
   viewer: { username: '', department: '', roleCode: '' },
 });
 
-const assistantOpen = ref(false);
-const chatQuestion = ref('');
-const chatSending = ref(false);
-const chatMessages = ref([]);
-const quickLoading = ref({
-  weekly: false,
-  predict: false,
-  compliance: false,
-});
 const deepseekLoading = ref(false);
 const deepseekText = ref('');
 const allowedLevels = computed(() => Array.isArray(scopeOptions.value?.allowedLevels) && scopeOptions.value.allowedLevels.length
@@ -373,153 +292,6 @@ async function refreshDeepseekAnalysis() {
 function handleRefreshHub() {
   emit('refresh');
   refreshDeepseekAnalysis();
-}
-
-function pushAssistantMessage(content, chart = []) {
-  chatMessages.value.push({
-    id: `assistant-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    role: 'assistant',
-    content,
-    chart,
-    blocks: [
-      { type: 'text', text: content },
-      ...(Array.isArray(chart) && chart.length ? [{ type: 'bars', bars: chart }] : []),
-    ],
-  });
-}
-
-function radarMiniChart() {
-  return (props.hub?.radar?.dimensions || [])
-    .slice(0, 6)
-    .map(item => ({
-      label: String(item?.label || '-'),
-      value: Math.max(6, Math.min(100, Number(item?.value || 0))),
-    }));
-}
-
-function normalizeReply(payload) {
-  if (typeof payload === 'string') return payload;
-  if (typeof payload?.reply === 'string') return payload.reply;
-  if (typeof payload?.content === 'string') return payload.content;
-  if (typeof payload?.data?.reply === 'string') return payload.data.reply;
-  return '已完成分析。';
-}
-
-function normalizeAssistantPayload(payload) {
-  const source = payload?.data || payload;
-  const answerBlocks = Array.isArray(source?.answerBlocks) ? source.answerBlocks : [];
-  const blocks = [];
-  for (const block of answerBlocks) {
-    const kind = String(block?.type || '').toLowerCase();
-    if (kind === 'text' && String(block?.text || '').trim()) {
-      blocks.push({ type: 'text', text: String(block.text) });
-    }
-    if (kind === 'bars' && Array.isArray(block?.bars) && block.bars.length) {
-      blocks.push({
-        type: 'bars',
-        bars: block.bars.map(item => ({
-          label: String(item?.label || '-'),
-          value: Math.max(6, Math.min(100, Number(item?.value || 0))),
-        })),
-      });
-    }
-  }
-
-  const chartFromPayload = Array.isArray(source?.chartData)
-    ? source.chartData.map(item => ({
-        label: String(item?.label || '-'),
-        value: Math.max(6, Math.min(100, Number(item?.value || 0))),
-      }))
-    : [];
-
-  const fallbackText = normalizeReply(payload);
-  if (!blocks.length) {
-    const fallbackChart = chartFromPayload.length ? chartFromPayload : radarMiniChart();
-    return {
-      content: fallbackText,
-      chart: fallbackChart,
-      blocks: [
-        { type: 'text', text: fallbackText },
-        ...(fallbackChart.length ? [{ type: 'bars', bars: fallbackChart }] : []),
-      ],
-    };
-  }
-
-  const firstText = blocks.find(item => item.type === 'text')?.text || fallbackText;
-  const firstBars = blocks.find(item => item.type === 'bars')?.bars || chartFromPayload;
-  return {
-    content: firstText,
-    chart: firstBars,
-    blocks,
-  };
-}
-
-async function sendQuestion() {
-  const q = String(chatQuestion.value || '').trim();
-  if (!q) {
-    ElMessage.warning('请输入问题');
-    return;
-  }
-  chatMessages.value.push({
-    id: `user-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    role: 'user',
-    content: q,
-    chart: [],
-  });
-  chatQuestion.value = '';
-  chatSending.value = true;
-  try {
-    const res = await request.post('/ai/chat', {
-      provider: 'qwen',
-      model: 'qwen-plus',
-      accessReason: 'home-ai-assistant',
-      messages: [{ role: 'user', content: q }],
-    });
-    const normalized = normalizeAssistantPayload(res);
-    chatMessages.value.push({
-      id: `assistant-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      role: 'assistant',
-      content: normalized.content,
-      chart: normalized.chart,
-      blocks: normalized.blocks,
-    });
-  } catch (error) {
-    pushAssistantMessage('当前分析服务暂时繁忙，请稍后重试。', radarMiniChart());
-    ElMessage.error(error?.message || 'AI问答失败');
-  } finally {
-    chatSending.value = false;
-  }
-}
-
-function sendPreset(question) {
-  chatQuestion.value = question;
-  sendQuestion();
-}
-
-async function runQuickAction(type) {
-  quickLoading.value[type] = true;
-  try {
-    if (type === 'weekly') {
-      const data = await dashboardApi.getHomeAiHub({ scopeLevel: scope.value.level || 'company' });
-      const risk = (data?.kpis || []).find(item => item?.key === 'riskEvents')?.value ?? '-';
-      const calls = (data?.kpis || []).find(item => item?.key === 'aiCalls')?.value ?? '-';
-      pushAssistantMessage(`本周治理摘要：累计风险事件 ${risk} 起，模型调用 ${calls} 次，建议优先收敛待处置告警并复核高频异常账号。`, radarMiniChart());
-      return;
-    }
-    if (type === 'predict') {
-      const forecast = await dashboardApi.getForecast();
-      const next = Number(forecast?.nextDayRiskCount ?? forecast?.predictedRisk ?? 0);
-      pushAssistantMessage(`风险预测：按近30天趋势估计，下一个周期高风险事件约 ${next} 起。建议提前加固夜间访问与影子AI检测。`, radarMiniChart());
-      return;
-    }
-    const readiness = await dashboardApi.getAwardReadinessReport();
-    const score = Number(readiness?.score ?? readiness?.readinessScore ?? 0);
-    pushAssistantMessage(`合规体检结果：当前综合得分 ${score}。建议补齐待处理项、保持审计链连续可验，并提升关键策略覆盖率。`, radarMiniChart());
-  } catch (error) {
-    ElMessage.error(error?.message || '快捷分析执行失败');
-  } finally {
-    quickLoading.value[type] = false;
-  }
 }
 
 async function loadScopeOptions() {
@@ -782,7 +554,12 @@ onMounted(() => {
 }
 
 .hub-main-grid-revamped {
-  grid-template-columns: 1.25fr 0.95fr 0.8fr;
+  grid-template-columns: 1fr;
+}
+
+.matrix-panel,
+.radar-panel {
+  width: 100%;
 }
 
 .hub-bottom-grid {
@@ -808,6 +585,22 @@ onMounted(() => {
 .panel-headline-between {
   display: flex;
   justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.deepseek-title-block {
+  display: grid;
+  gap: 2px;
+}
+
+.deepseek-title-block small {
+  color: #9cb8dd;
+  font-size: 11px;
+}
+
+.deepseek-header-actions {
+  display: flex;
   align-items: center;
   gap: 8px;
 }
@@ -967,194 +760,6 @@ onMounted(() => {
   border-color: rgba(251, 191, 36, 0.48);
 }
 
-.ai-fab {
-  position: fixed;
-  right: 24px;
-  bottom: 24px;
-  width: 68px;
-  height: 68px;
-  border: 0;
-  border-radius: 50%;
-  color: #f3f8ff;
-  font-size: 22px;
-  font-weight: 800;
-  cursor: pointer;
-  z-index: 80;
-  background:
-    radial-gradient(circle at 30% 30%, rgba(132, 212, 255, 0.95), rgba(42, 96, 225, 0.95));
-  box-shadow: 0 0 0 0 rgba(86, 160, 255, 0.52), 0 10px 28px rgba(9, 38, 92, 0.45);
-  animation: aiFabPulse 2.1s infinite;
-}
-
-.ai-fab::before {
-  content: '';
-  position: absolute;
-  inset: -9px;
-  border-radius: 50%;
-  border: 1px solid rgba(121, 180, 255, 0.46);
-  animation: aiFabOrbit 3s linear infinite;
-}
-
-.ai-fab.active {
-  box-shadow: 0 0 0 14px rgba(86, 160, 255, 0.15), 0 10px 28px rgba(9, 38, 92, 0.45);
-}
-
-.ai-dock {
-  position: fixed;
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: 18px;
-  width: min(1080px, 60vw);
-  max-height: 74vh;
-  z-index: 75;
-  border-radius: 18px;
-  border: 1px solid rgba(123, 167, 224, 0.34);
-  background:
-    radial-gradient(circle at 10% 0%, rgba(42, 96, 225, 0.16), transparent 38%),
-    linear-gradient(140deg, rgba(10, 15, 31, 0.94), rgba(15, 23, 43, 0.92));
-  padding: 14px;
-  display: grid;
-  gap: 10px;
-}
-
-.ai-dock-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 10px;
-}
-
-.ai-dock-head strong {
-  color: #f4f8ff;
-  font-size: 16px;
-}
-
-.ai-dock-head p {
-  margin: 4px 0 0;
-  color: #9db4d8;
-  font-size: 12px;
-}
-
-.ai-quick-cards {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.quick-card {
-  border: 1px solid rgba(119, 161, 217, 0.26);
-  border-radius: 12px;
-  background: rgba(12, 22, 40, 0.72);
-  color: #e7f0ff;
-  text-align: left;
-  padding: 10px;
-  cursor: pointer;
-}
-
-.quick-card strong {
-  display: block;
-  font-size: 13px;
-}
-
-.quick-card span {
-  display: block;
-  margin-top: 4px;
-  color: #9db4d8;
-  font-size: 12px;
-}
-
-.quick-card:hover {
-  border-color: rgba(156, 196, 253, 0.52);
-}
-
-.ai-presets {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.ai-presets button {
-  border: 1px solid rgba(118, 164, 255, 0.26);
-  background: rgba(20, 34, 62, 0.6);
-  color: #d8e6ff;
-  border-radius: 999px;
-  padding: 6px 12px;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.ai-chat-stream {
-  max-height: 34vh;
-  overflow: auto;
-  display: grid;
-  gap: 8px;
-  padding-right: 2px;
-}
-
-.chat-item {
-  border: 1px solid rgba(116, 160, 223, 0.24);
-  border-radius: 10px;
-  background: rgba(9, 18, 35, 0.58);
-  padding: 8px 10px;
-}
-
-.chat-item.user {
-  border-color: rgba(80, 181, 255, 0.42);
-}
-
-.chat-item strong {
-  color: #f1f6ff;
-  font-size: 12px;
-}
-
-.chat-item p {
-  margin: 6px 0 0;
-  color: #cbdcf8;
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.mini-bars {
-  margin-top: 8px;
-  height: 34px;
-  display: flex;
-  align-items: flex-end;
-  gap: 4px;
-}
-
-.mini-bars i {
-  width: 10px;
-  border-radius: 3px 3px 0 0;
-  background: linear-gradient(180deg, #9fd2ff 0%, #4c82f5 100%);
-}
-
-.ai-input-row {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 8px;
-}
-
-.ai-dock-enter-active,
-.ai-dock-leave-active {
-  transition: all 0.35s cubic-bezier(0.2, 1.35, 0.3, 1);
-}
-
-.ai-dock-enter-from,
-.ai-dock-leave-to {
-  opacity: 0;
-  transform: translate(-50%, 18px) scale(0.95);
-}
-
-@keyframes aiFabPulse {
-  0% { box-shadow: 0 0 0 0 rgba(86, 160, 255, 0.5), 0 10px 28px rgba(9, 38, 92, 0.45); }
-  70% { box-shadow: 0 0 0 14px rgba(86, 160, 255, 0), 0 10px 28px rgba(9, 38, 92, 0.45); }
-  100% { box-shadow: 0 0 0 0 rgba(86, 160, 255, 0), 0 10px 28px rgba(9, 38, 92, 0.45); }
-}
-
-@keyframes aiFabOrbit {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
 
 @media (max-width: 1200px) {
   .hub-kpi-grid {
@@ -1192,30 +797,11 @@ onMounted(() => {
     grid-template-columns: 1fr;
   }
 
-  .ai-fab {
-    right: 14px;
-    bottom: 14px;
-    width: 58px;
-    height: 58px;
-    font-size: 18px;
+  .deepseek-header-actions {
+    width: 100%;
+    justify-content: space-between;
+    flex-wrap: wrap;
   }
 
-  .ai-dock {
-    left: 0;
-    transform: none;
-    width: 100vw;
-    bottom: 0;
-    border-radius: 16px 16px 0 0;
-    max-height: 80vh;
-  }
-
-  .ai-dock-enter-from,
-  .ai-dock-leave-to {
-    transform: translateY(18px);
-  }
-
-  .ai-quick-cards {
-    grid-template-columns: 1fr;
-  }
 }
 </style>

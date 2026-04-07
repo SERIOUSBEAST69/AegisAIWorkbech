@@ -26,30 +26,25 @@ public class AiGatewayController {
     @Autowired
     private AiModelAccessGuardService aiModelAccessGuardService;
 
-    @PostMapping("/chat")
-    public R<Map<String, Object>> chat(@RequestBody @Valid ChatReq req) {
-        return R.ok(aiGatewayService.chat(req));
-    }
-
     @GetMapping("/model-metrics")
     public R<Map<String, Object>> modelMetrics() {
         return R.ok(aiGatewayService.modelMetrics());
     }
 
     @GetMapping("/model-lineage")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','EXECUTIVE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS')")
     public R<Map<String, Object>> modelLineage() {
         return R.ok(aiGatewayService.modelLineage());
     }
 
     @GetMapping("/model-drift-status")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','EXECUTIVE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS')")
     public R<Map<String, Object>> modelDriftStatus() {
         return R.ok(aiGatewayService.modelDriftStatus());
     }
 
     @GetMapping("/model-explainability")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','EXECUTIVE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS')")
     public R<Map<String, Object>> modelExplainability() {
         return R.ok(aiGatewayService.explainabilityReport());
     }
@@ -73,13 +68,13 @@ public class AiGatewayController {
     }
 
     @GetMapping("/model-release/status")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','EXECUTIVE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS')")
     public R<Map<String, Object>> modelReleaseStatus() {
         return R.ok(aiGatewayService.modelReleaseStatus());
     }
 
     @GetMapping("/model-release/traffic-stats")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','EXECUTIVE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS')")
     public R<Map<String, Object>> modelReleaseTrafficStats() {
         return R.ok(aiGatewayService.modelReleaseTrafficStats());
     }

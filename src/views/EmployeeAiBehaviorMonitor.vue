@@ -2,163 +2,94 @@
   <div class="monitor-page">
     <div class="page-header scene-block card-glass">
       <div>
-        <div class="page-eyebrow">EMPLOYEE AI BEHAVIOR MONITOR</div>
-        <h1>员工 AI 行为监控</h1>
-        <p>统一展示异常行为检测与隐私盾告警。管理员/安全运维可查看全量，管理层仅看摘要，其他角色仅看个人数据。</p>
+        <div class="page-eyebrow">EMPLOYEE AI GOVERNANCE</div>
+        <h1>员工 AI 监控</h1>
+        <p>已将隐私盾告警并入异常行为检测视图，并过滤掉角色为空的数据。</p>
       </div>
       <div class="header-actions">
-        <el-tag v-if="isExecutive" type="warning" effect="dark">管理层摘要视图</el-tag>
-        <el-tag v-else-if="isPersonalView" type="info" effect="dark">个人视角</el-tag>
-        <el-tag v-else type="success" effect="dark">全量视角</el-tag>
+        <el-button @click="refreshAll" :loading="anomalyLoading">刷新</el-button>
       </div>
     </div>
 
-    <div class="caliber-strip card-glass scene-block">
-      <strong>统一口径对齐</strong>
-      <span>异常 {{ governanceSnapshot.anomaly }}</span>
-      <span>隐私 {{ governanceSnapshot.privacy }}</span>
-      <span>待处置 {{ governanceSnapshot.pending }}</span>
-      <span>去重压缩 {{ governanceSnapshot.collapsed }}</span>
+    <div class="caliber-strip">
+      <span><strong>异常事件：</strong>{{ governanceSnapshot.anomaly }}</span>
+      <span><strong>隐私告警：</strong>{{ governanceSnapshot.privacy }}</span>
+      <span><strong>待处理：</strong>{{ governanceSnapshot.pending }}</span>
+      <span><strong>折叠去重：</strong>{{ governanceSnapshot.collapsed }}</span>
       <span class="caliber-text">{{ governanceSnapshot.note }}</span>
     </div>
 
-    <el-tabs v-model="activeTab" class="scene-block" @tab-change="handleTabChange">
-      <el-tab-pane label="异常行为检测" name="anomaly">
-        <div class="stats-grid">
-          <div class="stat-card card-glass">
-            <div class="stat-title">模型状态</div>
-            <div class="stat-value">{{ modelReady ? '已就绪' : '未就绪' }}</div>
-          </div>
-          <div class="stat-card card-glass">
-            <div class="stat-title">总行为记录</div>
-            <div class="stat-value">{{ anomalyTotal }}</div>
-          </div>
-          <div class="stat-card card-glass">
-            <div class="stat-title">异常行为数</div>
-            <div class="stat-value danger">{{ anomalyCount }}</div>
-          </div>
-          <div class="stat-card card-glass">
-            <div class="stat-title">异常占比</div>
-            <div class="stat-value">{{ anomalyRateText }}</div>
-          </div>
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-title">总事件数（已过滤空角色）</div>
+        <div class="stat-value">{{ anomalyTotal }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-title">异常事件数</div>
+        <div class="stat-value danger">{{ anomalyCount }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-title">异常占比</div>
+        <div class="stat-value">{{ anomalyRateText }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-title">模型状态</div>
+        <div class="stat-value">{{ modelReady ? '就绪' : '未就绪' }}</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h3>异常行为检测（含隐私盾）</h3>
+        <div class="panel-actions">
+          <el-tag type="danger">异常 {{ anomalyCount }}</el-tag>
+          <el-tag type="info">总计 {{ anomalyTotal }}</el-tag>
         </div>
+      </div>
 
-        <div class="panel card-glass">
-          <div class="panel-head">
-            <h3>异常行为事件</h3>
-            <el-button :loading="anomalyLoading" @click="loadAnomaly">刷新</el-button>
-          </div>
+      <div v-if="!anomalyEvents.length" class="empty">暂无可展示数据</div>
 
-          <div v-if="anomalyLoading" class="empty">加载中...</div>
-          <div v-else-if="isExecutive" class="empty">管理层仅提供摘要，不展示具体事件详情。</div>
-          <div v-else-if="anomalyEvents.length === 0" class="empty">暂无事件。</div>
-          <div v-else class="event-list">
-            <div v-for="(ev, idx) in anomalyEvents" :key="ev.id || idx" class="event-row" :class="{ anomaly: !!ev.is_anomaly }">
-              <div class="event-main">
-                <strong>{{ anomalyAccountName(ev) }}</strong>
-                <span>账号ID：{{ anomalyAccountId(ev) }}</span>
-                <span>角色：{{ anomalyRole(ev) }}</span>
-                <span>岗位：{{ anomalyPosition(ev) }}</span>
-                <span>部门：{{ anomalyDepartment(ev) }}</span>
-                <span>公司：{{ anomalyCompany(ev) }}</span>
-                <span>设备/IP：{{ anomalyDevice(ev) }}</span>
-                <span>服务：{{ ev.ai_service || '-' }}</span>
-              </div>
-              <div class="event-meta">
-                <span>分数 {{ formatScore(ev.anomaly_score) }}</span>
-                <span>{{ ev.risk_level || '-' }}</span>
-                <span>{{ formatDate(ev.created_at) }}</span>
-              </div>
-              <div v-if="ev.description" class="masked-text">{{ sanitizeText(ev.description) }}</div>
-            </div>
+      <div v-else class="event-list">
+        <div
+          v-for="item in pagedEvents"
+          :key="item.event_id || `${item.source_tag}-${item.employee_id}-${item.created_at}`"
+          class="event-row"
+          :class="item.source_tag === 'privacy' ? 'privacy' : (item.is_anomaly ? 'anomaly' : '')"
+        >
+          <div class="event-main">
+            <el-tag size="small" :type="item.source_tag === 'privacy' ? 'primary' : 'danger'">
+              {{ item.source_tag === 'privacy' ? '隐私盾' : '异常检测' }}
+            </el-tag>
+            <strong>{{ anomalyAccountName(item) }}</strong>
+            <span>角色：{{ anomalyRole(item) }}</span>
+            <span>岗位：{{ anomalyPosition(item) }}</span>
+            <span>部门：{{ anomalyDepartment(item) }}</span>
           </div>
-
-          <div class="pager" v-if="!anomalySummaryOnly && !isExecutive">
-            <el-pagination
-              background
-              layout="total, sizes, prev, pager, next"
-              v-model:current-page="anomalyQuery.page"
-              v-model:page-size="anomalyQuery.pageSize"
-              :page-sizes="[10, 20, 50]"
-              :total="anomalyTotal"
-              @current-change="handleAnomalyPageChange"
-              @size-change="handleAnomalySizeChange"
-            />
+          <div class="event-meta">
+            <span>账号ID：{{ anomalyAccountId(item) }}</span>
+            <span>设备：{{ anomalyDevice(item) }}</span>
+            <span>公司：{{ anomalyCompany(item) }}</span>
+            <span>服务：{{ item.ai_service || '-' }}</span>
+            <span>风险：{{ item.risk_level || '-' }}</span>
+            <span>分值：{{ formatScore(item.anomaly_score) }}</span>
+            <span>时间：{{ formatDate(item.created_at) }}</span>
           </div>
+          <div class="masked-text">{{ sanitizeText(item.description) }}</div>
         </div>
-      </el-tab-pane>
+      </div>
 
-      <el-tab-pane label="隐私盾告警" name="privacy">
-        <div class="stats-grid">
-          <div class="stat-card card-glass">
-            <div class="stat-title">总告警</div>
-            <div class="stat-value">{{ privacySummary.total || 0 }}</div>
-          </div>
-          <div class="stat-card card-glass">
-            <div class="stat-title">今日新增</div>
-            <div class="stat-value">{{ privacySummary.today || 0 }}</div>
-          </div>
-          <div class="stat-card card-glass">
-            <div class="stat-title">扩展上报</div>
-            <div class="stat-value">{{ privacySummary.extensionCount || 0 }}</div>
-          </div>
-          <div class="stat-card card-glass">
-            <div class="stat-title">剪贴板上报</div>
-            <div class="stat-value">{{ privacySummary.clipboardCount || 0 }}</div>
-          </div>
-        </div>
-
-        <div class="panel card-glass">
-          <div class="panel-head">
-            <h3>隐私盾告警事件</h3>
-            <div class="panel-actions">
-              <el-button v-if="canExportPrivacy" @click="exportPrivacyCsv">导出CSV</el-button>
-              <el-button :loading="privacyLoading" @click="loadPrivacyEvents">刷新</el-button>
-            </div>
-          </div>
-
-          <div v-if="privacyLoading" class="empty">加载中...</div>
-          <div v-else-if="privacySummary.summaryOnly" class="empty">管理层仅提供统计摘要，不展示具体隐私事件详情。</div>
-          <div v-else-if="privacyEvents.length === 0" class="empty">暂无隐私盾告警。</div>
-          <div v-else class="event-list">
-            <div v-for="ev in privacyEvents" :key="ev.id" class="event-row privacy">
-              <div class="event-main">
-                <strong>{{ privacyAccountName(ev) }}</strong>
-                <span>账号ID：{{ privacyAccountId(ev) }}</span>
-                <span>角色：{{ privacyRole(ev) }}</span>
-                <span>岗位：{{ privacyPosition(ev) }}</span>
-                <span>部门：{{ privacyDepartment(ev) }}</span>
-                <span>公司：{{ privacyCompany(ev) }}</span>
-                <span>设备/IP：{{ privacyDevice(ev) }}</span>
-                <span>{{ ev.source || '-' }}</span>
-                <span>{{ ev.action || '-' }}</span>
-              </div>
-              <div class="event-meta">
-                <span>{{ ev.matchedTypes || '-' }}</span>
-                <span>{{ ev.windowTitle || '-' }}</span>
-                <span>{{ formatDate(ev.eventTime) }}</span>
-              </div>
-              <div class="masked-text">{{ ev.contentMasked || '-' }}</div>
-            </div>
-          </div>
-
-          <div class="pager" v-if="!privacySummary.summaryOnly">
-            <el-pagination
-              background
-              layout="total, sizes, prev, pager, next"
-              v-model:current-page="privacyQuery.page"
-              v-model:page-size="privacyQuery.pageSize"
-              :page-sizes="[10, 20, 50]"
-              :total="privacyTotal"
-              @current-change="handlePrivacyPageChange"
-              @size-change="handlePrivacySizeChange"
-            />
-          </div>
-        </div>
-
-      </el-tab-pane>
-
-    </el-tabs>
+      <div class="pager">
+        <el-pagination
+          layout="total, sizes, prev, pager, next"
+          v-model:current-page="anomalyQuery.page"
+          :page-sizes="[10, 20, 50]"
+          :page-size="anomalyQuery.pageSize"
+          :total="anomalyTotal"
+          @current-change="handleAnomalyPageChange"
+          @size-change="handleAnomalySizeChange"
+        />
+      </div>
+    </div>
   </div>
 </template>
 
@@ -166,21 +97,18 @@
 import { computed, onMounted, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import request from '../api/request';
+import { alertCenterApi } from '../api/alertCenter';
 import { privacyApi } from '../api/privacy';
 import { useUserStore } from '../store/user';
-import { canUsePrivacyOps, hasAnyRole, isExecutive as isExecutiveRole } from '../utils/roleBoundary';
+import { hasAnyRole, isExecutive as isExecutiveRole } from '../utils/roleBoundary';
 
 const userStore = useUserStore();
 const isExecutive = computed(() => isExecutiveRole(userStore.userInfo));
 const isPersonalView = computed(() => !hasAnyRole(userStore.userInfo, ['ADMIN', 'SECOPS', 'EXECUTIVE']));
-const canExportPrivacy = computed(() => canUsePrivacyOps(userStore.userInfo));
-const canQueryOthers = computed(() => canUsePrivacyOps(userStore.userInfo));
-const currentUserId = computed(() => userStore.userInfo?.id != null ? String(userStore.userInfo.id) : '');
+const currentUserId = computed(() => (userStore.userInfo?.id != null ? String(userStore.userInfo.id) : ''));
 const currentUsername = computed(() => String(userStore.userInfo?.username || '').toLowerCase());
 
-const activeTab = ref('anomaly');
 const userDirectory = ref(new Map());
-
 const anomalyLoading = ref(false);
 const anomalyEvents = ref([]);
 const anomalySummaryOnly = ref(false);
@@ -188,12 +116,7 @@ const anomalySummary = ref({ total: 0, anomalyCount: 0, normalCount: 0, anomalyR
 const anomalyQuery = ref({ page: 1, pageSize: 10 });
 const anomalyTotalRecords = ref(0);
 const modelReady = ref(false);
-
-const privacyLoading = ref(false);
-const privacyEvents = ref([]);
 const privacySummary = ref({ total: 0, today: 0, extensionCount: 0, clipboardCount: 0, summaryOnly: false });
-const privacyTotal = ref(0);
-const privacyQuery = ref({ page: 1, pageSize: 10 });
 
 const governanceSnapshot = ref({
   anomaly: 0,
@@ -207,10 +130,12 @@ const anomalyTotal = computed(() => {
   if (anomalySummaryOnly.value) return Number(anomalySummary.value.total || 0);
   return Number(anomalyTotalRecords.value || 0);
 });
+
 const anomalyCount = computed(() => {
   if (anomalySummaryOnly.value) return Number(anomalySummary.value.anomalyCount || 0);
   return anomalyEvents.value.filter((item) => !!item.is_anomaly).length;
 });
+
 const anomalyRateText = computed(() => {
   if (anomalySummaryOnly.value) {
     const rate = Number(anomalySummary.value.anomalyRate || 0);
@@ -218,6 +143,13 @@ const anomalyRateText = computed(() => {
   }
   if (!anomalyEvents.value.length) return '0%';
   return `${((anomalyCount.value / anomalyEvents.value.length) * 100).toFixed(1)}%`;
+});
+
+const pagedEvents = computed(() => {
+  const page = Number(anomalyQuery.value.page || 1);
+  const size = Number(anomalyQuery.value.pageSize || 10);
+  const start = (page - 1) * size;
+  return anomalyEvents.value.slice(start, start + size);
 });
 
 function formatDate(value) {
@@ -239,19 +171,13 @@ function sanitizeText(value) {
 }
 
 async function ensureUserDirectory() {
-  if (userDirectory.value.size > 0) {
-    return;
-  }
+  if (userDirectory.value.size > 0) return;
   try {
     const users = await request.get('/user/list');
     const map = new Map();
-    (Array.isArray(users) ? users : []).forEach(item => {
-      if (item?.id != null) {
-        map.set(String(item.id), item);
-      }
-      if (item?.username) {
-        map.set(`username:${String(item.username).toLowerCase()}`, item);
-      }
+    (Array.isArray(users) ? users : []).forEach((item) => {
+      if (item?.id != null) map.set(String(item.id), item);
+      if (item?.username) map.set(`username:${String(item.username).toLowerCase()}`, item);
     });
     userDirectory.value = map;
   } catch {
@@ -262,18 +188,16 @@ async function ensureUserDirectory() {
 function userByAny(value) {
   if (value == null) return null;
   const key = String(value);
-  return userDirectory.value.get(key)
-    || userDirectory.value.get(`username:${key.toLowerCase()}`)
-    || null;
+  return userDirectory.value.get(key) || userDirectory.value.get(`username:${key.toLowerCase()}`) || null;
 }
 
 function anomalyUser(ev) {
-  return userByAny(ev?.employee_id);
+  return userByAny(ev?.employee_id || ev?.userId || ev?.username || ev?.employeeId);
 }
 
 function anomalyAccountName(ev) {
   const user = anomalyUser(ev);
-  return user?.username || ev?.employee_id || '-';
+  return user?.username || ev?.employee_id || ev?.userId || '-';
 }
 
 function anomalyAccountId(ev) {
@@ -284,6 +208,11 @@ function anomalyAccountId(ev) {
 function anomalyRole(ev) {
   const user = anomalyUser(ev);
   return user?.roleCode || '-';
+}
+
+function hasBoundRole(ev) {
+  const roleCode = String(anomalyRole(ev) || '').trim();
+  return roleCode.length > 0 && roleCode !== '-';
 }
 
 function anomalyPosition(ev) {
@@ -306,48 +235,10 @@ function anomalyCompany(ev) {
   return user?.companyId != null ? String(user.companyId) : '-';
 }
 
-function privacyUser(ev) {
-  return userByAny(ev?.userId || ev?.username || ev?.employeeId);
-}
-
-function privacyAccountName(ev) {
-  const user = privacyUser(ev);
-  return user?.username || ev?.userId || '-';
-}
-
-function privacyAccountId(ev) {
-  const user = privacyUser(ev);
-  return user?.id ?? '-';
-}
-
-function privacyRole(ev) {
-  const user = privacyUser(ev);
-  return user?.roleCode || '-';
-}
-
-function privacyPosition(ev) {
-  const user = privacyUser(ev);
-  return user?.jobTitle || '-';
-}
-
-function privacyDepartment(ev) {
-  const user = privacyUser(ev);
-  return user?.department || '-';
-}
-
-function privacyDevice(ev) {
-  const user = privacyUser(ev);
-  return user?.deviceId || '-';
-}
-
-function privacyCompany(ev) {
-  const user = privacyUser(ev);
-  return user?.companyId != null ? String(user.companyId) : '-';
-}
-
 function normalizeAnomalyEvent(item = {}) {
   return {
     ...item,
+    source_tag: 'anomaly',
     employee_id: item.employee_id || item.employeeId || item.userId || '-',
     department: item.department || item.dept || '-',
     ai_service: item.ai_service || item.aiService || item.source || '-',
@@ -355,18 +246,6 @@ function normalizeAnomalyEvent(item = {}) {
     risk_level: item.risk_level || item.riskLevel || '-',
     created_at: item.created_at || item.event_time || item.eventTime || null,
   };
-}
-
-function dedupeBySignature(rows, signatureBuilder) {
-  const seen = new Set();
-  const output = [];
-  for (const row of Array.isArray(rows) ? rows : []) {
-    const signature = signatureBuilder(row);
-    if (seen.has(signature)) continue;
-    seen.add(signature);
-    output.push(row);
-  }
-  return output;
 }
 
 function isCurrentUserEvent(userValue) {
@@ -394,39 +273,70 @@ async function loadAnomalyStatus() {
 async function loadAnomaly() {
   anomalyLoading.value = true;
   try {
-    const data = await request.get('/anomaly/events', {
-      params: {
-        page: anomalyQuery.value.page,
-        pageSize: anomalyQuery.value.pageSize,
-      },
+    const [anomalyData, privacyData] = await Promise.all([
+      request.get('/anomaly/events', {
+        params: {
+          page: 1,
+          pageSize: 500,
+        },
+      }),
+      privacyApi.listEvents({ page: 1, pageSize: 500 }),
+    ]);
+
+    privacySummary.value = {
+      total: privacyData?.total || 0,
+      today: privacyData?.today || 0,
+      extensionCount: privacyData?.extensionCount || 0,
+      clipboardCount: privacyData?.clipboardCount || 0,
+      summaryOnly: !!privacyData?.summaryOnly,
+    };
+
+    const privacyList = Array.isArray(privacyData?.list) ? privacyData.list : [];
+    const normalizedPrivacy = privacyList.map((item, idx) => ({
+      event_id: item?.id != null ? `privacy-${item.id}` : `privacy-${idx}`,
+      employee_id: item?.userId || item?.username || item?.employeeId || '-',
+      department: '-',
+      ai_service: item?.source ? `privacy:${item.source}` : 'privacy-shield',
+      is_anomaly: true,
+      risk_level: 'high',
+      anomaly_score: null,
+      created_at: item?.eventTime || item?.createTime || null,
+      description: `隐私盾告警 ${item?.matchedTypes || ''} ${item?.contentMasked || ''}`.trim(),
+      source_tag: 'privacy',
+    }));
+
+    const normalizedAnomaly = Array.isArray(anomalyData?.events)
+      ? anomalyData.events.map((item) => normalizeAnomalyEvent(item))
+      : [];
+
+    const mergedEvents = [...normalizedAnomaly, ...normalizedPrivacy].sort((a, b) => {
+      const ta = new Date(String(a?.created_at || '').replace(' ', 'T')).getTime();
+      const tb = new Date(String(b?.created_at || '').replace(' ', 'T')).getTime();
+      return (Number.isNaN(tb) ? 0 : tb) - (Number.isNaN(ta) ? 0 : ta);
     });
-    anomalySummaryOnly.value = !!data?.summaryOnly;
+
+    anomalySummaryOnly.value = !!anomalyData?.summaryOnly;
     if (anomalySummaryOnly.value) {
+      const totalMerged = Number(anomalyData?.total || 0) + Number(privacySummary.value.total || 0);
+      const anomalyMerged = Number(anomalyData?.anomalyCount || 0) + Number(privacySummary.value.total || 0);
       anomalySummary.value = {
-        total: data.total || 0,
-        anomalyCount: data.anomalyCount || 0,
-        normalCount: data.normalCount || 0,
-        anomalyRate: data.anomalyRate || 0,
+        total: totalMerged,
+        anomalyCount: anomalyMerged,
+        normalCount: Math.max(0, totalMerged - anomalyMerged),
+        anomalyRate: totalMerged > 0 ? anomalyMerged / totalMerged : 0,
       };
-      anomalyTotalRecords.value = Number(data.total || 0);
+      anomalyTotalRecords.value = totalMerged;
       anomalyEvents.value = [];
       return;
     }
-    anomalyTotalRecords.value = Number(data?.total || data?.count || 0);
-    const normalizedEvents = Array.isArray(data?.events)
-      ? data.events.map((item) => normalizeAnomalyEvent(item))
-      : [];
+
     const scopedEvents = isPersonalView.value
-      ? normalizedEvents.filter(item => isCurrentUserEvent(item?.employee_id))
-      : normalizedEvents;
-    anomalyEvents.value = dedupeBySignature(scopedEvents, (item) => [
-      item?.employee_id || '-',
-      item?.ai_service || '-',
-      item?.risk_level || '-',
-      item?.created_at || '-',
-      item?.description || '-',
-    ].join('|'));
-    anomalyTotalRecords.value = anomalyEvents.value.length;
+      ? mergedEvents.filter((item) => isCurrentUserEvent(item?.employee_id))
+      : mergedEvents;
+    const roleBoundEvents = scopedEvents.filter(hasBoundRole);
+
+    anomalyTotalRecords.value = roleBoundEvents.length;
+    anomalyEvents.value = roleBoundEvents;
   } catch (error) {
     anomalyTotalRecords.value = 0;
     anomalyEvents.value = [];
@@ -438,85 +348,11 @@ async function loadAnomaly() {
 
 function handleAnomalyPageChange(page) {
   anomalyQuery.value.page = page;
-  loadAnomaly();
 }
 
 function handleAnomalySizeChange(size) {
   anomalyQuery.value.pageSize = size;
   anomalyQuery.value.page = 1;
-  loadAnomaly();
-}
-
-async function loadPrivacyEvents() {
-  privacyLoading.value = true;
-  try {
-    const data = await privacyApi.listEvents({
-      page: privacyQuery.value.page,
-      pageSize: privacyQuery.value.pageSize,
-    });
-    privacySummary.value = {
-      total: data?.total || 0,
-      today: data?.today || 0,
-      extensionCount: data?.extensionCount || 0,
-      clipboardCount: data?.clipboardCount || 0,
-      summaryOnly: !!data?.summaryOnly,
-    };
-    const eventList = Array.isArray(data?.list) ? data.list : [];
-    const scopedEvents = isPersonalView.value
-      ? eventList.filter(item => isCurrentUserEvent(item?.userId || item?.username || item?.employeeId))
-      : eventList;
-    privacyEvents.value = dedupeBySignature(scopedEvents, (item) => [
-      item?.userId || item?.username || '-',
-      item?.eventType || '-',
-      item?.source || '-',
-      item?.action || '-',
-      item?.eventTime || '-',
-      item?.matchedTypes || '-',
-    ].join('|'));
-    privacyTotal.value = privacyEvents.value.length;
-    if (isPersonalView.value && !privacySummary.value.summaryOnly) {
-      privacySummary.value.total = privacyTotal.value;
-    }
-  } catch (error) {
-    privacyEvents.value = [];
-    ElMessage.error(error?.message || '加载隐私告警失败');
-  } finally {
-    privacyLoading.value = false;
-  }
-}
-
-function handlePrivacyPageChange(page) {
-  privacyQuery.value.page = page;
-  loadPrivacyEvents();
-}
-
-function handlePrivacySizeChange(size) {
-  privacyQuery.value.pageSize = size;
-  privacyQuery.value.page = 1;
-  loadPrivacyEvents();
-}
-
-function exportPrivacyCsv() {
-  if (!privacyEvents.value.length) {
-    ElMessage.warning('暂无可导出数据');
-    return;
-  }
-  const headers = ['id', 'userId', 'eventType', 'source', 'action', 'matchedTypes', 'eventTime', 'contentMasked'];
-  const rows = privacyEvents.value.map((item) => headers.map((h) => JSON.stringify(item[h] ?? '')).join(','));
-  const csv = [headers.join(','), ...rows].join('\n');
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `privacy-events-${Date.now()}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-function handleTabChange(name) {
-  if (name === 'privacy') {
-    loadPrivacyEvents();
-  }
 }
 
 async function loadGovernanceSnapshot() {
@@ -532,7 +368,7 @@ async function loadGovernanceSnapshot() {
       collapsed: Number(dedupe.collapsed || 0),
       note: `口径：${dedupe.caliber || 'governance_event_dedup_chain_v1'}（与首页一致）`,
     };
-  } catch (error) {
+  } catch {
     governanceSnapshot.value = {
       ...governanceSnapshot.value,
       note: '口径快照拉取失败，已保留当前页原始统计',
@@ -540,9 +376,13 @@ async function loadGovernanceSnapshot() {
   }
 }
 
+async function refreshAll() {
+  await Promise.all([loadAnomalyStatus(), loadAnomaly(), loadGovernanceSnapshot()]);
+}
+
 onMounted(async () => {
   await ensureUserDirectory();
-  await Promise.all([loadAnomalyStatus(), loadAnomaly(), loadGovernanceSnapshot()]);
+  await refreshAll();
 });
 </script>
 

@@ -249,20 +249,9 @@ function normalizeRoleDisplayName(role) {
   const displayNameMap = {
     ADMIN: '治理管理员',
     ADMIN_REVIEWER: '治理复核员',
-    ADMIN_OPS: '治理运维员',
-    EXECUTIVE_OVERVIEW: '管理层总览岗',
-    EXECUTIVE_COMPLIANCE: '管理层合规岗',
-    SECOPS_TRIAGE: '安全运维复核岗',
-    SECOPS_RESPONDER: '安全运维阻断岗',
-    DATA_ADMIN_MAINTAINER: '数据管理员维护岗',
-    DATA_ADMIN_APPROVER: '数据管理员审批岗',
-    AI_BUILDER_PROMPT: 'AI开发提示岗',
-    AI_BUILDER_AUDITOR: 'AI开发审计岗',
-    BUSINESS_OWNER_APPROVER: '业务负责人放行岗',
-    BUSINESS_OWNER_REVIEWER: '业务负责人复核岗',
-    EMPLOYEE_REQUESTER_FULL: '普通员工申请岗',
-    EMPLOYEE_REQUESTER_LIMITED: '普通员工受限申请岗',
-    EMPLOYEE_OBSERVER: '普通员工观察岗',
+    SECOPS: '安全运维',
+    BUSINESS_OWNER: '业务负责人',
+    AUDIT: '审计员',
   };
   if (displayNameMap[code]) {
     return { ...role, name: displayNameMap[code] };

@@ -164,9 +164,9 @@ public class ClientReportController {
      * 返回所有客户端的最新一条扫描报告（按 client_id 去重，取最新）。
      */
     @GetMapping("/list")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','EXECUTIVE','SECOPS','DATA_ADMIN','AI_BUILDER','BUSINESS_OWNER','EMPLOYEE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','BUSINESS_OWNER','AUDIT')")
     public R<List<Map<String, Object>>> list() {
-        currentUserService.requireAnyRole("ADMIN", "EXECUTIVE", "SECOPS", "DATA_ADMIN", "AI_BUILDER", "BUSINESS_OWNER", "EMPLOYEE");
+        currentUserService.requireAnyRole("ADMIN", "ADMIN_REVIEWER", "SECOPS", "BUSINESS_OWNER", "AUDIT");
         User currentUser = currentUserService.requireCurrentUser();
         Long companyId = currentUser.getCompanyId();
         boolean ownOnly = !currentUserService.hasAnyRole("ADMIN", "SECOPS");
@@ -215,9 +215,9 @@ public class ClientReportController {
      * 查询指定客户端的历史报告（最近 50 条）。
      */
     @GetMapping("/history")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','EXECUTIVE','SECOPS','DATA_ADMIN','AI_BUILDER','BUSINESS_OWNER','EMPLOYEE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','BUSINESS_OWNER','AUDIT')")
     public R<List<ClientReport>> history(@RequestParam String clientId) {
-        currentUserService.requireAnyRole("ADMIN", "EXECUTIVE", "SECOPS", "DATA_ADMIN", "AI_BUILDER", "BUSINESS_OWNER", "EMPLOYEE");
+        currentUserService.requireAnyRole("ADMIN", "ADMIN_REVIEWER", "SECOPS", "BUSINESS_OWNER", "AUDIT");
         User currentUser = currentUserService.requireCurrentUser();
         Long companyId = currentUser.getCompanyId();
         boolean ownOnly = !currentUserService.hasAnyRole("ADMIN", "SECOPS");
@@ -238,9 +238,9 @@ public class ClientReportController {
      * 返回影子AI治理摘要，供工作台首页和 ShadowAiDiscovery 视图使用。
      */
     @GetMapping("/stats")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','EXECUTIVE','SECOPS','DATA_ADMIN','AI_BUILDER','BUSINESS_OWNER','EMPLOYEE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','BUSINESS_OWNER','AUDIT')")
     public R<Map<String, Object>> stats() {
-        currentUserService.requireAnyRole("ADMIN", "EXECUTIVE", "SECOPS", "DATA_ADMIN", "AI_BUILDER", "BUSINESS_OWNER", "EMPLOYEE");
+        currentUserService.requireAnyRole("ADMIN", "ADMIN_REVIEWER", "SECOPS", "BUSINESS_OWNER", "AUDIT");
         User currentUser = currentUserService.requireCurrentUser();
         Long companyId = currentUser.getCompanyId();
         boolean ownOnly = !currentUserService.hasAnyRole("ADMIN", "SECOPS");

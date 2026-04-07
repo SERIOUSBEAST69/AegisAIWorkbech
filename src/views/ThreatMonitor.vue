@@ -1497,7 +1497,7 @@ code {
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 10px;
   max-height: 320px;
-  overflow: auto;
+  overflow: visible;
 }
 
 .battle-round-item {

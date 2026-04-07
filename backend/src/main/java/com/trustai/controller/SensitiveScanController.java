@@ -58,7 +58,7 @@ public class SensitiveScanController {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     @PostMapping("/create")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','SECOPS_RESPONDER','DATA_ADMIN')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','BUSINESS_OWNER')")
     public R<SensitiveScanTask> create(@RequestBody @Validated CreateReq req, HttpServletRequest httpRequest) {
         User currentUser = currentUserService.requireCurrentUser();
         Long companyId = companyScopeService.requireCompanyId();
@@ -76,7 +76,7 @@ public class SensitiveScanController {
     }
 
     @PostMapping("/upload")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','SECOPS_RESPONDER','DATA_ADMIN')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','BUSINESS_OWNER')")
     public R<Map<String, Object>> upload(@RequestParam("file") MultipartFile file,
                                          HttpServletRequest request) {
         if (file == null || file.isEmpty()) {
@@ -122,16 +122,16 @@ public class SensitiveScanController {
     }
 
     @GetMapping("/list")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','SECOPS_RESPONDER','DATA_ADMIN','DATA_ADMIN_MAINTAINER')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','BUSINESS_OWNER','AUDIT')")
     public R<Map<String, Object>> list(@RequestParam(defaultValue = "1") int page,
                                        @RequestParam(defaultValue = "10") int pageSize,
                                        @RequestParam(required = false) String status) {
         User currentUser = currentUserService.requireCurrentUser();
         Long companyId = companyScopeService.requireCompanyId();
-        boolean dataAdminScope = currentUserService.hasAnyRole("DATA_ADMIN", "DATA_ADMIN_MAINTAINER");
+        boolean ownerScope = currentUserService.hasRole("BUSINESS_OWNER");
         QueryWrapper<SensitiveScanTask> qw = new QueryWrapper<SensitiveScanTask>()
             .eq("company_id", companyId)
-            .eq(dataAdminScope, "user_id", currentUser.getId());
+            .eq(ownerScope, "user_id", currentUser.getId());
         if (status != null && !status.isEmpty()) qw.eq("status", status);
         qw.orderByDesc("update_time");
         try {
@@ -156,7 +156,7 @@ public class SensitiveScanController {
     }
 
     @PostMapping("/run")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','SECOPS_RESPONDER','DATA_ADMIN')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','BUSINESS_OWNER')")
     public R<SensitiveScanTask> run(@RequestBody @Validated IdReq req) {
         SensitiveScanTask task = requireScopedTask(req.getId());
         if (task == null) return R.error(40000, "任务不存在");
@@ -170,12 +170,16 @@ public class SensitiveScanController {
         List<String> samples;
         String sourcePath = task.getSourcePath();
         if (sourcePath != null && !sourcePath.isEmpty() && SOURCE_TYPE_FILE.equals(task.getSourceType())) {
-            String content = assetContentExtractor.extractPreview(sourcePath);
+            String resolvedSourcePath = resolveScanSourcePath(sourcePath);
+            String content = assetContentExtractor.extractPreview(resolvedSourcePath);
             if (content != null && !content.isEmpty()) {
                 samples = List.of(content);
             } else {
-                log.warn("SensitiveScan task {}: could not extract text from '{}', falling back to path as sample", task.getId(), sourcePath);
-                samples = List.of(sourcePath);
+                task.setStatus("failed");
+                task.setUpdateTime(new Date());
+                taskService.updateById(task);
+                log.warn("SensitiveScan task {}: could not extract text from '{}' (resolved='{}')", task.getId(), sourcePath, resolvedSourcePath);
+                return R.error(40000, "无法从上传文件中提取可识别文本，请上传文本类文件或检查文件内容编码");
             }
         } else {
             samples = (sourcePath != null && !sourcePath.isEmpty()) ? List.of(sourcePath) : List.of("待扫描文本样例");
@@ -204,8 +208,33 @@ public class SensitiveScanController {
         return R.ok(task);
     }
 
+    private String resolveScanSourcePath(String sourcePath) {
+        String normalized = String.valueOf(sourcePath == null ? "" : sourcePath).trim();
+        if (normalized.isEmpty()) {
+            return normalized;
+        }
+        Path rawPath = Paths.get(normalized);
+        if (rawPath.isAbsolute() && Files.exists(rawPath)) {
+            return rawPath.toString();
+        }
+        if (normalized.startsWith("/data/upload/")) {
+            String fileName = Paths.get(normalized).getFileName() == null ? "" : Paths.get(normalized).getFileName().toString();
+            if (!fileName.isEmpty()) {
+                Path localUpload = Paths.get("data", "upload", fileName);
+                if (Files.exists(localUpload)) {
+                    return localUpload.toString();
+                }
+            }
+        }
+        Path relativePath = Paths.get(normalized.startsWith("/") ? normalized.substring(1) : normalized);
+        if (Files.exists(relativePath)) {
+            return relativePath.toString();
+        }
+        return normalized;
+    }
+
     @GetMapping("/{id}/report")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','SECOPS_RESPONDER','DATA_ADMIN','DATA_ADMIN_MAINTAINER')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','BUSINESS_OWNER','AUDIT')")
     public R<?> report(@PathVariable Long id) {
         SensitiveScanTask task = requireScopedTask(id);
         if (task == null) return R.error(40000, "任务不存在");
@@ -214,7 +243,7 @@ public class SensitiveScanController {
     }
 
     @PostMapping("/delete")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','SECOPS_RESPONDER','DATA_ADMIN')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','BUSINESS_OWNER')")
     public R<?> delete(@RequestBody @Validated IdReq req) {
         SensitiveScanTask task = requireScopedTask(req.getId());
         if (task == null) return R.error(40000, "任务不存在");
@@ -225,11 +254,11 @@ public class SensitiveScanController {
     private SensitiveScanTask requireScopedTask(Long id) {
         User currentUser = currentUserService.requireCurrentUser();
         Long companyId = companyScopeService.requireCompanyId();
-        boolean dataAdminScope = currentUserService.hasAnyRole("DATA_ADMIN", "DATA_ADMIN_MAINTAINER");
+        boolean ownerScope = currentUserService.hasRole("BUSINESS_OWNER");
         QueryWrapper<SensitiveScanTask> qw = new QueryWrapper<SensitiveScanTask>()
             .eq("id", id)
             .eq("company_id", companyId)
-            .eq(dataAdminScope, "user_id", currentUser.getId());
+            .eq(ownerScope, "user_id", currentUser.getId());
         return taskService.getOne(qw);
     }
 

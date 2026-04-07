@@ -25,25 +25,29 @@ public class AuditLogConsumer {
     @RabbitListener(queues = RabbitConfig.AUDIT_LOG_QUEUE)
     public void onMessage(String payload) {
         try {
-            AuditLog log = MAPPER.readValue(payload, AuditLog.class);
-            auditLogMapper.insert(log);
+            AuditLog messageLog = MAPPER.readValue(payload, AuditLog.class);
+            AuditLog persisted = resolvePersistedAuditLog(messageLog);
+            if (persisted == null || persisted.getId() == null) {
+                return;
+            }
+
             AuditLogDocument doc = new AuditLogDocument();
-            doc.setId(String.valueOf(log.getId()));
-            doc.setLogId(log.getId());
-            doc.setUserId(log.getUserId());
-            doc.setAssetId(log.getAssetId());
-            doc.setPermissionId(log.getPermissionId());
-            doc.setPermissionName(log.getPermissionName());
-            doc.setOperation(log.getOperation());
-            doc.setOperationTime(log.getOperationTime());
-            doc.setIp(log.getIp());
-            doc.setDevice(log.getDevice());
-            doc.setInputOverview(log.getInputOverview());
-            doc.setOutputOverview(log.getOutputOverview());
-            doc.setResult(log.getResult());
-            doc.setRiskLevel(log.getRiskLevel());
-            doc.setHash(log.getHash());
-            doc.setCreateTime(log.getCreateTime());
+            doc.setId(String.valueOf(persisted.getId()));
+            doc.setLogId(persisted.getId());
+            doc.setUserId(persisted.getUserId());
+            doc.setAssetId(persisted.getAssetId());
+            doc.setPermissionId(persisted.getPermissionId());
+            doc.setPermissionName(persisted.getPermissionName());
+            doc.setOperation(persisted.getOperation());
+            doc.setOperationTime(persisted.getOperationTime());
+            doc.setIp(persisted.getIp());
+            doc.setDevice(persisted.getDevice());
+            doc.setInputOverview(persisted.getInputOverview());
+            doc.setOutputOverview(persisted.getOutputOverview());
+            doc.setResult(persisted.getResult());
+            doc.setRiskLevel(persisted.getRiskLevel());
+            doc.setHash(persisted.getHash());
+            doc.setCreateTime(persisted.getCreateTime());
 
             AuditLogEsRepository esRepository = auditLogEsRepositoryProvider.getIfAvailable();
             if (esRepository != null) {
@@ -52,5 +56,19 @@ public class AuditLogConsumer {
         } catch (Exception e) {
             log.error("Consume audit log failed", e);
         }
+    }
+
+    private AuditLog resolvePersistedAuditLog(AuditLog messageLog) {
+        if (messageLog == null) {
+            return null;
+        }
+        if (messageLog.getId() != null) {
+            AuditLog existing = auditLogMapper.selectById(messageLog.getId());
+            if (existing != null) {
+                return existing;
+            }
+        }
+        auditLogMapper.insert(messageLog);
+        return messageLog;
     }
 }

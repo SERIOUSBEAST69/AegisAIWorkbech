@@ -1,5 +1,10 @@
 <template>
-  <div ref="containerRef" class="liquid-chrome-container" :class="{ 'is-static': !interactive }"></div>
+  <div
+    ref="containerRef"
+    class="liquid-chrome-container"
+    :class="{ 'is-static': !interactive }"
+    :style="{ zIndex: String(zIndex) }"
+  ></div>
 </template>
 
 <script setup>
@@ -14,7 +19,8 @@ const props = defineProps({
   frequencyX: { type: Number, default: 3.0 },
   frequencyY: { type: Number, default: 3.0 },
   interactive: { type: Boolean, default: true },
-  staticTimeOffset: { type: Number, default: 450.0 } // 静态时的精美固定帧
+  staticTimeOffset: { type: Number, default: 450.0 }, // 静态时的精美固定帧
+  zIndex: { type: Number, default: -1 },
 });
 
 const containerRef = ref(null);
@@ -196,7 +202,6 @@ onBeforeUnmount(() => {
   position: fixed;
   top: 0;
   left: 0;
-  z-index: -1;
   pointer-events: none; /* 防止挡住其他元素 */
   overflow: hidden;
 }

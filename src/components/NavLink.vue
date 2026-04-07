@@ -2,8 +2,8 @@
   <!--
     NavLink.vue — 带转场拦截的路由跳转组件
     用法：
-      <NavLink to="/data-asset">数据资产</NavLink>
-      <NavLink to="/data-asset" dir="back">返回</NavLink>
+      <NavLink to="/shadow-ai">影子AI发现</NavLink>
+      <NavLink to="/approval-center" dir="back">返回</NavLink>
 
     自动处理：
       · active class（与 router-link-active 保持一致）

@@ -33,6 +33,7 @@ public class CompanySchemaInitializer implements CommandLineRunner {
         ensureTenantForeignKeys();
         seedDefaultCompanies();
         bindLegacyUsersToDefaultCompany();
+        backfillSubjectRequestWorkflowFields();
         backfillLegacySensitiveScanTraceability();
         seedDefaultSodRules();
     }
@@ -57,6 +58,7 @@ public class CompanySchemaInitializer implements CommandLineRunner {
         ensureIndex("security_event", "idx_sec_company_severity_time", "company_id, severity, event_time");
         ensureIndex("privacy_event", "idx_privacy_company_time", "company_id, event_time");
         ensureIndex("privacy_event", "idx_privacy_company_user_time", "company_id, user_id, event_time");
+        ensureUniqueIndex("subject_request", "uk_subject_request_no", "request_no");
         ensureIndex("client_report", "idx_client_report_company_scan", "company_id, scan_time");
         ensureIndex("client_report", "idx_client_report_company_client_scan", "company_id, client_id, scan_time");
         ensureIndex("client_scan_queue", "idx_client_queue_company_download", "company_id, download_time");
@@ -302,6 +304,9 @@ public class CompanySchemaInitializer implements CommandLineRunner {
         ensureColumn("approval_request", "process_instance_id", "VARCHAR(64)");
         ensureColumn("approval_request", "task_id", "VARCHAR(64)");
         ensureColumn("subject_request", "company_id", "BIGINT NOT NULL");
+        ensureColumn("subject_request", "request_no", "VARCHAR(32)");
+        ensureColumn("subject_request", "request_source", "VARCHAR(32)");
+        ensureColumn("subject_request", "deadline_at", "TIMESTAMP NULL");
         ensureColumn("compliance_policy", "company_id", "BIGINT NOT NULL");
         ensureColumn("compliance_policy", "policy_type", "VARCHAR(32)");
         ensureColumn("compliance_policy", "priority", "INT DEFAULT 50");
@@ -357,6 +362,42 @@ public class CompanySchemaInitializer implements CommandLineRunner {
             jdbcTemplate.execute("CREATE INDEX " + indexName + " ON " + table + " (" + columns + ")");
         } catch (Exception ex) {
             log.debug("Skip index migration for {}.{}: {}", table, indexName, ex.getMessage());
+        }
+    }
+
+    private void ensureUniqueIndex(String table, String indexName, String columns) {
+        try {
+            Integer exists = jdbcTemplate.queryForObject(
+                "SELECT COUNT(1) FROM information_schema.statistics " +
+                    "WHERE table_schema = DATABASE() AND table_name = ? AND index_name = ?",
+                Integer.class,
+                table,
+                indexName
+            );
+            if (exists != null && exists > 0) {
+                return;
+            }
+            jdbcTemplate.execute("CREATE UNIQUE INDEX " + indexName + " ON " + table + " (" + columns + ")");
+        } catch (Exception ex) {
+            log.debug("Skip unique index migration for {}.{}: {}", table, indexName, ex.getMessage());
+        }
+    }
+
+    private void backfillSubjectRequestWorkflowFields() {
+        try {
+            jdbcTemplate.update("UPDATE subject_request SET request_source = 'web' WHERE request_source IS NULL OR TRIM(request_source) = ''");
+            jdbcTemplate.update(
+                "UPDATE subject_request " +
+                    "SET request_no = CONCAT(DATE_FORMAT(COALESCE(create_time, NOW()), '%Y%m%d%H%i%s'), LPAD(id, 12, '0')) " +
+                    "WHERE request_no IS NULL OR TRIM(request_no) = ''"
+            );
+            jdbcTemplate.update(
+                "UPDATE subject_request " +
+                    "SET deadline_at = DATE_ADD(COALESCE(create_time, NOW()), INTERVAL 21 DAY) " +
+                    "WHERE deadline_at IS NULL"
+            );
+        } catch (Exception ex) {
+            log.debug("Skip subject request workflow backfill: {}", ex.getMessage());
         }
     }
 

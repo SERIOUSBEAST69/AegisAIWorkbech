@@ -56,9 +56,9 @@ public class DataAssetController {
     @Autowired private PrivacyEventService privacyEventService;
 
     @GetMapping("/list")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','SECOPS_RESPONDER','DATA_ADMIN','DATA_ADMIN_MAINTAINER','BUSINESS_OWNER','BUSINESS_OWNER_APPROVER','AI_BUILDER')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','BUSINESS_OWNER','AUDIT')")
     public R<List<DataAsset>> list(@RequestParam(required = false) String name) {
-        currentUserService.requireAnyRole("ADMIN", "ADMIN_REVIEWER", "SECOPS", "SECOPS_RESPONDER", "DATA_ADMIN", "DATA_ADMIN_MAINTAINER", "BUSINESS_OWNER", "BUSINESS_OWNER_APPROVER", "AI_BUILDER");
+        currentUserService.requireAnyRole("ADMIN", "ADMIN_REVIEWER", "SECOPS", "BUSINESS_OWNER", "AUDIT");
         QueryWrapper<DataAsset> qw = new QueryWrapper<>();
         companyScopeService.withCompany(qw);
         if (name != null && !name.isEmpty()) qw.like("name", name);
@@ -69,7 +69,7 @@ public class DataAssetController {
     }
 
     @PostMapping("/register")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','BUSINESS_OWNER')")
     public R<?> register(@RequestBody @Validated DataAssetReq asset) {
         enforceDataAdminDuty("write");
         DataAsset entity = new DataAsset();
@@ -121,9 +121,9 @@ public class DataAssetController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','SECOPS_RESPONDER','DATA_ADMIN','DATA_ADMIN_MAINTAINER','BUSINESS_OWNER','BUSINESS_OWNER_APPROVER','AI_BUILDER')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','BUSINESS_OWNER','AUDIT')")
     public R<DataAssetDetailDto> detail(@PathVariable Long id) {
-        currentUserService.requireAnyRole("ADMIN", "ADMIN_REVIEWER", "SECOPS", "SECOPS_RESPONDER", "DATA_ADMIN", "DATA_ADMIN_MAINTAINER", "BUSINESS_OWNER", "BUSINESS_OWNER_APPROVER", "AI_BUILDER");
+        currentUserService.requireAnyRole("ADMIN", "ADMIN_REVIEWER", "SECOPS", "BUSINESS_OWNER", "AUDIT");
         DataAsset scoped = dataAssetService.getOne(companyScopeService.withCompany(new QueryWrapper<DataAsset>()).eq("id", id));
         if (scoped == null) {
             throw new BizException(40400, "数据资产不存在或不在当前公司");
@@ -135,10 +135,10 @@ public class DataAssetController {
     }
 
     @PostMapping("/{id}/privacy-assess")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN','SECOPS')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','BUSINESS_OWNER')")
     public R<Map<String, Object>> privacyAssess(@PathVariable Long id,
                                                 @RequestBody(required = false) PrivacyAssessReq req) {
-        currentUserService.requireAnyRole("ADMIN", "DATA_ADMIN", "SECOPS");
+        currentUserService.requireAnyRole("ADMIN", "SECOPS", "BUSINESS_OWNER");
         DataAsset asset = requireScopedAsset(id);
         Long companyId = companyScopeService.requireCompanyId();
         User current = currentUserService.requireCurrentUser();
@@ -182,9 +182,9 @@ public class DataAssetController {
     }
 
     @GetMapping("/{id}/privacy-assess/latest")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN','SECOPS')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','BUSINESS_OWNER')")
     public R<Map<String, Object>> latestPrivacyAssess(@PathVariable Long id) {
-        currentUserService.requireAnyRole("ADMIN", "DATA_ADMIN", "SECOPS");
+        currentUserService.requireAnyRole("ADMIN", "SECOPS", "BUSINESS_OWNER");
         DataAsset asset = requireScopedAsset(id);
         PrivacyImpactAssessment latest = latestAssessment(asset.getId());
         if (latest == null) {
@@ -202,7 +202,7 @@ public class DataAssetController {
     }
 
     @PostMapping("/update")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','BUSINESS_OWNER')")
     public R<?> update(@RequestBody @Validated DataAssetUpdateReq asset) {
         enforceDataAdminDuty("write");
         DataAsset scoped = dataAssetService.getOne(companyScopeService.withCompany(new QueryWrapper<DataAsset>()).eq("id", asset.getId()));
@@ -223,7 +223,7 @@ public class DataAssetController {
     }
 
     @PostMapping("/delete")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','BUSINESS_OWNER')")
     public R<?> delete(@RequestBody @Validated IdReq req) {
         enforceDataAdminDuty("delete");
         DataAsset scoped = dataAssetService.getOne(companyScopeService.withCompany(new QueryWrapper<DataAsset>()).eq("id", req.getId()));
@@ -242,10 +242,7 @@ public class DataAssetController {
     }
 
     private void enforceDataAdminDuty(String action) {
-        if (!currentUserService.hasRole("DATA_ADMIN")) {
-            return;
-        }
-        // Canonical role model no longer differentiates data admin sub-roles.
+        // Canonical role model does not include DATA_ADMIN; hook kept for backward compatibility.
     }
 
     private String displayName(User user) {

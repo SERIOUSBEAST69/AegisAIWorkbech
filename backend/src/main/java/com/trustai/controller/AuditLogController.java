@@ -52,11 +52,7 @@ public class AuditLogController {
         if (roleCode == null) {
             return requestedUserId;
         }
-        if ("EMPLOYEE".equals(roleCode)
-            || "EMPLOYEE_REQUESTER".equals(roleCode)
-            || "DATA_ADMIN_MAINTAINER".equals(roleCode)
-            || "BUSINESS_OWNER".equals(roleCode)
-            || "BUSINESS_OWNER_APPROVER".equals(roleCode)) {
+        if ("BUSINESS_OWNER".equals(roleCode) || "AUDIT".equals(roleCode)) {
             return currentUserId;
         }
         return requestedUserId;
@@ -64,14 +60,14 @@ public class AuditLogController {
 
     private String scopedOperationKeyword(String roleCode, String operation) {
         String requested = operation == null ? "" : operation.trim();
-        if ("SECOPS_RESPONDER".equals(roleCode)) {
+        if ("SECOPS".equals(roleCode)) {
             return requested.isEmpty() ? "security" : requested;
         }
-        if ("BUSINESS_OWNER".equals(roleCode) || "BUSINESS_OWNER_APPROVER".equals(roleCode)) {
+        if ("BUSINESS_OWNER".equals(roleCode)) {
             return requested.isEmpty() ? "approval" : requested;
         }
-        if ("DATA_ADMIN".equals(roleCode) || "DATA_ADMIN_MAINTAINER".equals(roleCode)) {
-            return requested.isEmpty() ? "data" : requested;
+        if ("AUDIT".equals(roleCode)) {
+            return requested.isEmpty() ? "audit" : requested;
         }
         return requested;
     }
@@ -81,19 +77,17 @@ public class AuditLogController {
             return false;
         }
         String operation = String.valueOf(log.getOperation() == null ? "" : log.getOperation()).toLowerCase(Locale.ROOT);
-        if ("SECOPS_RESPONDER".equals(roleCode)) {
+        if ("SECOPS".equals(roleCode)) {
             return operation.contains("security") || operation.contains("threat") || operation.contains("anomaly") || operation.contains("shadow");
         }
-        if ("BUSINESS_OWNER".equals(roleCode) || "BUSINESS_OWNER_APPROVER".equals(roleCode)) {
+        if ("BUSINESS_OWNER".equals(roleCode)) {
             return java.util.Objects.equals(currentUserId, log.getUserId())
                 && (operation.contains("approval") || operation.contains("governance"));
         }
-        if ("DATA_ADMIN".equals(roleCode)) {
-            return operation.contains("data") || operation.contains("asset") || operation.contains("desense") || operation.contains("subject");
+        if ("AUDIT".equals(roleCode)) {
+            return operation.contains("audit") || operation.contains("governance") || operation.contains("risk");
         }
-        if ("DATA_ADMIN_MAINTAINER".equals(roleCode)
-            || "EMPLOYEE".equals(roleCode)
-            || "EMPLOYEE_REQUESTER".equals(roleCode)) {
+        if ("ADMIN_REVIEWER".equals(roleCode)) {
             return java.util.Objects.equals(currentUserId, log.getUserId());
         }
         return true;

@@ -628,7 +628,7 @@ onMounted(async () => {
 
 .events-list {
   max-height: 480px;
-  overflow-y: auto;
+  overflow-y: visible;
 }
 
 .event-row {

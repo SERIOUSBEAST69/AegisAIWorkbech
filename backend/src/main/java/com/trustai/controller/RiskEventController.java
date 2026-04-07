@@ -8,6 +8,7 @@ import com.trustai.service.CompanyScopeService;
 import com.trustai.service.CurrentUserService;
 import com.trustai.service.KeyTaskMetricService;
 import com.trustai.service.RiskEventService;
+import com.trustai.service.UserService;
 import com.trustai.utils.R;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -15,6 +16,11 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.util.StringUtils;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
+import java.util.Set;
+import java.util.HashSet;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/risk-event")
@@ -23,6 +29,7 @@ public class RiskEventController {
     @Autowired private CurrentUserService currentUserService;
     @Autowired private CompanyScopeService companyScopeService;
     @Autowired private KeyTaskMetricService keyTaskMetricService;
+    @Autowired private UserService userService;
 
     @GetMapping("/list")
     @PreAuthorize("@currentUserService.hasAnyPermission('risk:event:view','risk:event:handle')")
@@ -32,7 +39,44 @@ public class RiskEventController {
         companyScopeService.withCompany(qw);
         if (type != null && !type.isEmpty()) qw.like("type", type);
         qw.orderByDesc("update_time");
-        return R.ok(riskEventService.list(qw));
+        List<RiskEvent> scoped = riskEventService.list(qw);
+        return R.ok(filterWalkthroughRows(scoped));
+    }
+
+    private List<RiskEvent> filterWalkthroughRows(List<RiskEvent> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return List.of();
+        }
+        Set<Long> handlerIds = new HashSet<>();
+        for (RiskEvent item : rows) {
+            if (item != null && item.getHandlerId() != null) {
+                handlerIds.add(item.getHandlerId());
+            }
+        }
+        Map<Long, String> usernameById = new HashMap<>();
+        if (!handlerIds.isEmpty()) {
+            List<User> handlers = userService.lambdaQuery().in(User::getId, handlerIds).list();
+            for (User user : handlers) {
+                if (user != null && user.getId() != null) {
+                    usernameById.put(user.getId(), String.valueOf(user.getUsername() == null ? "" : user.getUsername()));
+                }
+            }
+        }
+        return rows.stream()
+            .filter(item -> {
+                String handler = usernameById.getOrDefault(item.getHandlerId(), "");
+                String processLog = String.valueOf(item.getProcessLog() == null ? "" : item.getProcessLog());
+                return !isWalkthrough(handler) && !containsWalkthrough(processLog);
+            })
+            .collect(Collectors.toList());
+    }
+
+    private boolean isWalkthrough(String value) {
+        return String.valueOf(value == null ? "" : value).trim().toLowerCase().startsWith("walkthrough_");
+    }
+
+    private boolean containsWalkthrough(String value) {
+        return String.valueOf(value == null ? "" : value).toLowerCase().contains("walkthrough_");
     }
 
     @PostMapping("/add")

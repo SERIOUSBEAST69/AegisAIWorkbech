@@ -74,7 +74,7 @@ public class AlertCenterController {
     }
 
     @GetMapping("/list")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','EXECUTIVE','SECOPS','DATA_ADMIN','AI_BUILDER','BUSINESS_OWNER','EMPLOYEE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','BUSINESS_OWNER','AUDIT')")
     public R<Map<String, Object>> list(
         @RequestParam(defaultValue = "1") int page,
         @RequestParam(defaultValue = "20") int pageSize,
@@ -123,14 +123,14 @@ public class AlertCenterController {
     }
 
     @GetMapping("/stats")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','EXECUTIVE','SECOPS','DATA_ADMIN','AI_BUILDER','BUSINESS_OWNER','EMPLOYEE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','BUSINESS_OWNER','AUDIT')")
     public R<Map<String, Object>> stats() {
         enforceExecutiveDuty("stats");
         return R.ok(statsCore(currentUserService.requireCurrentUser()));
     }
 
     @GetMapping("/threat-overview")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','EXECUTIVE','SECOPS','DATA_ADMIN','AI_BUILDER','BUSINESS_OWNER','EMPLOYEE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','BUSINESS_OWNER','AUDIT')")
     public R<Map<String, Object>> threatOverview(@RequestParam(defaultValue = "72") int windowHours) {
         enforceExecutiveDuty("stats");
         User current = currentUserService.requireCurrentUser();
@@ -141,7 +141,7 @@ public class AlertCenterController {
             .ge("create_time", since)
             .orderByDesc("event_time")
             .last("LIMIT 8000");
-        if (!currentUserService.hasAnyRole("ADMIN", "SECOPS", "EXECUTIVE")) {
+        if (!currentUserService.hasAnyRole("ADMIN", "SECOPS", "ADMIN_REVIEWER")) {
             query.eq("user_id", current.getId());
         }
 
@@ -243,7 +243,7 @@ public class AlertCenterController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','EXECUTIVE','SECOPS','DATA_ADMIN','AI_BUILDER','BUSINESS_OWNER','EMPLOYEE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','BUSINESS_OWNER','AUDIT')")
     public R<Map<String, Object>> detail(@PathVariable Long id) {
         enforceExecutiveDuty("detail");
         GovernanceEvent event = getScopedEvent(id);
@@ -255,7 +255,7 @@ public class AlertCenterController {
     }
 
     @GetMapping("/{id}/related")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','EXECUTIVE','SECOPS','DATA_ADMIN','AI_BUILDER','BUSINESS_OWNER','EMPLOYEE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','BUSINESS_OWNER','AUDIT')")
     public R<Map<String, Object>> related(@PathVariable Long id,
                                           @RequestParam(defaultValue = "20") int limit) {
         enforceExecutiveDuty("related");
@@ -281,7 +281,7 @@ public class AlertCenterController {
     }
 
     @GetMapping("/user-history")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','EXECUTIVE','SECOPS','DATA_ADMIN','AI_BUILDER','BUSINESS_OWNER','EMPLOYEE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','BUSINESS_OWNER','AUDIT')")
     public R<Map<String, Object>> userHistory(@RequestParam(required = false) Long userId,
                                               @RequestParam(required = false) String username,
                                               @RequestParam(defaultValue = "30") int limit) {
@@ -340,10 +340,7 @@ public class AlertCenterController {
 
     private void enforceExecutiveDuty(String action) {
         currentUserService.requireCurrentUser();
-        if (!currentUserService.hasRole("EXECUTIVE")) {
-            return;
-        }
-        // Canonical role model no longer differentiates executive sub-roles.
+        // Canonical role model no longer differentiates executive roles.
     }
 
     @PostMapping("/dispose")
@@ -444,7 +441,7 @@ public class AlertCenterController {
         if (event == null) {
             throw new BizException(40400, "告警不存在或不在当前公司");
         }
-        if (!currentUserService.hasAnyRole("ADMIN", "SECOPS", "EXECUTIVE")
+        if (!currentUserService.hasAnyRole("ADMIN", "SECOPS", "ADMIN_REVIEWER")
             && (event.getUserId() == null || !java.util.Objects.equals(event.getUserId(), current.getId()))) {
             throw new BizException(40300, "无权访问该告警");
         }
@@ -466,7 +463,7 @@ public class AlertCenterController {
 
     private Map<String, Object> statsCore(User current) {
         QueryWrapper<GovernanceEvent> base = companyScopeService.withCompany(new QueryWrapper<>());
-        if (!currentUserService.hasAnyRole("ADMIN", "SECOPS", "EXECUTIVE")) {
+        if (!currentUserService.hasAnyRole("ADMIN", "SECOPS", "ADMIN_REVIEWER")) {
             base.eq("user_id", current.getId());
         }
 

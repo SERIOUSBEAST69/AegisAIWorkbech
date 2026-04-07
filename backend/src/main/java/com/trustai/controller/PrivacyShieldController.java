@@ -66,6 +66,9 @@ public class PrivacyShieldController {
         }
 
         User resolvedUser = resolveReportedUser(req.getUserId());
+        if (resolvedUser != null && isWalkthroughUsername(resolvedUser.getUsername())) {
+            return R.error(40000, "walkthrough 演示账号不允许写入隐私告警事件");
+        }
         Long companyId = resolveCompanyId(resolvedUser, headerCompanyId);
         if (companyId == null) {
             return R.error(40000, "companyId 与 userId 归属不一致");
@@ -116,7 +119,7 @@ public class PrivacyShieldController {
     }
 
     @GetMapping("/events")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','EXECUTIVE','EXECUTIVE_COMPLIANCE','SECOPS','SECOPS_RESPONDER','DATA_ADMIN','DATA_ADMIN_MAINTAINER','AI_BUILDER','BUSINESS_OWNER','BUSINESS_OWNER_APPROVER')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','BUSINESS_OWNER','AUDIT')")
     public R<Map<String, Object>> listEvents(
             @RequestParam(defaultValue = "1") long page,
             @RequestParam(defaultValue = "20") long pageSize,
@@ -129,8 +132,8 @@ public class PrivacyShieldController {
     ) {
         User currentUser = currentUserService.requireCurrentUser();
         Long companyId = currentUser.getCompanyId();
-        boolean adminOrSecops = currentUserService.hasAnyRole("ADMIN", "ADMIN_REVIEWER", "SECOPS", "SECOPS_RESPONDER", "DATA_ADMIN", "DATA_ADMIN_MAINTAINER", "AI_BUILDER", "BUSINESS_OWNER", "BUSINESS_OWNER_APPROVER");
-        boolean executive = currentUserService.hasAnyRole("EXECUTIVE", "EXECUTIVE_COMPLIANCE");
+        boolean adminOrSecops = currentUserService.hasAnyRole("ADMIN", "SECOPS", "BUSINESS_OWNER");
+        boolean executive = currentUserService.hasAnyRole("ADMIN_REVIEWER", "AUDIT");
         String scopedUserId;
         if (adminOrSecops) {
             scopedUserId = resolveRequestedUserId(userId);
@@ -231,6 +234,20 @@ public class PrivacyShieldController {
         QueryWrapper<PrivacyEvent> query = new QueryWrapper<>();
         if (companyId != null) {
             query.eq("company_id", companyId);
+            List<User> walkthroughUsers = userService.lambdaQuery()
+                .eq(User::getCompanyId, companyId)
+                .likeRight(User::getUsername, "walkthrough_")
+                .list();
+            if (!walkthroughUsers.isEmpty()) {
+                List<String> walkthroughIds = walkthroughUsers.stream()
+                    .filter(item -> item != null && item.getId() != null)
+                    .map(item -> String.valueOf(item.getId()))
+                    .toList();
+                if (!walkthroughIds.isEmpty()) {
+                    query.notIn("user_id", walkthroughIds);
+                }
+            }
+            query.notLikeRight("user_id", "walkthrough_");
         }
         if (StringUtils.hasText(userId)) {
             query.eq("user_id", userId);
@@ -253,6 +270,10 @@ public class PrivacyShieldController {
             query.le("event_time", end);
         }
         return query;
+    }
+
+    private boolean isWalkthroughUsername(String value) {
+        return String.valueOf(value == null ? "" : value).trim().toLowerCase().startsWith("walkthrough_");
     }
 
     private Map<String, Object> buildSummary(Long companyId, String userId, String eventType, String source,

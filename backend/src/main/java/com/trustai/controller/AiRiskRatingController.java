@@ -72,7 +72,7 @@ public class AiRiskRatingController {
      * <p>GET /api/ai-risk/list
      */
     @GetMapping("/list")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','EXECUTIVE','SECOPS','DATA_ADMIN','AI_BUILDER','BUSINESS_OWNER','EMPLOYEE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','BUSINESS_OWNER')")
     public R<Map<String, Object>> listServices() {
         try {
             Map<String, Object> result = buildRiskList();
@@ -91,7 +91,7 @@ public class AiRiskRatingController {
      * @param serviceId 服务 ID（小写，如 chatgpt / wenxin / doubao 等）
      */
     @GetMapping("/score")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','EXECUTIVE','SECOPS','DATA_ADMIN','AI_BUILDER','BUSINESS_OWNER','EMPLOYEE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','BUSINESS_OWNER')")
     public R<Map<String, Object>> serviceScore(@RequestParam("service") String serviceId) {
         if (serviceId == null || serviceId.isBlank()) {
             return R.error("缺少参数 service");
@@ -130,7 +130,7 @@ public class AiRiskRatingController {
     }
 
     @GetMapping("/whitelist")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','EXECUTIVE','SECOPS','DATA_ADMIN','AI_BUILDER','BUSINESS_OWNER','EMPLOYEE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','BUSINESS_OWNER')")
     public R<Map<String, Object>> whitelist() {
         Long companyId = currentUserService.requireCurrentUser().getCompanyId();
         Map<String, Object> config = privacyShieldConfigService.getOrCreateConfig();
@@ -140,7 +140,7 @@ public class AiRiskRatingController {
         data.put("configVersion", config.getOrDefault("configVersion", 1L));
         data.put("updatedAt", config.get("updatedAt"));
         boolean canReview = currentUserService.hasRole("ADMIN");
-        boolean canRequest = currentUserService.hasRole("DATA_ADMIN");
+        boolean canRequest = currentUserService.hasAnyRole("SECOPS", "BUSINESS_OWNER");
         data.put("canRequest", canRequest);
         data.put("canReview", canReview);
         if (canRequest || canReview) {
@@ -152,11 +152,11 @@ public class AiRiskRatingController {
     }
 
     @GetMapping("/profile/radar")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','EXECUTIVE','SECOPS','DATA_ADMIN','AI_BUILDER','BUSINESS_OWNER','EMPLOYEE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','BUSINESS_OWNER')")
     public R<Map<String, Object>> riskRadarProfile(@RequestParam(required = false) String username) {
         User current = currentUserService.requireCurrentUser();
         Long companyId = companyScopeService.requireCompanyId();
-        boolean canQueryOthers = currentUserService.hasAnyRole("ADMIN", "SECOPS", "EXECUTIVE", "DATA_ADMIN", "AI_BUILDER", "BUSINESS_OWNER");
+        boolean canQueryOthers = currentUserService.hasAnyRole("ADMIN", "ADMIN_REVIEWER", "SECOPS", "BUSINESS_OWNER");
 
         User target = current;
         if (StringUtils.hasText(username) && canQueryOthers) {
@@ -275,11 +275,11 @@ public class AiRiskRatingController {
     }
 
     @GetMapping("/profile/users")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','EXECUTIVE','SECOPS','DATA_ADMIN','AI_BUILDER','BUSINESS_OWNER','EMPLOYEE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','BUSINESS_OWNER','AUDIT')")
     public R<Map<String, Object>> riskRadarUsers() {
         User current = currentUserService.requireCurrentUser();
         Long companyId = companyScopeService.requireCompanyId();
-        boolean canQueryOthers = currentUserService.hasAnyRole("ADMIN", "SECOPS", "EXECUTIVE", "DATA_ADMIN", "AI_BUILDER", "BUSINESS_OWNER");
+        boolean canQueryOthers = currentUserService.hasAnyRole("ADMIN", "ADMIN_REVIEWER", "SECOPS", "BUSINESS_OWNER");
 
         List<Map<String, Object>> users = jdbcTemplate.query(
             "SELECT u.id, u.username, COALESCE(NULLIF(TRIM(u.real_name), ''), u.username) AS real_name, "
@@ -314,7 +314,7 @@ public class AiRiskRatingController {
     }
 
     @PostMapping("/whitelist/request")
-    @PreAuthorize("@currentUserService.hasRole('DATA_ADMIN')")
+    @PreAuthorize("@currentUserService.hasAnyRole('SECOPS','BUSINESS_OWNER')")
     public R<Map<String, Object>> submitWhitelistRequest(@RequestBody(required = false) Map<String, Object> payload) {
         if (payload == null) {
             return R.error("请求体不能为空");

@@ -207,13 +207,16 @@ CREATE TABLE IF NOT EXISTS approval_request (
 
 CREATE TABLE IF NOT EXISTS subject_request (
   id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  request_no VARCHAR(32),
   company_id BIGINT,
   user_id BIGINT,
+  request_source VARCHAR(32),
   type VARCHAR(20),
   status VARCHAR(20),
   comment VARCHAR(500),
   handler_id BIGINT,
   result VARCHAR(1000),
+  deadline_at TIMESTAMP NULL,
   create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

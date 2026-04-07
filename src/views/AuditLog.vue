@@ -8,9 +8,6 @@
       <el-form-item label="操作类型">
         <el-input v-model="query.operation" placeholder="如 login / export" style="width:160px" clearable />
       </el-form-item>
-      <el-form-item label="权限ID">
-        <el-input v-model="query.permissionId" placeholder="权限ID" style="width:140px" clearable />
-      </el-form-item>
       <el-form-item label="开始时间">
         <el-date-picker
           v-model="query.from"
@@ -47,8 +44,8 @@
       <el-table-column label="账号" width="120">
         <template #default="scope">{{ userNameById(scope.row.userId) }}</template>
       </el-table-column>
-      <el-table-column label="角色" width="120">
-        <template #default="scope">{{ userRoleById(scope.row.userId) }}</template>
+      <el-table-column label="账号 / 角色" width="220" show-overflow-tooltip>
+        <template #default="scope">{{ accountRoleById(scope.row.userId) }}</template>
       </el-table-column>
       <el-table-column label="部门" width="120">
         <template #default="scope">{{ userDepartmentById(scope.row.userId) }}</template>
@@ -56,12 +53,9 @@
       <el-table-column label="公司" width="100">
         <template #default="scope">{{ userCompanyById(scope.row.userId) }}</template>
       </el-table-column>
-      <el-table-column prop="permissionId" label="权限ID" width="110" />
-      <el-table-column prop="permissionName" label="权限名称" width="180" show-overflow-tooltip />
       <el-table-column prop="assetId" label="资产ID" width="80" />
       <el-table-column prop="operation" label="操作类型" width="130" />
       <el-table-column prop="operationTime" label="操作时间" width="190" />
-      <el-table-column prop="ip" label="IP" width="130" />
       <el-table-column prop="result" label="结果" width="90">
         <template #default="scope">
           <el-tag :type="resultTagType(scope.row.result)">{{ scope.row.result }}</el-tag>
@@ -114,7 +108,6 @@ function buildQueryFromRoute(routeQuery = {}) {
   return {
     userId: String(routeQuery.userId || '').trim(),
     operation: String(routeQuery.operation || '').trim(),
-    permissionId: String(routeQuery.permissionId || '').trim(),
     from: '',
     to: '',
   };
@@ -124,7 +117,6 @@ function buildParams() {
   const p = {};
   if (query.value.userId) p.userId = query.value.userId;
   if (query.value.operation) p.operation = query.value.operation;
-  if (query.value.permissionId) p.permissionId = query.value.permissionId;
   if (query.value.from) p.from = query.value.from;
   if (query.value.to) p.to = query.value.to;
   return p;
@@ -221,8 +213,8 @@ function normalizeAuditLogs(rows) {
       normalizedItem.operation,
       normalizedItem.result,
       normalizedItem.operationTime,
-      normalizedItem.ip,
-      normalizedItem.permissionId,
+      normalizedItem.assetId,
+      normalizedItem.inputOverview,
     ].join('|');
     if (seen.has(signature)) continue;
     seen.add(signature);
@@ -242,6 +234,14 @@ function userNameById(id) {
 
 function userRoleById(id) {
   return userById(id)?.roleCode || '-';
+}
+
+function accountRoleById(id) {
+  const user = userById(id);
+  if (!user) return '-';
+  const username = user.username || '-';
+  const role = user.roleCode || '-';
+  return `${username} / ${role}`;
 }
 
 function userDepartmentById(id) {
@@ -277,7 +277,7 @@ function exportCsv() {
     ElMessage.warning('当前无可导出的日志');
     return;
   }
-  const headers = ['id', 'userId', 'permissionId', 'permissionName', 'assetId', 'operation', 'operationTime', 'ip', 'result', 'riskLevel', 'inputOverview'];
+  const headers = ['id', 'userId', 'assetId', 'operation', 'operationTime', 'result', 'riskLevel', 'inputOverview'];
   const lines = [headers.join(',')];
   for (const item of logs.value) {
     const row = headers.map(key => {
@@ -299,7 +299,7 @@ function exportCsv() {
 }
 
 function resetQuery() {
-  query.value = { userId: '', operation: '', permissionId: '', from: '', to: '' };
+  query.value = { userId: '', operation: '', from: '', to: '' };
   pagination.value.current = 1;
   fetchLogs();
 }
@@ -311,7 +311,6 @@ watch(
       ...query.value,
       userId: String(nextQuery.userId || '').trim(),
       operation: String(nextQuery.operation || '').trim(),
-      permissionId: String(nextQuery.permissionId || '').trim(),
     };
     pagination.value.current = 1;
     fetchLogs();

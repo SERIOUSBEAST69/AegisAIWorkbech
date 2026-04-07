@@ -1,7 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router';
 
 import Home from '../views/Home.vue';
-import DataAsset from '../views/DataAsset.vue';
 import AuditCenter from '../views/AuditCenter.vue';
 import UserManage from '../views/UserManage.vue';
 import RoleManage from '../views/RoleManage.vue';
@@ -11,7 +10,6 @@ import RiskEventManage from '../views/RiskEventManage.vue';
 import OpsObservability from '../views/OpsObservability.vue';
 import ApprovalCenterHub from '../views/ApprovalCenterHub.vue';
 import PolicyManage from '../views/PolicyManage.vue';
-import SubjectRequest from '../views/SubjectRequest.vue';
 import Login from '../views/Login.vue';
 import Profile from '../views/Profile.vue';
 import Settings from '../views/Settings.vue';
@@ -20,7 +18,6 @@ import EmployeeAiBehaviorMonitor from '../views/EmployeeAiBehaviorMonitor.vue';
 import ThreatMonitor from '../views/ThreatMonitor.vue';
 import { getSession, hasActiveSession } from '../utils/auth';
 import { canAccessPath } from '../utils/persona';
-import { isEmployeeUser } from '../utils/employeePolicy';
 import { hasPermissionByUser } from '../utils/permission';
 
 function isPlatformAdmin(user) {
@@ -39,7 +36,6 @@ function isAdminReviewerReadOnlyPath(user, path) {
 const routes = [
   { path: '/login', name: 'Login', component: Login, meta: { public: true, depth: 0 } },
   { path: '/', name: 'Home', component: Home, meta: { depth: 1 } },
-  { path: '/data-asset', name: 'DataAsset', component: DataAsset, meta: { depth: 2 } },
   { path: '/audit-center', name: 'AuditCenter', component: AuditCenter, meta: { depth: 2, permission: 'audit:log:view' } },
   { path: '/audit-log', redirect: to => ({ path: '/audit-center', query: to.query }) },
   { path: '/audit-report', redirect: to => ({ path: '/audit-center', query: to.query }) },
@@ -51,10 +47,11 @@ const routes = [
   { path: '/approval-center', name: 'ApprovalCenter', component: ApprovalCenterHub, meta: { depth: 3 } },
   { path: '/policy-manage', name: 'PolicyManage', component: PolicyManage, meta: { depth: 3 } },
   { path: '/risk-event-manage', name: 'RiskEventManage', component: RiskEventManage, meta: { depth: 3 } },
-  { path: '/sensitive-data-governance', redirect: to => ({ path: '/data-asset', query: { ...to.query, tab: 'sensitive' } }) },
-  { path: '/sensitive-scan', redirect: to => ({ path: '/data-asset', query: { ...to.query, tab: 'sensitive' } }) },
-  { path: '/desense-preview', redirect: to => ({ path: '/data-asset', query: { ...to.query, tab: 'sensitive' } }) },
-  { path: '/subject-request', name: 'SubjectRequest', component: SubjectRequest, meta: { depth: 2 } },
+  { path: '/data-asset', redirect: '/' },
+  { path: '/sensitive-data-governance', redirect: '/' },
+  { path: '/sensitive-scan', redirect: '/' },
+  { path: '/desense-preview', redirect: '/' },
+  { path: '/subject-request', redirect: '/' },
   { path: '/ai/risk-rating', redirect: to => ({ path: '/shadow-ai', query: { ...to.query, tab: 'risk' } }) },
   { path: '/ai/anomaly', name: 'AnomalyDetection', component: EmployeeAiBehaviorMonitor, meta: { depth: 3 } },
   { path: '/shadow-ai', name: 'ShadowAiDiscovery', component: ShadowAiDiscovery, meta: { depth: 2 } },
@@ -90,7 +87,7 @@ router.beforeEach((to, from, next) => {
     return next('/');
   }
   if (!canAccessPath(to.path, session?.user)) {
-    return next(isEmployeeUser(session?.user) ? '/shadow-ai' : '/');
+    return next('/');
   }
 
   // 根据路由深度自动设置转场方向（供 usePageTransition 读取）

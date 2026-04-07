@@ -59,7 +59,7 @@ public class RoleSelfServiceController {
     private final SensitiveOperationGuardService sensitiveOperationGuardService;
     private final HttpServletRequest httpServletRequest;
 
-    private static final Set<String> HIGH_RISK_SELF_REGISTER_CODES = Set.of("ADMIN", "EXECUTIVE", "SECOPS", "DATA_ADMIN");
+    private static final Set<String> HIGH_RISK_SELF_REGISTER_CODES = Set.of("ADMIN", "ADMIN_REVIEWER", "SECOPS", "AUDIT");
 
     public RoleSelfServiceController(RoleService roleService,
                                      PermissionService permissionService,

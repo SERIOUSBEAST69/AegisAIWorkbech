@@ -43,12 +43,7 @@ public class PermissionController {
     private static final Set<String> ALLOWED_PERMISSION_TYPES = Set.of("menu", "button");
     private static final Set<String> ALLOWED_PERMISSION_STATUS = Set.of("active", "disabled");
 
-    private static final Map<String, String> ROLE_CHILD_ALIAS = Map.of(
-        "ADMIN_REVIEWER", "SECOPS",
-        "ADMIN_OPS", "SECOPS",
-        "SECOPS_TRIAGE", "SECOPS",
-        "SECOPS_RESPONDER", "SECOPS"
-    );
+    private static final Map<String, String> ROLE_CHILD_ALIAS = Map.of();
 
     @Autowired
     private PermissionService permissionService;
@@ -345,14 +340,14 @@ public class PermissionController {
         if ("ADMIN_REVIEWER".equals(code)) {
             return "治理复核员";
         }
-        if ("ADMIN_OPS".equals(code)) {
-            return "治理运维员";
+        if ("SECOPS".equals(code)) {
+            return "安全运维";
         }
-        if ("SECOPS_TRIAGE".equals(code)) {
-            return "安全运维复核岗";
+        if ("BUSINESS_OWNER".equals(code)) {
+            return "业务负责人";
         }
-        if ("SECOPS_RESPONDER".equals(code)) {
-            return "安全运维阻断岗";
+        if ("AUDIT".equals(code)) {
+            return "审计员";
         }
         return StringUtils.hasText(roleName) ? roleName : "-";
     }

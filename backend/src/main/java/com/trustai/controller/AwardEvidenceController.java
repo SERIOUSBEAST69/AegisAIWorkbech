@@ -37,7 +37,7 @@ public class AwardEvidenceController {
     }
 
     @GetMapping("/experiment-report")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','EXECUTIVE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS')")
     public R<Map<String, Object>> experimentReport(
         @RequestParam @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate baselineFrom,
         @RequestParam @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate baselineTo,
@@ -56,7 +56,7 @@ public class AwardEvidenceController {
     }
 
     @GetMapping("/compliance-evidence/list")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','EXECUTIVE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS')")
     public R<List<Map<String, Object>>> complianceEvidenceList(@RequestParam(defaultValue = "20") int limit) {
         return R.ok(awardEvidenceService.listComplianceEvidence(limit));
     }
@@ -72,19 +72,19 @@ public class AwardEvidenceController {
     }
 
     @GetMapping("/reliability/drill/history")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','EXECUTIVE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS')")
     public R<List<Map<String, Object>>> reliabilityHistory(@RequestParam(defaultValue = "20") int limit) {
         return R.ok(awardEvidenceService.listReliabilityDrills(limit));
     }
 
     @GetMapping("/summary")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','EXECUTIVE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS')")
     public R<Map<String, Object>> summary() {
         return R.ok(awardEvidenceService.summary());
     }
 
     @GetMapping("/compliance-mapping")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','EXECUTIVE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS')")
     public R<Map<String, Object>> complianceMapping() {
         return R.ok(awardEvidenceService.privacyComplianceMapping());
     }
@@ -98,7 +98,7 @@ public class AwardEvidenceController {
     }
 
     @GetMapping("/industry-spec-comparison")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','EXECUTIVE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS')")
     public R<Map<String, Object>> industrySpecComparison() {
         return R.ok(awardEvidenceService.industrySpecComparison());
     }
@@ -114,25 +114,25 @@ public class AwardEvidenceController {
     }
 
     @GetMapping("/zero-trust")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','EXECUTIVE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS')")
     public R<Map<String, Object>> zeroTrust() {
         return R.ok(awardEvidenceService.zeroTrustAssessment());
     }
 
     @GetMapping("/threat-inventory")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','EXECUTIVE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS')")
     public R<Map<String, Object>> threatInventory() {
         return R.ok(awardEvidenceService.generateThreatInventory());
     }
 
     @GetMapping("/adversarial-replay-report")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','EXECUTIVE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS')")
     public R<Map<String, Object>> adversarialReplay(@RequestParam(defaultValue = "10") int limit) {
         return R.ok(awardEvidenceService.generateAdversarialReplayReport(limit));
     }
 
     @GetMapping("/innovation-report")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','EXECUTIVE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS')")
     public R<Map<String, Object>> innovationReport(
         @RequestParam @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate baselineFrom,
         @RequestParam @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate baselineTo,
@@ -143,25 +143,25 @@ public class AwardEvidenceController {
     }
 
     @GetMapping("/external-anchor/latest")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','EXECUTIVE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS')")
     public R<Map<String, Object>> latestExternalAnchors(@RequestParam(defaultValue = "20") int limit) {
         return R.ok(externalAnchorService.latestAnchors(companyScopeService.requireCompanyId(), limit));
     }
 
     @GetMapping("/external-anchor/verify")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','EXECUTIVE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS')")
     public R<Map<String, Object>> verifyExternalAnchor(@RequestParam String payloadHash) {
         return R.ok(externalAnchorService.verifyByPayloadHash(companyScopeService.requireCompanyId(), payloadHash));
     }
 
     @GetMapping("/evaluation/fixed-package")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','EXECUTIVE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS')")
     public R<Map<String, Object>> fixedEvaluationPackage() {
         return R.ok(awardEvidenceService.buildFixedEvaluationPackage());
     }
 
     @GetMapping("/readiness/report")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','EXECUTIVE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS')")
     public R<Map<String, Object>> readinessReport() {
         return R.ok(nationalAwardReadinessService.readinessReport());
     }
@@ -174,7 +174,7 @@ public class AwardEvidenceController {
     }
 
     @GetMapping("/readiness/auto-remediate/last")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','EXECUTIVE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS')")
     public R<Map<String, Object>> lastAutoRemediate() {
         return R.ok(nationalAwardReadinessService.lastAutopilotRun());
     }

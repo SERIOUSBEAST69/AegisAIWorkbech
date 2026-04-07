@@ -31,34 +31,34 @@ public class DesenseController {
     private RecommendationService recommendationService;
 
     @GetMapping("/rules")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','DATA_ADMIN','DATA_ADMIN_MAINTAINER')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','BUSINESS_OWNER','AUDIT')")
     public R<List<DesensitizeRule>> rules() {
         return R.ok(ruleService.list());
     }
 
     @PostMapping("/save")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','BUSINESS_OWNER')")
     public R<?> save(@RequestBody DesensitizeRule rule) {
         if (rule.getId() == null) ruleService.save(rule); else ruleService.updateById(rule);
         return R.ok(rule);
     }
 
     @PostMapping("/recommend")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','DATA_ADMIN','DATA_ADMIN_MAINTAINER')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','BUSINESS_OWNER','AUDIT')")
     public R<List<DesenseRecommendationDto>> recommend(@RequestBody RecommendReq req) {
         List<DesenseRecommendationDto> data = recommendationService.recommend(req.getDataCategory(), req.getUserRole(), req.getSensitivityLevel());
         return R.ok(data);
     }
 
     @PostMapping("/delete")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','BUSINESS_OWNER')")
     public R<?> delete(@RequestBody @Validated IdReq req) {
         ruleService.removeById(req.getId());
         return R.okMsg("删除成功");
     }
 
     @PostMapping("/preview")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','DATA_ADMIN','DATA_ADMIN_MAINTAINER')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','BUSINESS_OWNER','AUDIT')")
     public R<Map<String, String>> preview(@RequestBody PreviewReq req) {
         String source = req.getSample();
         if (source == null) {
@@ -72,7 +72,7 @@ public class DesenseController {
     }
 
     @PostMapping("/execute")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','BUSINESS_OWNER')")
     public R<Map<String, Object>> execute(@RequestBody ExecuteReq req) {
         String source = req.getSample();
         if (source == null) {

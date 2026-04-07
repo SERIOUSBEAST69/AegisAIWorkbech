@@ -68,7 +68,7 @@ public class CompanyHealthController {
     }
 
     @PostMapping("/health-check")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','EXECUTIVE','DATA_ADMIN')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS')")
     public R<Map<String, Object>> runHealthCheck() {
         Long companyId = companyScopeService.requireCompanyId();
         User operator = currentUserService.requireCurrentUser();
@@ -164,7 +164,7 @@ public class CompanyHealthController {
     }
 
     @GetMapping("/health/latest")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','EXECUTIVE','DATA_ADMIN')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS')")
     public R<Map<String, Object>> latestHealthReport() {
         Long companyId = companyScopeService.requireCompanyId();
         List<TenantHealthReport> rows = tenantHealthReportService.list(new QueryWrapper<TenantHealthReport>()

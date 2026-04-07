@@ -40,6 +40,18 @@ let ry = my;
 const EASE = 0.12;
 
 let rafId = null;
+let nativeCursorHidden = false;
+
+function hideNativeCursor() {
+  document.documentElement.style.cursor = 'none';
+  nativeCursorHidden = true;
+}
+
+function showNativeCursor() {
+  if (!nativeCursorHidden) return;
+  document.documentElement.style.cursor = 'auto';
+  nativeCursorHidden = false;
+}
 
 function tick() {
   // 指数平滑插值
@@ -87,20 +99,34 @@ function onMouseUp() {
 
 // 鼠标离开视口时隐藏
 function onMouseLeave() {
+  showNativeCursor();
   gsap.to([ringEl.value, dotEl.value], { opacity: 0, duration: 0.2 });
 }
 function onMouseEnter() {
+  hideNativeCursor();
   gsap.to([ringEl.value, dotEl.value], { opacity: 1, duration: 0.2 });
 }
 
+function onWindowBlur() {
+  showNativeCursor();
+  gsap.set([ringEl.value, dotEl.value], { opacity: 0 });
+}
+
+function onWindowFocus() {
+  hideNativeCursor();
+  gsap.set([ringEl.value, dotEl.value], { opacity: 1 });
+}
+
 onMounted(() => {
-  // 隐藏系统光标
-  document.documentElement.style.cursor = 'none';
+  // 默认启用自定义光标，必要时退回系统光标避免“看不见鼠标”
+  hideNativeCursor();
 
   window.addEventListener('mousemove', onMouseMove,     { passive: true });
   window.addEventListener('mousemove', updateCursorState, { passive: true });
   window.addEventListener('mousedown', onMouseDown);
   window.addEventListener('mouseup',   onMouseUp);
+  window.addEventListener('blur', onWindowBlur);
+  window.addEventListener('focus', onWindowFocus);
   document.documentElement.addEventListener('mouseleave', onMouseLeave);
   document.documentElement.addEventListener('mouseenter', onMouseEnter);
 
@@ -116,6 +142,8 @@ onUnmounted(() => {
   window.removeEventListener('mousemove', updateCursorState);
   window.removeEventListener('mousedown', onMouseDown);
   window.removeEventListener('mouseup',   onMouseUp);
+  window.removeEventListener('blur', onWindowBlur);
+  window.removeEventListener('focus', onWindowFocus);
   document.documentElement.removeEventListener('mouseleave', onMouseLeave);
   document.documentElement.removeEventListener('mouseenter', onMouseEnter);
   if (rafId) cancelAnimationFrame(rafId);

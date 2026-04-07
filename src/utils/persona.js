@@ -6,224 +6,135 @@ const ROLE_TO_PERSONA = {
   ADMIN: 'governanceAdmin',
   ADMIN_REVIEWER: 'governanceReviewer',
   ADMIN_OPS: 'governanceAdmin',
-  EXECUTIVE: 'executive',
-  EXECUTIVE_COMPLIANCE: 'executive',
   SECOPS: 'secops',
   SECOPS_RESPONDER: 'secops',
-  DATA_ADMIN: 'dataAdmin',
-  DATA_ADMIN_MAINTAINER: 'dataAdmin',
-  AI_BUILDER: 'aiBuilder',
   BUSINESS_OWNER: 'businessOwner',
   BUSINESS_OWNER_APPROVER: 'businessOwner',
-  EMPLOYEE: 'employee',
-  EMPLOYEE_REQUESTER: 'employee',
-  AUDIT: 'governanceReviewer',
+  AUDIT: 'audit',
   SEC: 'secops',
 };
 
 const PERSONAS = {
-  executive: {
-    id: 'executive',
-    label: '管理层',
-    kicker: 'EXECUTIVE COMMAND LENS',
-    signature: '30 秒完成经营、风险与合规判断的董事会级驾驶舱。',
-    introSubtitle: 'Board-Level Trusted AI Command Center',
-    headline: 'Aegis Workbench 董事会级可信AI决策舱',
-    subheadline: '把风险、成本、履约与业务势能压缩进一屏，让管理层先看到结论，再决定资源和节奏。',
-    sceneTags: ['经营态势', 'AI 投入产出', '高危闭环率', '监管准备度'],
-    benefits: [
-      { title: '30 秒看清全局', metric: '全局态势', description: '你先看到高危风险、成本走向、未闭环事项和治理成熟度。' },
-      { title: '批示有证据链', metric: '审计可追溯', description: '每个判断都能回到日志、告警、资产和审批原因，不是拍脑袋。' },
-      { title: '跨部门一屏协同', metric: '风险优先级', description: '安全、数据、业务和研发的关键压力会被统一翻译成管理语言。' },
-    ],
-    journey: [
-      { step: '01', title: '先看高危与成本', description: '确认哪些风险必须今天拍板，以及 AI 调用是否已经逼近预算或舆情边界。' },
-      { step: '02', title: '看闭环效率', description: '检查告警、主体权利、共享审批是否卡在关键节点，避免治理只监测不处置。' },
-      { step: '03', title: '下达资源动作', description: '根据工作台信号决定是加审计、加算力、加治理，还是冻结高风险模型。' },
-    ],
-    quickActions: [
-      { title: '查看合规风险记录', description: '优先压降高危事件', route: '/risk-event-manage' },
-      { title: '查看审批中心', description: '识别卡点与责任链', route: '/approval-center' },
-    ],
-    roleHints: ['exec', 'ceo', 'cxo', 'director', 'management', 'leader', 'principal', 'president', '校长', '院长', '管理层', '总经理'],
-  },
-  secops: {
-    id: 'secops',
-    label: '安全运维',
-    kicker: 'SECURITY OPERATIONS LENS',
-    signature: '把异常模型调用、告警闭环和证据链完整性放在你面前。',
-    introSubtitle: 'Security Operations War Room',
-    headline: 'Aegis Workbench 安全运维战情台',
-    subheadline: '你先看到谁在异常访问、哪些模型在越界调用、哪条证据链还不完整，而不是泛泛的运营指标。',
-    sceneTags: ['告警闭环', '异常调用', '风险证据链', '应急优先级'],
-    benefits: [
-      { title: '异常优先级自动前置', metric: '高危优先', description: '高危风险、待签收告警和异常模型调用会优先浮到你面前。' },
-      { title: '证据链可直接导出', metric: '审计可复盘', description: '从日志、IP、设备、资产到审批原因可以快速串起来。' },
-      { title: '响应路径更短', metric: '少点几层', description: '首页直接给你最需要处理的风险、告警和扫描入口。' },
-    ],
-    journey: [
-      { step: '01', title: '签收高危告警', description: '先把真正可能造成事故或合规暴露的告警签收并定级。' },
-      { step: '02', title: '回到证据链', description: '用审计日志、合规风险记录和敏感扫描结果还原发生了什么。' },
-      { step: '03', title: '联动策略处置', description: '必要时冻结模型、调整权限、更新策略或发起审批。' },
-    ],
-    quickActions: [
-      { title: '实时威胁监控', description: '检测代理窃取行为', route: '/threat-monitor' },
-      { title: '审计日志', description: '追踪证据链', route: '/audit-log' },
-      { title: '敏感扫描', description: '复核高敏数据暴露面', route: '/sensitive-scan' },
-    ],
-    roleHints: ['security', 'sec', 'soc', 'audit', 'risk', 'ops', '运维', '安全', '审计'],
-  },
-  dataAdmin: {
-    id: 'dataAdmin',
-    label: '数据管理员',
-    kicker: 'DATA GOVERNANCE LENS',
-    signature: '围绕资产纳管、共享审批、主体权利和脱敏策略展开工作流。',
-    introSubtitle: 'Data Governance Control Deck',
-    headline: 'Aegis Workbench 数据资产治理中枢',
-    subheadline: '让你先看到高敏资产、共享流转、主体权利和脱敏策略命中情况，而不是被无关模块打断。',
-    sceneTags: ['资产纳管', '共享审批', '主体权利', '脱敏策略'],
-    benefits: [
-      { title: '资产状态一屏掌握', metric: '高敏资产', description: '你可以快速定位哪些数据资产已纳管、谁在访问、共享到哪里。' },
-      { title: '共享与履约同步', metric: '工单联动', description: '主体权利、共享审批与策略处置被拉进同一条业务链。' },
-      { title: '脱敏预览更直观', metric: '规则命中', description: '在真正放行前先看到脱敏策略是否足够安全、是否影响可用性。' },
-    ],
-    journey: [
-      { step: '01', title: '看高敏资产热区', description: '先判断高敏资产分布和最近共享动向，确认压力点在哪里。' },
-      { step: '02', title: '处理共享与主体请求', description: '优先推进共享审批和主体权利工单，降低合规积压。' },
-      { step: '03', title: '校准脱敏策略', description: '基于预览结果微调规则，保证安全与业务可用性平衡。' },
-    ],
-    quickActions: [
-      { title: '数据资产', description: '进入资产清单与画像', route: '/data-asset' },
-      { title: '脱敏预览', description: '校验脱敏效果', route: '/desense-preview' },
-    ],
-    roleHints: ['data', 'asset', 'steward', 'dba', 'privacy', '数据', '资产', '数据管理员'],
-  },
-  aiBuilder: {
-    id: 'aiBuilder',
-    label: 'AI 应用开发者',
-    kicker: 'AI BUILDER LENS',
-    signature: '把模型准入、调用成本、配额、风险门禁和可交付性摆到研发面前。',
-    introSubtitle: 'AI Delivery Studio',
-    headline: 'Aegis Workbench AI 应用交付工作室',
-    subheadline: '你先看到模型是否可用、成本是否失控、风险门禁是否拦截，而不是被纯管理页面包围。',
-    sceneTags: ['模型准入', '调用成本', '配额健康度', '交付风险'],
-    benefits: [
-      { title: '模型状态一眼可知', metric: '启用 / 风险', description: '哪些模型能用、哪些被限流、哪些因为风险级别被门禁拦住都能立刻看见。' },
-      { title: '成本和额度透明', metric: '调用压力', description: '研发能更早发现成本飙升和额度问题，而不是上线后才补锅。' },
-      { title: '合规接入可交付', metric: '上线更稳', description: '从模型准入到审计留痕，工作台帮助你把上线链条收紧。' },
-    ],
-    journey: [
-      { step: '01', title: '核验模型可用性', description: '先确认模型状态、风险级别、配额和成本，避免接入后被临时拦截。' },
-      { step: '02', title: '检查调用趋势', description: '看近期调用波动、失败率和预算曲线，决定是否需要扩容或换模型。' },
-      { step: '03', title: '联动合规策略', description: '必要时回到脱敏、审计和审批模块完成交付闭环。' },
-    ],
-    quickActions: [
-      { title: '影子AI发现', description: '检查未授权 AI 服务', route: '/shadow-ai' },
-      { title: 'AI风险评级', description: '查看服务风险分级', route: '/ai/risk-rating' },
-      { title: '员工AI行为监控', description: '关注高风险行为事件', route: '/ai/anomaly' },
-    ],
-    roleHints: ['developer', 'dev', 'engineer', 'model', 'ml', 'ai', '研发', '开发'],
-  },
-  businessOwner: {
-    id: 'businessOwner',
-    label: '业务负责人',
-    kicker: 'BUSINESS VALUE LENS',
-    signature: '围绕业务上线、数据使用边界、共享效率与交付风险构建的一线经营视角。',
-    introSubtitle: 'Business Delivery Control Room',
-    headline: 'Aegis Workbench 业务交付与治理协同台',
-    subheadline: '你先看到哪些数据和模型能支撑业务上线，哪些审批与风险正在拖慢交付，而不是被底层运维细节淹没。',
-    sceneTags: ['上线可行性', '数据共享效率', '风险阻塞点', '业务价值兑现'],
-    benefits: [
-      { title: '上线阻塞点可见', metric: '交付风险', description: '审批、共享、风险门禁与数据可用性会被汇总成可执行的业务语言。' },
-      { title: '共享效率更清楚', metric: '跨部门流转', description: '你能快速判断是流程在卡、权限在卡，还是数据质量在卡。' },
-      { title: '治理不再抽象', metric: '价值映射', description: '每个治理动作都能映射到业务收益、交付节奏和客户影响。' },
-    ],
-    journey: [
-      { step: '01', title: '确认可上线能力', description: '先看资产、模型和共享链路是否满足当前业务投产需求。' },
-      { step: '02', title: '识别阻塞节点', description: '定位审批、风险或主体请求是否正在拖慢交付与对外响应。' },
-      { step: '03', title: '推动跨部门协同', description: '把问题拆给数据、安全、研发与治理负责人，加速业务闭环。' },
-    ],
-    quickActions: [
-      { title: '审批中心', description: '跟进关键卡点审批', route: '/approval-center' },
-      { title: '数据资产', description: '查看可用资产与上传新数据', route: '/data-asset' },
-    ],
-    roleHints: ['business', 'owner', 'product', '运营', '业务', '业务负责人', '产品'],
-  },
-  employee: {
-    id: 'employee',
-    label: '普通员工',
-    kicker: 'EMPLOYEE SAFE WORKSPACE',
-    signature: '仅展示与本人设备和行为相关的检测信息，减少无关治理噪声。',
-    introSubtitle: 'Employee Safety Workspace',
-    headline: 'Aegis Workbench 员工安全工作区',
-    subheadline: '你将看到和本人相关的设备检测与行为异常结果，帮助快速确认自身风险状态。',
-    sceneTags: ['本机检测', '行为异常', '个人告警'],
-    benefits: [
-      { title: '只看本人数据', metric: '最小权限', description: '界面仅保留与你本人设备和行为相关的信息。' },
-      { title: '检测始终开启', metric: '持续防护', description: '关键安全检测强制开启，避免误关导致防护缺口。' },
-      { title: '快速自查', metric: '即时反馈', description: '可随时检查本机风险和异常行为记录。' },
-    ],
-    journey: [
-      { step: '01', title: '查看本机状态', description: '进入影子AI发现，检查当前设备是否存在未授权AI服务。' },
-      { step: '02', title: '查看行为记录', description: '在异常检测页查看本人近期行为是否触发风险。' },
-      { step: '03', title: '按提示整改', description: '根据风险提示调整使用方式并联系管理员协同处理。' },
-    ],
-    quickActions: [
-      { title: '影子AI发现', description: '检查本机未授权AI服务', route: '/shadow-ai' },
-      { title: '个人资料', description: '维护个人信息', route: '/profile' },
-    ],
-    roleHints: ['employee', 'staff', '普通员工', '员工', '一线'],
-  },
   governanceAdmin: {
     id: 'governanceAdmin',
     label: '治理管理员',
     kicker: 'TRUST GOVERNANCE MASTER VIEW',
-    signature: '这是全功能治理总控台，适合平台管理员与合规负责人。',
+    signature: '全域治理总控台。',
     introSubtitle: 'Master Governance Command Deck',
     headline: 'Aegis Workbench 全域治理总控台',
-    subheadline: '把资产、模型、风险、审批、审计和权限全部拉到一张作战图里，适合平台级治理者。',
-    sceneTags: ['全域态势', '权限治理', '风险闭环', '模型与数据协同'],
+    subheadline: '围绕 AI 全生命周期治理、风险管控与对抗防御的统一工作台。',
+    sceneTags: ['全域态势', '权限治理', '风险闭环', '模型治理'],
     benefits: [
-      { title: '全模块直达', metric: '全域控制', description: '你看到的是最完整的工作台，可以直接进入每条治理链路。' },
-      { title: '跨角色协同', metric: '统一指挥', description: '同一块工作台可以同时给管理层、安全、数据和研发提供统一事实。' },
-      { title: '设计与效率兼得', metric: '沉浸体验', description: '既适合真正日常使用，也足够在客户、学校或董事会面前演示。' },
+      { title: '全模块直达', metric: '全域控制', description: '统一查看并处置治理链路。' },
+      { title: '跨角色协同', metric: '统一指挥', description: '审批、审计、风险在同一视图闭环。' },
     ],
     journey: [
-      { step: '01', title: '看总控态势', description: '先掌握资产、风险、模型和履约的总体压力，再决定今天的治理主线。' },
-      { step: '02', title: '按角色分派', description: '把风险、审批、共享和权限问题分发到安全、数据、研发与业务负责人。' },
-      { step: '03', title: '验证闭环效果', description: '回到工作台看告警压降、成本收敛和主体权利履约是否真正改善。' },
+      { step: '01', title: '查看总控态势', description: '确认今日治理重点。' },
+      { step: '02', title: '分派治理动作', description: '推动审批与策略执行。' },
+      { step: '03', title: '验证闭环结果', description: '核对风险压降与审计可追溯性。' },
     ],
     quickActions: [
       { title: '用户管理', description: '调整组织与角色', route: '/user-manage' },
-      { title: '策略管理', description: '更新平台策略与门禁', route: '/policy-manage' },
-      { title: '合规风险记录', description: '总览全域风险闭环', route: '/risk-event-manage' },
+      { title: '策略管理', description: '维护治理策略', route: '/policy-manage' },
+      { title: '合规风险记录', description: '总览风险闭环', route: '/risk-event-manage' },
     ],
-    roleHints: ['admin', 'governance', 'compliance', '管理员', '合规'],
+    roleHints: ['admin', 'governance', '合规', '管理员'],
   },
   governanceReviewer: {
     id: 'governanceReviewer',
     label: '治理复核员',
     kicker: 'TRUST GOVERNANCE REVIEW VIEW',
-    signature: '聚焦治理复核、审计与风险可视，不开放高危配置入口。',
+    signature: '聚焦复核、审计与风险可视。',
     introSubtitle: 'Governance Review Deck',
     headline: 'Aegis Workbench 治理复核视图',
-    subheadline: '用于复核治理申请、追踪审计证据链和观察平台态势。',
-    sceneTags: ['复核闭环', '审计追踪', '风险可视', '只读优先'],
+    subheadline: '用于复核治理申请、追踪审计证据与查看风险态势。',
+    sceneTags: ['复核闭环', '审计追踪', '风险可视'],
     benefits: [
-      { title: '复核链路集中', metric: '审批效率', description: '待复核申请、审批链和审计证据可集中查看。' },
-      { title: '证据链可回溯', metric: '审计一致性', description: '关键治理动作可追溯到日志、申请和审批节点。' },
-      { title: '风险态势可见', metric: '态势洞察', description: '快速查看风险与合规态势，但不暴露高危配置入口。' },
+      { title: '复核链路集中', metric: '审批效率', description: '待复核事项可集中查看。' },
+      { title: '证据链可回溯', metric: '审计一致性', description: '关键动作可追溯。' },
     ],
     journey: [
-      { step: '01', title: '查看待复核事项', description: '确认治理变更、审批状态和待处理请求。' },
-      { step: '02', title: '核验审计证据', description: '交叉核验操作日志、申请载荷和处理意见。' },
-      { step: '03', title: '输出复核结论', description: '形成可追溯结论并推动闭环。' },
+      { step: '01', title: '查看待复核', description: '确认治理申请与审批状态。' },
+      { step: '02', title: '核验证据', description: '核验日志与审批意见。' },
+      { step: '03', title: '输出结论', description: '形成复核结论并推动闭环。' },
     ],
     quickActions: [
-      { title: '治理变更复核', description: '在审批中心查看待复核治理变更', route: '/approval-center' },
-      { title: '审计日志', description: '按条件追踪证据链', route: '/audit-log' },
+      { title: '审批中心', description: '复核治理申请', route: '/approval-center' },
+      { title: '审计中心', description: '追踪证据链', route: '/audit-center' },
     ],
-    roleHints: ['review', 'reviewer', '复核', '审计员'],
+    roleHints: ['review', 'reviewer', '复核', '审计'],
+  },
+  secops: {
+    id: 'secops',
+    label: '安全运维',
+    kicker: 'SECURITY OPERATIONS LENS',
+    signature: '监控告警、处置风险、保障模型与数据安全。',
+    introSubtitle: 'Security Operations War Room',
+    headline: 'Aegis Workbench 安全运维战情台',
+    subheadline: '围绕异常调用、告警闭环与证据追踪开展日常安全运维。',
+    sceneTags: ['告警闭环', '异常调用', '证据追踪'],
+    benefits: [
+      { title: '高危优先', metric: '风险优先级', description: '高危事件优先呈现。' },
+      { title: '证据可导出', metric: '审计复盘', description: '快速形成处置证据。' },
+    ],
+    journey: [
+      { step: '01', title: '签收告警', description: '优先处理高危告警。' },
+      { step: '02', title: '回溯证据', description: '关联日志与风险记录。' },
+      { step: '03', title: '策略处置', description: '调整策略并完成闭环。' },
+    ],
+    quickActions: [
+      { title: '实时威胁监控', description: '查看告警态势', route: '/threat-monitor' },
+      { title: '审计中心', description: '核验处置证据', route: '/audit-center' },
+    ],
+    roleHints: ['security', 'soc', 'secops', '运维', '安全'],
+  },
+  businessOwner: {
+    id: 'businessOwner',
+    label: '业务负责人',
+    kicker: 'BUSINESS VALUE LENS',
+    signature: '聚焦上线可行性、白名单与风险阻塞点。',
+    introSubtitle: 'Business Delivery Control Room',
+    headline: 'Aegis Workbench 业务交付协同台',
+    subheadline: '支撑企业风控与模型治理流程中的发起、审批协同与结果跟踪。',
+    sceneTags: ['上线可行性', '风险阻塞点', '审批协同'],
+    benefits: [
+      { title: '阻塞点可见', metric: '交付风险', description: '快速定位审批与风险卡点。' },
+      { title: '治理动作可追踪', metric: '价值映射', description: '治理动作映射业务结果。' },
+    ],
+    journey: [
+      { step: '01', title: '确认可上线能力', description: '检查模型与风控状态。' },
+      { step: '02', title: '发起治理动作', description: '提交风险评级/白名单/模型发布变更。' },
+      { step: '03', title: '跟踪审批与结果', description: '查看审批与风险处置闭环。' },
+    ],
+    quickActions: [
+      { title: '审批中心', description: '跟进关键审批', route: '/approval-center' },
+      { title: '影子AI发现与风险评级', description: '发起与查看风险评级', route: '/shadow-ai' },
+    ],
+    roleHints: ['business', 'owner', '业务', '产品'],
+  },
+  audit: {
+    id: 'audit',
+    label: '审计员',
+    kicker: 'AUDIT EVIDENCE VIEW',
+    signature: '聚焦审计可追溯与合规证据。',
+    introSubtitle: 'Audit Evidence Deck',
+    headline: 'Aegis Workbench 审计证据视图',
+    subheadline: '面向审计员的证据链浏览与风险结果核验视图。',
+    sceneTags: ['审计证据', '合规追溯', '风险核验'],
+    benefits: [
+      { title: '证据一体化', metric: '可追溯', description: '统一查看审批、日志、风险。' },
+      { title: '审计口径稳定', metric: '一致性', description: '降低跨模块口径偏差。' },
+    ],
+    journey: [
+      { step: '01', title: '查看审计中心', description: '抽样核验关键记录。' },
+      { step: '02', title: '核验风险处置', description: '确认风险闭环结果。' },
+      { step: '03', title: '形成审计结论', description: '输出审计意见。' },
+    ],
+    quickActions: [
+      { title: '审计中心', description: '查看日志与报告', route: '/audit-center' },
+      { title: '合规风险记录', description: '核验风险处理结果', route: '/risk-event-manage' },
+    ],
+    roleHints: ['audit', '审计'],
   },
 };
 
@@ -232,45 +143,37 @@ const MENU_SECTIONS = [
     key: 'command',
     title: '指挥工作台',
     items: [
-      { path: '/', label: '首页', icon: 'HomeFilled', audiences: ['governanceAdmin', 'secops', 'dataAdmin', 'executive', 'businessOwner', 'aiBuilder', 'employee'] },
-      { path: '/operations-command', label: '安全指挥台', icon: 'Grid', audiences: ['secops', 'executive'] },
-      { path: '/ops-observability', label: '运维观测', icon: 'TrendCharts', audiences: ['secops', 'executive', 'governanceAdmin'] },
-    ],
-  },
-  {
-    key: 'governance',
-    title: '数据与模型',
-    items: [
-      { path: '/data-asset', label: '数据资产与敏感治理', icon: 'DataAnalysis', audiences: ['governanceAdmin', 'dataAdmin', 'secops'] },
+      { path: '/', label: '首页', icon: 'HomeFilled', audiences: ['governanceAdmin', 'governanceReviewer', 'secops', 'businessOwner', 'audit'] },
+      { path: '/operations-command', label: '安全指挥台', icon: 'Grid', audiences: ['governanceAdmin', 'secops'] },
+      { path: '/ops-observability', label: '运维观测', icon: 'TrendCharts', audiences: ['governanceAdmin', 'secops', 'governanceReviewer'] },
     ],
   },
   {
     key: 'security',
     title: '安全与闭环',
     items: [
-      { path: '/shadow-ai', label: '影子AI发现与风险评级', icon: 'View', audiences: ['governanceAdmin', 'secops', 'executive', 'dataAdmin', 'aiBuilder', 'businessOwner', 'employee'] },
+      { path: '/shadow-ai', label: '影子AI发现与风险评级', icon: 'View', audiences: ['governanceAdmin', 'governanceReviewer', 'secops', 'businessOwner', 'audit'] },
       { path: '/threat-monitor', label: '实时威胁告警', icon: 'AlarmClock', audiences: ['governanceAdmin', 'secops'] },
-      { path: '/ai/anomaly', label: '员工AI行为监控', icon: 'AlarmClock', audiences: ['governanceAdmin', 'secops', 'executive', 'dataAdmin', 'aiBuilder', 'businessOwner', 'employee'] },
-      { path: '/audit-center', label: '审计中心', icon: 'Document', audiences: ['governanceAdmin', 'secops', 'executive'] },
+      { path: '/ai/anomaly', label: '员工AI行为监控', icon: 'AlarmClock', audiences: ['governanceAdmin', 'governanceReviewer', 'secops', 'businessOwner', 'audit'] },
+      { path: '/audit-center', label: '审计中心', icon: 'Document', audiences: ['governanceAdmin', 'governanceReviewer', 'secops', 'audit'] },
     ],
   },
   {
     key: 'process',
     title: '流转与履约',
     items: [
-      { path: '/approval-center', label: '审批中心', icon: 'Files', audiences: ['governanceAdmin', 'secops', 'dataAdmin', 'businessOwner'] },
-      { path: '/risk-event-manage', label: '合规风险记录', icon: 'Warning', audiences: ['governanceAdmin', 'secops'] },
-      { path: '/subject-request', label: '主体权利', icon: 'UserFilled', audiences: ['governanceAdmin'] },
+      { path: '/approval-center', label: '审批中心', icon: 'Files', audiences: ['governanceAdmin', 'governanceReviewer', 'secops', 'businessOwner', 'audit'] },
+      { path: '/risk-event-manage', label: '合规风险记录', icon: 'Warning', audiences: ['governanceAdmin', 'governanceReviewer', 'secops', 'audit'] },
     ],
   },
   {
     key: 'system',
     title: '平台控制',
     items: [
-      { path: '/user-manage', label: '用户管理', icon: 'UserFilled', audiences: ['governanceAdmin'] },
-      { path: '/role-manage', label: '角色管理', icon: 'Avatar', audiences: ['governanceAdmin'] },
-      { path: '/permission-manage', label: '权限管理', icon: 'Key', audiences: ['governanceAdmin'] },
-      { path: '/policy-manage', label: '策略管理', icon: 'Document', audiences: ['governanceAdmin', 'secops'] },
+      { path: '/user-manage', label: '用户管理', icon: 'UserFilled', audiences: ['governanceAdmin', 'governanceReviewer'] },
+      { path: '/role-manage', label: '角色管理', icon: 'Avatar', audiences: ['governanceAdmin', 'governanceReviewer'] },
+      { path: '/permission-manage', label: '权限管理', icon: 'Key', audiences: ['governanceAdmin', 'governanceReviewer'] },
+      { path: '/policy-manage', label: '策略管理', icon: 'Document', audiences: ['governanceAdmin', 'governanceReviewer', 'secops'] },
     ],
   },
 ];
@@ -278,76 +181,50 @@ const MENU_SECTIONS = [
 const EXTRA_ROUTE_AUDIENCES = {
   '/profile': [ALL],
   '/settings': [ALL],
-  '/operations-command': ['secops', 'executive'],
-  '/ops-observability': ['secops', 'executive', 'governanceAdmin'],
-  '/audit-center': ['governanceAdmin', 'secops', 'executive'],
-  '/sensitive-data-governance': ['governanceAdmin', 'secops', 'dataAdmin'],
-  '/approval-center': ['governanceAdmin', 'secops', 'dataAdmin', 'businessOwner'],
-  '/risk-event-manage': ['governanceAdmin', 'secops'],
-  '/ai/risk-rating': ['governanceAdmin', 'secops', 'executive', 'dataAdmin', 'aiBuilder', 'businessOwner', 'employee'],
-  '/ai/anomaly': ['governanceAdmin', 'secops', 'executive', 'dataAdmin', 'aiBuilder', 'businessOwner', 'employee'],
-  '/shadow-ai': ['governanceAdmin', 'secops', 'executive', 'dataAdmin', 'aiBuilder', 'businessOwner', 'employee'],
+  '/operations-command': ['governanceAdmin', 'secops'],
+  '/ops-observability': ['governanceAdmin', 'governanceReviewer', 'secops'],
+  '/audit-center': ['governanceAdmin', 'governanceReviewer', 'secops', 'audit'],
+  '/approval-center': ['governanceAdmin', 'governanceReviewer', 'secops', 'businessOwner', 'audit'],
+  '/risk-event-manage': ['governanceAdmin', 'governanceReviewer', 'secops', 'audit'],
+  '/ai/risk-rating': ['governanceAdmin', 'governanceReviewer', 'secops', 'businessOwner', 'audit'],
+  '/ai/anomaly': ['governanceAdmin', 'governanceReviewer', 'secops', 'businessOwner', 'audit'],
+  '/shadow-ai': ['governanceAdmin', 'governanceReviewer', 'secops', 'businessOwner', 'audit'],
   '/threat-monitor': ['governanceAdmin', 'secops'],
 };
 
-const EMPLOYEE_ALLOWED_PATHS = new Set(['/shadow-ai', '/profile', '/settings', '/login', '/']);
-
 const ROLE_PATH_ALLOWLIST = {
   ADMIN: [
-    '/', '/operations-command', '/ops-observability', '/data-asset', '/sensitive-data-governance', '/shadow-ai', '/threat-monitor',
-    '/ai/risk-rating', '/ai/anomaly', '/audit-center', '/approval-center',
-    '/risk-event-manage', '/subject-request', '/policy-manage', '/user-manage', '/role-manage',
-    '/permission-manage', '/profile', '/settings',
+    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/threat-monitor', '/ai/risk-rating', '/ai/anomaly', '/audit-center', '/approval-center',
+    '/risk-event-manage', '/policy-manage', '/user-manage', '/role-manage', '/permission-manage', '/profile', '/settings',
   ],
   ADMIN_REVIEWER: [
-    '/', '/operations-command', '/ops-observability', '/data-asset', '/sensitive-data-governance', '/shadow-ai', '/ai/risk-rating',
-    '/audit-center', '/approval-center',
-    '/risk-event-manage', '/subject-request', '/policy-manage', '/user-manage', '/role-manage', '/permission-manage',
-    '/profile', '/settings',
+    '/', '/ops-observability', '/shadow-ai', '/ai/risk-rating', '/ai/anomaly', '/audit-center', '/approval-center', '/risk-event-manage',
+    '/policy-manage', '/user-manage', '/role-manage', '/permission-manage', '/profile', '/settings',
+  ],
+  ADMIN_OPS: [
+    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/threat-monitor', '/ai/risk-rating', '/ai/anomaly', '/audit-center', '/approval-center',
+    '/risk-event-manage', '/policy-manage', '/profile', '/settings',
   ],
   SECOPS: [
-    '/', '/operations-command', '/ops-observability', '/data-asset', '/sensitive-data-governance', '/shadow-ai', '/threat-monitor',
-    '/ai/risk-rating', '/ai/anomaly', '/audit-center', '/approval-center',
+    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/threat-monitor', '/ai/risk-rating', '/ai/anomaly', '/audit-center', '/approval-center',
     '/risk-event-manage', '/policy-manage', '/profile', '/settings',
   ],
   SECOPS_RESPONDER: [
-    '/', '/operations-command', '/ops-observability', '/data-asset', '/sensitive-data-governance', '/shadow-ai', '/threat-monitor', '/ai/risk-rating',
-    '/ai/anomaly', '/audit-center', '/approval-center',
+    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/threat-monitor', '/ai/risk-rating', '/ai/anomaly', '/audit-center', '/approval-center',
     '/risk-event-manage', '/policy-manage', '/profile', '/settings',
   ],
-  EXECUTIVE: [
-    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/ai/risk-rating', '/ai/anomaly', '/approval-center',
-    '/policy-manage', '/audit-report', '/profile', '/settings',
-  ],
-  EXECUTIVE_COMPLIANCE: [
-    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/ai/risk-rating', '/ai/anomaly', '/approval-center',
-    '/policy-manage', '/audit-report', '/profile', '/settings',
-  ],
-  DATA_ADMIN: [
-    '/', '/data-asset', '/sensitive-data-governance', '/shadow-ai', '/ai/risk-rating', '/ai/anomaly', '/audit-center',
-    '/approval-center', '/subject-request', '/policy-manage',
-    '/ops-observability', '/profile', '/settings',
-  ],
-  DATA_ADMIN_MAINTAINER: [
-    '/', '/data-asset', '/sensitive-data-governance', '/shadow-ai', '/ai/risk-rating', '/audit-center',
-    '/approval-center', '/policy-manage', '/ops-observability', '/profile', '/settings',
-  ],
   BUSINESS_OWNER: [
-    '/', '/data-asset', '/shadow-ai', '/ai/risk-rating', '/ai/anomaly', '/audit-center', '/approval-center',
-    '/policy-manage', '/ops-observability', '/profile', '/settings',
+    '/', '/shadow-ai', '/ai/risk-rating', '/ai/anomaly', '/approval-center', '/profile', '/settings',
   ],
   BUSINESS_OWNER_APPROVER: [
-    '/', '/data-asset', '/shadow-ai', '/ai/risk-rating', '/ai/anomaly', '/audit-center', '/approval-center',
-    '/policy-manage', '/ops-observability', '/profile', '/settings',
+    '/', '/shadow-ai', '/ai/risk-rating', '/ai/anomaly', '/approval-center', '/profile', '/settings',
   ],
-  AI_BUILDER: [
-    '/', '/data-asset', '/shadow-ai', '/ai/risk-rating', '/ai/anomaly', '/approval-center', '/policy-manage',
-    '/ops-observability', '/profile', '/settings',
+  AUDIT: [
+    '/', '/shadow-ai', '/ai/risk-rating', '/ai/anomaly', '/audit-center', '/approval-center', '/risk-event-manage', '/profile', '/settings',
   ],
-  EMPLOYEE: ['/', '/shadow-ai', '/audit-center', '/subject-request', '/profile', '/settings'],
-  EMPLOYEE_REQUESTER: ['/', '/shadow-ai', '/audit-center', '/subject-request', '/profile', '/settings'],
-  AUDIT: ['/', '/audit-center', '/profile', '/settings'],
-  SEC: ['/', '/operations-command', '/shadow-ai', '/threat-monitor', '/audit-center', '/risk-event-manage', '/profile', '/settings'],
+  SEC: [
+    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/threat-monitor', '/audit-center', '/risk-event-manage', '/profile', '/settings',
+  ],
 };
 
 const PATH_PERMISSION_REQUIREMENTS = {
@@ -377,19 +254,17 @@ export function inferPersona(user) {
   if (explicitRole && ROLE_TO_PERSONA[explicitRole]) {
     return ROLE_TO_PERSONA[explicitRole];
   }
-
   const haystack = normalizeText(user);
   if (!haystack) {
-    return 'employee';
+    return 'governanceReviewer';
   }
-
-  const orderedIds = ['businessOwner', 'executive', 'secops', 'dataAdmin', 'aiBuilder', 'employee', 'governanceAdmin'];
+  const orderedIds = ['businessOwner', 'secops', 'audit', 'governanceReviewer', 'governanceAdmin'];
   const matched = orderedIds.find(id => PERSONAS[id].roleHints.some(hint => haystack.includes(hint.toLowerCase())));
-  return matched || 'employee';
+  return matched || 'governanceReviewer';
 }
 
 export function getPersonaExperience(user) {
-  return PERSONAS[inferPersona(user)];
+  return PERSONAS[inferPersona(user)] || PERSONAS.governanceReviewer;
 }
 
 function allows(audiences, personaId) {
@@ -459,19 +334,13 @@ export function canAccessPath(path, user) {
   if (explicit) {
     return (roleAllowlist ? roleAllowlist.has(path) : allows(explicit, personaId)) && isPathPermissionAllowed(path, user);
   }
-  if (personaId === 'employee') {
-    return EMPLOYEE_ALLOWED_PATHS.has(path);
-  }
-  return true;
+  return false;
 }
 
 export function resolveDefaultLandingPath(user) {
   const roleCode = String(user?.roleCode || '').trim().toUpperCase();
   if (roleCode === 'ADMIN_REVIEWER' && canAccessPath('/approval-center', user)) {
     return '/approval-center';
-  }
-  if ((roleCode === 'EMPLOYEE' || roleCode === 'EMPLOYEE_REQUESTER') && canAccessPath('/shadow-ai', user)) {
-    return '/shadow-ai';
   }
   return '/';
 }

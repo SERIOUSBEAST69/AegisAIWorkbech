@@ -79,48 +79,16 @@ public class UserController {
     private static final Map<String, List<String>> COMPANY_ONE_PRESET_USER_ROLE = Map.ofEntries(
         Map.entry("admin", List.of("ADMIN")),
         Map.entry("admin_reviewer", List.of("ADMIN_REVIEWER", "ADMIN")),
-        Map.entry("admin_ops", List.of("ADMIN_OPS", "ADMIN")),
-        Map.entry("executive", List.of("EXECUTIVE")),
-        Map.entry("executive_2", List.of("EXECUTIVE_OVERVIEW", "EXECUTIVE")),
-        Map.entry("executive_3", List.of("EXECUTIVE_COMPLIANCE", "EXECUTIVE")),
         Map.entry("secops", List.of("SECOPS")),
-        Map.entry("secops_2", List.of("SECOPS_TRIAGE", "SECOPS")),
-        Map.entry("secops_3", List.of("SECOPS_RESPONDER", "SECOPS")),
-        Map.entry("dataadmin", List.of("DATA_ADMIN")),
-        Map.entry("dataadmin_2", List.of("DATA_ADMIN_MAINTAINER", "DATA_ADMIN")),
-        Map.entry("dataadmin_3", List.of("DATA_ADMIN_APPROVER", "DATA_ADMIN")),
-        Map.entry("aibuilder", List.of("AI_BUILDER")),
-        Map.entry("aibuilder_2", List.of("AI_BUILDER_PROMPT", "AI_BUILDER")),
-        Map.entry("aibuilder_3", List.of("AI_BUILDER_AUDITOR", "AI_BUILDER")),
         Map.entry("bizowner", List.of("BUSINESS_OWNER")),
-        Map.entry("bizowner_2", List.of("BUSINESS_OWNER_APPROVER", "BUSINESS_OWNER")),
-        Map.entry("bizowner_3", List.of("BUSINESS_OWNER_REVIEWER", "BUSINESS_OWNER")),
-        Map.entry("employee1", List.of("EMPLOYEE")),
-        Map.entry("employee2", List.of("EMPLOYEE_REQUESTER_FULL", "EMPLOYEE")),
-        Map.entry("employee3", List.of("EMPLOYEE_OBSERVER", "EMPLOYEE"))
+        Map.entry("audit01", List.of("AUDIT"))
     );
     private static final Map<String, String> USERNAME_REAL_NAME = Map.ofEntries(
         Map.entry("admin", "张政"),
         Map.entry("admin_reviewer", "李审言"),
-        Map.entry("admin_ops", "王运维"),
-        Map.entry("executive", "陈明远"),
-        Map.entry("executive_2", "赵景行"),
-        Map.entry("executive_3", "孙知衡"),
         Map.entry("secops", "周锐"),
-        Map.entry("secops_2", "吴凯"),
-        Map.entry("secops_3", "郑航"),
-        Map.entry("dataadmin", "钱思源"),
-        Map.entry("dataadmin_2", "冯嘉禾"),
-        Map.entry("dataadmin_3", "谢亦宁"),
-        Map.entry("aibuilder", "韩启明"),
-        Map.entry("aibuilder_2", "林彦博"),
-        Map.entry("aibuilder_3", "蒋若凡"),
         Map.entry("bizowner", "许承业"),
-        Map.entry("bizowner_2", "邓文轩"),
-        Map.entry("bizowner_3", "曹远航"),
-        Map.entry("employee1", "郭一帆"),
-        Map.entry("employee2", "彭子轩"),
-        Map.entry("employee3", "梁可欣")
+        Map.entry("audit01", "王五")
     );
 
     @Autowired private UserService userService;

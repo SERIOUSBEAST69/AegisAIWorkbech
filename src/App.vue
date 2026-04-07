@@ -25,7 +25,7 @@
           </span>
           <span ref="brandTitleEl" class="logo-text">Aegis Workbench</span>
         </div>
-        <span class="subtitle">守护数据与隐私合规平台</span>
+        <span class="subtitle">可信AI治理与对抗防御平台</span>
       </div>
       <div class="header-actions">
         <StaggeredMenu
@@ -138,8 +138,6 @@ const menuLayerColors = ['#08101b', '#12315f', '#274f97', '#88bfff'];
 const menuDescriptions = {
   '/': '总控视窗',
   '/operations-command': '治理关键动作',
-  '/data-asset': '资产与敏感治理一体化',
-  '/sensitive-data-governance': '已并入数据资产与敏感治理',
   '/shadow-ai': '影子AI发现与风险评级',
   '/threat-monitor': 'AI数据防泄漏实时威胁告警',
   '/ai/risk-rating': '已并入影子AI发现与风险评级',
@@ -147,7 +145,6 @@ const menuDescriptions = {
   '/audit-center': '审计日志与报告中枢',
   '/approval-center': '待办审批与我发起',
   '/risk-event-manage': '合规风险记录',
-  '/subject-request': '履约请求处理',
   '/policy-manage': '治理规则配置',
   '/user-manage': '组织与账号',
   '/role-manage': '角色能力边界',
@@ -412,9 +409,12 @@ const handleDropdown = (command) => {
 
 <style scoped>
 .app-shell { 
-  min-height: 100vh; 
+  height: 100vh;
   padding: 24px; 
   box-sizing: border-box; 
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   transition: all var(--transition-normal);
 }
 
@@ -571,16 +571,22 @@ const handleDropdown = (command) => {
 }
 
 .layout { 
-  display: block;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
   margin-top: 20px; 
-  min-height: calc(100vh - 116px); 
+  height: calc(100% - 20px);
   transition: all var(--transition-normal);
 }
 
 .app-main { 
   padding: 0;
   position: relative;
-  overflow: visible;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
   isolation: isolate;
 }
 
@@ -606,12 +612,20 @@ const handleDropdown = (command) => {
 
 .route-stage {
   position: relative;
-  min-height: calc(100vh - 116px);
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-gutter: stable both-edges;
   isolation: isolate;
 }
 
 .route-layer {
   width: 100%;
+  min-height: 100%;
 }
 
 .workbench-intro {

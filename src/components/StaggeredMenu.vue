@@ -659,15 +659,33 @@ onBeforeUnmount(() => {
   position: relative;
   z-index: 1;
   height: 100%;
+  overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
-  contain: layout;
-  scrollbar-width: none;
+  contain: layout paint;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(132, 176, 255, 0.52) rgba(8, 14, 26, 0.34);
   -webkit-overflow-scrolling: touch;
+  padding-right: 8px;
 }
 
 .sm-panel-scroll::-webkit-scrollbar {
-  display: none;
+  width: 10px;
+}
+
+.sm-panel-scroll::-webkit-scrollbar-track {
+  background: rgba(8, 14, 26, 0.34);
+  border-radius: 999px;
+}
+
+.sm-panel-scroll::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(132, 176, 255, 0.72), rgba(88, 145, 255, 0.46));
+  border: 2px solid rgba(8, 14, 26, 0.34);
+}
+
+.sm-panel-scroll::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(157, 200, 255, 0.88), rgba(103, 157, 255, 0.62));
 }
 
 .sm-panel-inner {

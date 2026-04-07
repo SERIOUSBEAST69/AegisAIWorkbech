@@ -18,6 +18,10 @@
         <span>已完成</span>
         <strong>{{ doneCount }}</strong>
       </div>
+      <div v-if="activeTab === 'todo'" class="metric-card">
+        <span>当前页去重折叠</span>
+        <strong>{{ duplicateCollapsed }}</strong>
+      </div>
     </div>
 
     <el-form :inline="true" @submit.prevent class="filter-form">
@@ -51,6 +55,15 @@
       <el-table-column prop="id" label="申请ID" width="110" />
       <el-table-column prop="title" label="申请标题" min-width="280" show-overflow-tooltip />
       <el-table-column prop="requestType" label="类型" min-width="200" show-overflow-tooltip />
+      <el-table-column v-if="activeTab === 'todo'" label="追溯信息" min-width="360" show-overflow-tooltip>
+        <template #default="scope">
+          <div class="trace-cell">
+            <div class="trace-line"><span class="trace-label">指纹:</span>{{ scope.row.traceFingerprint || '-' }}</div>
+            <div class="trace-line"><span class="trace-label">链路:</span>{{ scope.row.tracePath || '-' }}</div>
+            <div class="trace-line"><span class="trace-label">发起:</span>{{ scope.row.traceActor || '-' }}</div>
+          </div>
+        </template>
+      </el-table-column>
       <el-table-column prop="riskLevel" label="风险" width="100" />
       <el-table-column prop="status" label="状态" width="110">
         <template #default="scope">
@@ -158,7 +171,7 @@ import {
   revokeRequest,
 } from '../api/approvalCenter';
 import { getSession } from '../utils/auth';
-import { canReviewGovernanceChange, canSubmitGovernanceChange, normalizeRoleCode } from '../utils/roleBoundary';
+import { canReviewGovernanceChange, canSubmitGovernanceChange } from '../utils/roleBoundary';
 
 const activeTab = ref('todo');
 const query = ref({ status: 'pending', module: '', keyword: '' });
@@ -166,6 +179,7 @@ const rows = ref([]);
 const loading = ref(false);
 const pagination = ref({ current: 1, pageSize: 10, total: 0 });
 const isNarrowScreen = ref(false);
+const duplicateCollapsed = ref(0);
 
 const showDetail = ref(false);
 const detailLoading = ref(false);
@@ -174,17 +188,8 @@ const diffData = ref({ before: {}, after: {} });
 
 const canSubmit = computed(() => canSubmitGovernanceChange(getSession()?.user));
 const canReview = computed(() => canReviewGovernanceChange(getSession()?.user));
-const roleCode = computed(() => normalizeRoleCode(getSession()?.user));
-const showTodoTab = computed(() => {
-  if (roleCode.value === 'ADMIN') return false;
-  if (roleCode.value === 'ADMIN_REVIEWER') return true;
-  return canReview.value;
-});
-const showMineTab = computed(() => {
-  if (roleCode.value === 'ADMIN') return true;
-  if (roleCode.value === 'ADMIN_REVIEWER') return false;
-  return canSubmit.value;
-});
+const showTodoTab = computed(() => canReview.value);
+const showMineTab = computed(() => canSubmit.value || !showTodoTab.value);
 const pendingCount = computed(() => rows.value.filter(item => String(item?.status || '').toLowerCase() === 'pending').length);
 const doneCount = computed(() => rows.value.filter(item => {
   const status = String(item?.status || '').toLowerCase();
@@ -202,7 +207,12 @@ function statusText(status) {
 }
 
 function normalizedStatus(status) {
-  return String(status || '').toLowerCase();
+  const value = String(status || '').trim().toLowerCase();
+  if (value === '待审批' || value === '审批中' || value === 'pending') return 'pending';
+  if (value === '已通过' || value === 'approved' || value === '通过') return 'approved';
+  if (value === '已驳回' || value === '已拒绝' || value === 'rejected' || value === '拒绝') return 'rejected';
+  if (value === '已撤回' || value === 'revoked' || value === '撤回') return 'revoked';
+  return value;
 }
 
 function canShowTodoActions(row) {
@@ -282,6 +292,82 @@ function getListParams() {
   };
 }
 
+function safeText(value) {
+  return String(value == null ? '' : value).trim();
+}
+
+function parsePayload(source) {
+  if (source && typeof source === 'object' && !Array.isArray(source)) {
+    return source;
+  }
+  if (!source) return {};
+  try {
+    const parsed = JSON.parse(source);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function simpleHash(input) {
+  const text = String(input || '');
+  let hash = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
+  }
+  return hash.toString(16).toUpperCase().padStart(8, '0');
+}
+
+function toTimeNumber(value) {
+  if (!value) return 0;
+  const d = new Date(String(value).replace(' ', 'T'));
+  return Number.isNaN(d.getTime()) ? 0 : d.getTime();
+}
+
+function normalizeTodoRow(raw) {
+  const payload = parsePayload(raw?.payload || raw?.payloadJson);
+  const trace = payload?.trace && typeof payload.trace === 'object' ? payload.trace : {};
+  const traceUsername = safeText(trace.username) || `U${safeText(raw?.requesterId) || '-'}`;
+  const traceRole = safeText(trace.role) || safeText(raw?.requesterRoleCode) || '-';
+  const traceDevice = safeText(trace.device) || '-';
+  const traceActor = `${traceUsername} / ${traceRole} / ${traceDevice}`;
+  const tracePath = `C${safeText(raw?.companyId) || '-'} > ${safeText(raw?.module) || '-'} > ${safeText(raw?.action) || '-'} > T${safeText(raw?.targetId) || '-'} > R${safeText(raw?.id) || '-'}`;
+  const dedupeKey = [
+    safeText(raw?.companyId),
+    safeText(raw?.module).toUpperCase(),
+    safeText(raw?.action).toUpperCase(),
+    safeText(raw?.targetId),
+    safeText(raw?.requesterId),
+    safeText(raw?.status).toLowerCase(),
+    safeText(payload?.reason || raw?.reason),
+  ].join('|');
+
+  return {
+    ...raw,
+    payload,
+    traceActor,
+    tracePath,
+    dedupeKey,
+    traceFingerprint: `GC-${simpleHash(dedupeKey)}`,
+  };
+}
+
+function dedupeTodoRows(list) {
+  const uniqueByKey = new Map();
+  (Array.isArray(list) ? list : []).forEach(item => {
+    const row = normalizeTodoRow(item);
+    const key = row.dedupeKey || String(row.id || '');
+    const prev = uniqueByKey.get(key);
+    if (!prev || toTimeNumber(row.updateTime) >= toTimeNumber(prev.updateTime)) {
+      uniqueByKey.set(key, row);
+    }
+  });
+
+  const deduped = Array.from(uniqueByKey.values()).sort((a, b) => toTimeNumber(b.updateTime) - toTimeNumber(a.updateTime));
+  duplicateCollapsed.value = Math.max(0, (Array.isArray(list) ? list.length : 0) - deduped.length);
+  return deduped;
+}
+
 async function fetchList() {
   loading.value = true;
   try {
@@ -293,6 +379,12 @@ async function fetchList() {
         return;
       }
       data = await fetchTodoPage(getListParams());
+      if ((!Array.isArray(data?.list) || data.list.length === 0) && query.value.status === 'pending') {
+        data = await fetchTodoPage({ ...getListParams(), status: '待审批' });
+      }
+      const sourceList = data?.list || [];
+      rows.value = dedupeTodoRows(sourceList);
+      pagination.value.total = Number(data?.total || sourceList.length);
     } else {
       if (!showMineTab.value) {
         rows.value = [];
@@ -300,9 +392,10 @@ async function fetchList() {
         return;
       }
       data = await fetchMyPage(getListParams());
+      rows.value = data?.list || [];
+      pagination.value.total = Number(data?.total || 0);
+      duplicateCollapsed.value = 0;
     }
-    rows.value = data?.list || [];
-    pagination.value.total = Number(data?.total || 0);
   } catch (err) {
     ElMessage.error(err?.message || '加载审批列表失败');
   } finally {
@@ -500,7 +593,7 @@ onBeforeUnmount(() => {
 
 .metrics-row {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 14px;
 }
@@ -541,7 +634,7 @@ onBeforeUnmount(() => {
 }
 
 .table-wrap {
-  overflow-x: auto;
+  overflow-x: visible;
 }
 
 :deep(.approval-table) {
@@ -572,6 +665,26 @@ onBeforeUnmount(() => {
   gap: 8px;
   align-items: center;
   flex-wrap: nowrap;
+}
+
+.trace-cell {
+  display: grid;
+  gap: 2px;
+}
+
+.trace-line {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.trace-label {
+  display: inline-block;
+  width: 34px;
+  color: var(--color-text-tertiary);
 }
 
 .detail-loading {
@@ -606,7 +719,7 @@ onBeforeUnmount(() => {
 .diff-panel pre {
   margin: 0;
   max-height: 320px;
-  overflow: auto;
+  overflow: visible;
   white-space: pre-wrap;
   word-break: break-word;
   font-size: 12px;

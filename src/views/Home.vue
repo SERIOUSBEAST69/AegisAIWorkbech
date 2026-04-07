@@ -474,7 +474,7 @@
                     <strong>第 {{ round.round_num }} 轮</strong>
                     <span :class="round.attack_success ? 'hit' : 'block'">{{ round.attack_success ? '突破' : '阻断' }}</span>
                   </div>
-                  <p>{{ round.attack_strategy }} vs {{ round.defense_strategy }} · 攻击成功率 {{ Math.round((round.attack_success_rate ?? round.final_effectiveness ?? 0) * 100) }}%</p>
+                  <p>{{ adversarialStrategyLabel(round.attack_strategy) }} vs {{ adversarialStrategyLabel(round.defense_strategy) }} · 攻击成功率 {{ Math.round((round.attack_success_rate ?? round.final_effectiveness ?? 0) * 100) }}%</p>
                   <em>{{ round.explain || round.narrative }}</em>
                 </article>
               </div>
@@ -562,8 +562,6 @@
       </div>
     </el-drawer>
 
-    <AIPrivacyShield ref="privacyShieldRef" />
-
     <el-dialog
       v-model="traceDialogVisible"
       width="72%"
@@ -623,7 +621,6 @@ import { ElMessage } from 'element-plus';
 import { dashboardApi } from '../api/dashboard';
 import request from '../api/request';
 import StatCard from '../components/StatCard.vue';
-import AIPrivacyShield from '../components/AIPrivacyShield.vue';
 import HomeAiAnalysisHub from '../components/home/HomeAiAnalysisHub.vue';
 import defenderLogoUrl from '../assets/logo.svg';
 import attackerAssetLattice from '../assets/adversarial/attacker-lattice.svg';
@@ -735,10 +732,7 @@ const traceDialog = ref({
   records: [],
 });
 
-const privacyShieldRef = ref(null);
 const aiDraftMessage = ref('');
-const privacyBlockReason = ref('');
-const privacyShieldActive = ref(false);
 const aiModelOptions = ref([]);
 const selectedAiModelCode = ref('');
 const aiModelLoadState = ref('idle');
@@ -880,10 +874,6 @@ async function openTraceDrilldown(moduleKey) {
 }
 
 async function sendAiDraft() {
-  if (privacyBlockReason.value) {
-    ElMessage.error(privacyBlockReason.value);
-    return;
-  }
   if (!aiDraftMessage.value.trim()) {
     ElMessage.warning('请输入要发送给 AI 的内容');
     return;
@@ -904,7 +894,6 @@ async function sendAiDraft() {
     aiResponsePreview.value = normalizeAiReply(res);
     ElMessage.success('消息已发送，已收到网关响应');
     aiDraftMessage.value = '';
-    privacyShieldActive.value = false;
   } catch (error) {
     ElMessage.error(error?.message || 'AI 请求失败');
   } finally {
@@ -1074,10 +1063,41 @@ function stopAdversarialTaskPolling() {
 const adversarialScenePreset = {
   random: { title: '综合攻防演练（Random Mix）', desc: '多攻击向量随机组合，检验整体韧性。' },
   prompt_injection_blitz: { title: '提示注入攻防（Prompt Injection）', desc: '聚焦上下文污染、越权提示与防注入策略。' },
+  composite_ai_chain: { title: '复合AI链路渗透（Composite AI Chain）', desc: '串联提示注入、策略绕过与权限扩散，验证全链路韧性。' },
+  ai_alignment_subversion: { title: '对齐机制颠覆（AI Alignment Subversion）', desc: '模拟对齐目标偏移与安全边界篡改，验证对齐防护能力。' },
   stealth_exfil: { title: '数据泄露攻防（Stealth Exfil）', desc: '模拟隐蔽外传链路，验证DLP与上下文锁。' },
   supply_chain_apt: { title: '供应链攻击攻防（Supply Chain APT）', desc: '覆盖依赖投毒与制品完整性防护。' },
   real_threat_check: { title: '实时威胁检测（Real Threat Check）', desc: '基于真实日志进行即时态势评估。' },
 };
+
+const adversarialStrategyLabelMap = {
+  composite_ai_chain: '复合AI链路渗透',
+  ai_alignment_subversion: '对齐机制颠覆',
+  prompt_injection_blitz: '提示注入突击',
+  stealth_exfil: '隐蔽外传',
+  supply_chain_apt: '供应链渗透',
+  random: '随机混合',
+  context_poison: '上下文污染',
+  jailbreak: '越狱绕过',
+  policy_evasion: '策略规避',
+  anomaly_shield: '异常拦截',
+  policy_guard: '策略守卫',
+  semantic_firewall: '语义防火墙',
+  behavior_lock: '行为锁定',
+};
+
+function normalizeAdversarialCode(value) {
+  return String(value || '').trim().toLowerCase().replace(/-/g, '_');
+}
+
+function adversarialStrategyLabel(value) {
+  const code = normalizeAdversarialCode(value);
+  if (!code) return '-';
+  if (adversarialStrategyLabelMap[code]) {
+    return adversarialStrategyLabelMap[code];
+  }
+  return String(value || '').replace(/[_-]+/g, ' ').trim() || '-';
+}
 
 const adversarialScenarioOptions = computed(() => {
   const scenes = Array.isArray(adversarialMeta.value?.scenarios) ? adversarialMeta.value.scenarios : [];
@@ -1205,9 +1225,17 @@ async function syncAdversarialTaskStatus(taskId, silent = false) {
     if (data?.battle) {
       adversarialBattle.value = data.battle;
       const rounds = Array.isArray(data?.battle?.rounds) ? data.battle.rounds : [];
-      const completed = Math.max(0, Math.min(rounds.length, Number(data?.completedRounds || rounds.length)));
+      const completedRaw = Number(data?.completedRounds);
+      const hasCompletedRounds = Number.isFinite(completedRaw) && completedRaw >= 0;
+      let completed = hasCompletedRounds
+        ? Math.max(0, Math.min(rounds.length, completedRaw))
+        : rounds.length;
+      if (adversarialTaskStatus.value === 'running' && !hasCompletedRounds) {
+        completed = Math.min(rounds.length, Math.max(1, adversarialVisibleRounds.value.length + 1));
+      }
+      const previousCount = adversarialVisibleRounds.value.length;
       adversarialVisibleRounds.value = rounds.slice(0, completed);
-      if (completed > 0) {
+      if (completed > 0 && completed > previousCount) {
         const last = adversarialVisibleRounds.value[adversarialVisibleRounds.value.length - 1];
         startAdversarialBeat(Boolean(last?.attack_success));
       }
@@ -2785,6 +2813,7 @@ onBeforeUnmount(() => {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 20px;
   position: relative;
+  min-height: 100%;
   background:
     radial-gradient(circle at 8% 12%, rgba(77, 145, 255, 0.18), transparent 36%),
     radial-gradient(circle at 86% 8%, rgba(70, 220, 202, 0.12), transparent 32%),
@@ -2793,6 +2822,7 @@ onBeforeUnmount(() => {
   padding: 12px;
   overflow-x: hidden;
   overflow-y: visible;
+  touch-action: pan-y;
 }
 
 .workbench-home::before {
@@ -3944,6 +3974,11 @@ onBeforeUnmount(() => {
   padding-right: 0;
 }
 
+.adversarial-panel .adversarial-feed-column {
+  overflow-y: visible !important;
+  max-height: none !important;
+}
+
 .adversarial-head {
   display: flex;
   align-items: flex-start;
@@ -5027,6 +5062,11 @@ onBeforeUnmount(() => {
     overflow-y: visible;
     overflow-x: hidden;
     padding-right: 0;
+  }
+
+  .adversarial-panel .adversarial-feed-column {
+    overflow-y: visible !important;
+    max-height: none !important;
   }
 
   .adversarial-config,

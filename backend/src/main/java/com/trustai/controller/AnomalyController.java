@@ -100,7 +100,7 @@ public class AnomalyController {
      * </pre>
      */
     @PostMapping("/check")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','DATA_ADMIN','AI_BUILDER','BUSINESS_OWNER','EMPLOYEE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','BUSINESS_OWNER','AUDIT')")
     public R<Map<String, Object>> check(@RequestBody(required = false) Map<String, Object> payload) {
         enforceAiBuilderDuty("check");
         if (payload == null || payload.isEmpty()) {
@@ -125,20 +125,21 @@ public class AnomalyController {
      * <p>GET /api/anomaly/events
      */
     @GetMapping("/events")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','EXECUTIVE','EXECUTIVE_COMPLIANCE','SECOPS','SECOPS_RESPONDER','DATA_ADMIN','DATA_ADMIN_MAINTAINER','AI_BUILDER','BUSINESS_OWNER','BUSINESS_OWNER_APPROVER')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','BUSINESS_OWNER','AUDIT')")
     public R<Map<String, Object>> events(@RequestParam(defaultValue = "1") int page,
                                          @RequestParam(defaultValue = "10") int pageSize) {
         enforceAiBuilderDuty("events");
         int safePage = Math.max(1, page);
         int safePageSize = Math.max(1, Math.min(50, pageSize));
         User currentUser = currentUserService.requireCurrentUser();
-        boolean privilegedViewer = currentUserService.hasAnyRole("ADMIN", "ADMIN_REVIEWER", "SECOPS", "SECOPS_RESPONDER", "DATA_ADMIN", "DATA_ADMIN_MAINTAINER", "AI_BUILDER", "BUSINESS_OWNER", "BUSINESS_OWNER_APPROVER");
+        boolean privilegedViewer = currentUserService.hasAnyRole("ADMIN", "ADMIN_REVIEWER", "SECOPS", "BUSINESS_OWNER", "AUDIT");
         Set<String> companyUsers = new HashSet<>(companyScopeService.companyUsernames());
+        companyUsers.removeIf(this::isWalkthroughIdentity);
         Set<String> companyIdentities = buildCompanyIdentities();
         try {
             Map<String, Object> result = aiInferenceClient.anomalyEvents(1, 200);
             result = filterEventsForCompany(result, companyUsers, companyIdentities);
-            if (currentUserService.hasAnyRole("EXECUTIVE", "EXECUTIVE_COMPLIANCE")) {
+            if (currentUserService.hasAnyRole("ADMIN_REVIEWER", "AUDIT")) {
                 return R.ok(summaryForExecutive(result));
             }
             if (!privilegedViewer) {
@@ -150,7 +151,7 @@ public class AnomalyController {
         } catch (Exception e) {
             log.warn("[Anomaly] Python 事件接口不可用，降级为本地真实数据: {}", e.getMessage());
             Map<String, Object> fallback = buildFallbackEvents(companyUsers);
-            if (currentUserService.hasAnyRole("EXECUTIVE", "EXECUTIVE_COMPLIANCE")) {
+            if (currentUserService.hasAnyRole("ADMIN_REVIEWER", "AUDIT")) {
                 return R.ok(summaryForExecutive(fallback));
             }
             if (!privilegedViewer) {
@@ -166,7 +167,7 @@ public class AnomalyController {
      * <p>GET /api/anomaly/status
      */
     @GetMapping("/status")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','EXECUTIVE','EXECUTIVE_COMPLIANCE','SECOPS','SECOPS_RESPONDER','DATA_ADMIN','DATA_ADMIN_MAINTAINER','AI_BUILDER','BUSINESS_OWNER','BUSINESS_OWNER_APPROVER')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','BUSINESS_OWNER','AUDIT')")
     public R<Map<String, Object>> status() {
         enforceAiBuilderDuty("status");
         try {
@@ -202,6 +203,9 @@ public class AnomalyController {
             String employeeKey = employee == null ? "" : String.valueOf(employee).trim().toLowerCase();
             String usernameKey = username == null ? "" : String.valueOf(username).trim().toLowerCase();
             String userIdKey = userId == null ? "" : String.valueOf(userId).trim().toLowerCase();
+            if (isWalkthroughIdentity(employeeKey) || isWalkthroughIdentity(usernameKey) || isWalkthroughIdentity(userIdKey)) {
+                continue;
+            }
             boolean inCompany = (employee != null && companyUsers.contains(String.valueOf(employee)))
                 || (!employeeKey.isEmpty() && companyIdentities.contains(employeeKey))
                 || (!usernameKey.isEmpty() && companyIdentities.contains(usernameKey))
@@ -235,7 +239,9 @@ public class AnomalyController {
                 identities.add(String.valueOf(user.getId()).trim().toLowerCase());
             }
             if (user.getUsername() != null) {
-                identities.add(user.getUsername().trim().toLowerCase());
+                if (!isWalkthroughIdentity(user.getUsername())) {
+                    identities.add(user.getUsername().trim().toLowerCase());
+                }
             }
             if (user.getRealName() != null) {
                 identities.add(user.getRealName().trim().toLowerCase());
@@ -338,9 +344,13 @@ public class AnomalyController {
                 .last("limit 30")
         );
         for (RiskEvent item : riskEvents) {
+            String handler = resolveHandler(item);
+            if (isWalkthroughIdentity(handler)) {
+                continue;
+            }
             Map<String, Object> event = new LinkedHashMap<>();
             event.put("event_id", "risk-" + item.getId());
-            event.put("employee_id", resolveHandler(item));
+            event.put("employee_id", handler);
             event.put("department", "risk");
             event.put("ai_service", "risk-orchestrator");
             event.put("is_anomaly", isRiskAnomaly(item));
@@ -380,10 +390,7 @@ public class AnomalyController {
     }
 
     private void enforceAiBuilderDuty(String action) {
-        if (!currentUserService.hasRole("AI_BUILDER")) {
-            return;
-        }
-        // Canonical role model no longer differentiates AI builder sub-roles.
+        // Canonical role model does not include AI builder; hook kept for backward compatibility.
     }
 
     private String normalizeRisk(String value) {
@@ -400,6 +407,10 @@ public class AnomalyController {
         }
         User handler = userService.getById(item.getHandlerId());
         return handler != null && handler.getUsername() != null ? handler.getUsername() : "risk-bot";
+    }
+
+    private boolean isWalkthroughIdentity(String value) {
+        return String.valueOf(value == null ? "" : value).trim().toLowerCase().startsWith("walkthrough_");
     }
 
     private Date toDate(Object value) {

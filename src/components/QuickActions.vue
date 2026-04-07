@@ -303,7 +303,7 @@ function addToRecent(action) {
   position: relative;
   z-index: 1;
   height: 100%;
-  overflow-y: auto;
+  overflow-y: visible;
 }
 
 .quick-actions-inner {
@@ -360,7 +360,7 @@ function addToRecent(action) {
   grid-template-columns: 1fr;
   gap: 12px;
   flex: 1;
-  overflow-y: auto;
+  overflow-y: visible;
   padding: 4px;
 }
 

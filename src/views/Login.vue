@@ -6,6 +6,7 @@
       :speed="0.4" 
       :amplitude="0.6" 
       :interactive="true" 
+      :zIndex="0"
     />
 
     <div class="stage-center">
@@ -129,6 +130,32 @@
 
                   <form class="login-form" @submit.prevent="handlePrimaryAction" novalidate>
                     <template v-if="flowType === 'login' && activeMode === 'password'">
+                      <div class="identity-support">
+                        <span class="identity-support-label">演示快速选择</span>
+                        <div class="identity-select-row">
+                          <select
+                            v-model="selectedDemoRole"
+                            class="field-input field-select"
+                            aria-label="选演示身份"
+                          >
+                            <option value="">选演示身份</option>
+                            <option v-for="item in demoRoleOptions" :key="item.code" :value="item.code">{{ item.label }}</option>
+                          </select>
+                          <select
+                            v-model="selectedDemoAccount"
+                            class="field-input field-select"
+                            aria-label="选账号"
+                            :disabled="!selectedDemoRole"
+                            @change="applyDemoAccountSelection"
+                          >
+                            <option value="">选账号</option>
+                            <option v-for="item in demoAccountsForRole" :key="item.username" :value="item.username">
+                              {{ item.realName ? `${item.username} · ${item.realName}` : item.username }}
+                            </option>
+                          </select>
+                        </div>
+                      </div>
+
                       <div class="field-group">
                         <label for="login-username">用户名</label>
                         <input id="login-username" v-model.trim="passwordForm.username" class="field-input" type="text" autocomplete="username" placeholder="例如：admin" />
@@ -264,7 +291,7 @@
       </div>
     </div>
 
-    <div class="stage-footer">© 2026 Aegis Workbench · 可信AI数据治理与隐私合规工作台</div>
+    <div class="stage-footer">© 2026 Aegis Workbench · 可信AI治理与对抗防御平台</div>
   </div>
 </template>
 
@@ -277,7 +304,6 @@ import { UserFilled } from '@element-plus/icons-vue';
 import { authApi } from '../api/auth';
 import { useUserStore } from '../store/user';
 import LiquidChrome from '../components/LiquidChrome.vue';
-import { acceptEmployeeAgreement, hasAcceptedEmployeeAgreement, isEmployeeUser } from '../utils/employeePolicy';
 import { canAccessPath, resolveDefaultLandingPath } from '../utils/persona';
 
 const router = useRouter();
@@ -345,12 +371,10 @@ const registerForm = reactive({
 
 const DEFAULT_IDENTITIES = [
   { code: 'ADMIN', label: '治理管理员' },
-  { code: 'EXECUTIVE', label: '管理层' },
+  { code: 'ADMIN_REVIEWER', label: '治理复核员' },
   { code: 'SECOPS', label: '安全运维' },
-  { code: 'DATA_ADMIN', label: '数据管理员' },
-  { code: 'AI_BUILDER', label: 'AI应用开发者' },
   { code: 'BUSINESS_OWNER', label: '业务负责人' },
-  { code: 'EMPLOYEE', label: '普通员工' },
+  { code: 'AUDIT', label: '审计员' },
 ];
 
 const ALLOWED_IDENTITY_CODES = new Set(DEFAULT_IDENTITIES.map(item => String(item.code || '').trim().toUpperCase()));
@@ -360,6 +384,23 @@ const DEFAULT_ORGANIZATIONS = [
   { code: 'school', label: '学校' },
   { code: 'ai-team', label: 'AI应用团队' },
   { code: 'public-sector', label: '政企/公共机构' },
+];
+
+const DEMO_ROLE_LABELS = {
+  ADMIN: '治理管理员',
+  ADMIN_REVIEWER: '治理复核员',
+  SECOPS: '安全运维',
+  BUSINESS_OWNER: '业务负责人',
+  AUDIT: '审计员',
+};
+
+const DEMO_LOGIN_ACCOUNTS = [
+  { roleCode: 'ADMIN', username: 'admin', realName: '平台管理员', password: 'admin' },
+  { roleCode: 'ADMIN_REVIEWER', username: 'admin_reviewer', realName: '治理复核员', password: 'admin' },
+  { roleCode: 'SECOPS', username: 'sec01', realName: '安全官-张三', password: 'Passw0rd!' },
+  { roleCode: 'AUDIT', username: 'audit01', realName: '审计员-王五', password: 'Passw0rd!' },
+  { roleCode: 'SECOPS', username: 'secops.demo', realName: '安全运维负责人', password: 'Passw0rd!' },
+  { roleCode: 'BUSINESS_OWNER', username: 'biz.demo', realName: '业务负责人', password: 'Passw0rd!' },
 ];
 
 function normalizeOptions(options, fallback) {
@@ -382,6 +423,32 @@ function normalizeOptions(options, fallback) {
 const registrationOptions = reactive({
   identities: [...DEFAULT_IDENTITIES],
   organizations: [...DEFAULT_ORGANIZATIONS],
+});
+
+const selectedDemoRole = ref('');
+const selectedDemoAccount = ref('');
+
+const demoRoleOptions = computed(() => {
+  const roleMap = new Map();
+  for (const identity of registrationOptions.identities || []) {
+    const code = String(identity?.code || '').toUpperCase();
+    if (!code) continue;
+    roleMap.set(code, identity?.label || DEMO_ROLE_LABELS[code] || code);
+  }
+  for (const item of DEMO_LOGIN_ACCOUNTS) {
+    const code = String(item?.roleCode || '').toUpperCase();
+    if (!code) continue;
+    if (!roleMap.has(code)) {
+      roleMap.set(code, DEMO_ROLE_LABELS[code] || code);
+    }
+  }
+  return Array.from(roleMap.entries()).map(([code, label]) => ({ code, label }));
+});
+
+const demoAccountsForRole = computed(() => {
+  const roleCode = String(selectedDemoRole.value || '').toUpperCase();
+  if (!roleCode) return [];
+  return DEMO_LOGIN_ACCOUNTS.filter(item => String(item.roleCode || '').toUpperCase() === roleCode);
 });
 
 const currentFlowMeta = computed(() => accessFlows.find(item => item.value === flowType.value) || accessFlows[0]);
@@ -635,9 +702,21 @@ function selectMode(value) {
   globalError.value = '';
 }
 
+function applyDemoAccountSelection() {
+  const username = String(selectedDemoAccount.value || '').trim();
+  if (!username) {
+    passwordForm.username = '';
+    passwordForm.password = '';
+    return;
+  }
+  const account = DEMO_LOGIN_ACCOUNTS.find(item => String(item.username || '').trim() === username);
+  passwordForm.username = username;
+  passwordForm.password = account?.password || '';
+  globalError.value = '';
+}
+
 async function establishAndRoute(response) {
   const user = await userStore.establishSession(response);
-  await enforceEmployeeAgreement(user);
   await playCinematicSuccess();
   sessionStorage.setItem('aegis.transition.origin', 'login');
   const requestedRedirect = String(route.query?.redirect || '').trim();
@@ -655,30 +734,6 @@ async function establishAndRoute(response) {
   } else {
     createTitleGhost();
     await router.push(redirect);
-  }
-}
-
-async function enforceEmployeeAgreement(user) {
-  if (!isEmployeeUser(user) || hasAcceptedEmployeeAgreement(user)) {
-    return;
-  }
-  try {
-    await ElMessageBox.confirm(
-      '作为普通员工，首次登录需同意《终端检测与隐私合规协议》。同意后，基础检测能力将保持开启，无法在员工端关闭。',
-      '员工使用协议',
-      {
-        confirmButtonText: '同意并继续',
-        cancelButtonText: '取消登录',
-        closeOnClickModal: false,
-        closeOnPressEscape: false,
-        distinguishCancelAndClose: true,
-        type: 'warning',
-      }
-    );
-    acceptEmployeeAgreement(user);
-  } catch {
-    await userStore.logout();
-    throw new Error('未同意员工协议，已取消登录');
   }
 }
 
@@ -983,8 +1038,26 @@ async function handlePrimaryAction() {
 watch([flowType, activeMode], async () => {
   registerForm.loginType = activeMode.value;
   globalError.value = '';
+  if (!(flowType.value === 'login' && activeMode.value === 'password')) {
+    selectedDemoRole.value = '';
+    selectedDemoAccount.value = '';
+  }
   await nextTick();
   syncStepHeight();
+});
+
+watch(selectedDemoRole, (nextRole) => {
+  selectedDemoAccount.value = '';
+  const roleCode = String(nextRole || '').toUpperCase();
+  if (!roleCode) {
+    passwordForm.username = '';
+    passwordForm.password = '';
+  }
+  // Role change only narrows account options. Password autofill is strictly account-driven.
+  if (roleCode) {
+    passwordForm.username = '';
+    passwordForm.password = '';
+  }
 });
 
 watch(isPortalLifted, async () => {
@@ -1118,14 +1191,11 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .login-stage {
-  position: fixed;
-  inset: 0;
+  position: relative;
   min-height: 100vh;
   min-height: 100dvh;
   overflow-x: hidden;
   overflow-y: auto;
-  overscroll-behavior-y: contain;
-  -webkit-overflow-scrolling: touch;
   background: #03060b;
 }
 
@@ -1514,10 +1584,9 @@ onBeforeUnmount(() => {
   flex: 1 1 auto;
   min-height: 0;
   overflow-x: hidden;
-  overflow-y: auto;
+  overflow-y: visible;
   margin-top: clamp(12px, 1.6vh, 16px);
-  max-height: min(380px, 40vh);
-  max-height: min(420px, 42dvh);
+  max-height: none;
   padding-right: 2px;
   scrollbar-width: none;
   overscroll-behavior: contain;

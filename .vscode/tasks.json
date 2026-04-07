@@ -736,6 +736,104 @@
 			"label": "api-deepseek-source-check",
 			"type": "shell",
 			"command": "$payload=@{ username='admin'; password='admin' } | ConvertTo-Json; $login=Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/auth/login' -ContentType 'application/json' -Body $payload; $token=$login.data.token; if (-not $token) { throw 'login failed' }; $h=@{ Authorization=('Bearer ' + $token) }; $deep=Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/api/dashboard/ai-hub/deepseek-analysis?scopeLevel=company' -Headers $h; [pscustomobject]@{ code=$deep.code; source=$deep.data.source; model=$deep.data.model; len=([string]$deep.data.analysis).Length; msg=$deep.msg } | ConvertTo-Json -Depth 6"
+		},
+		{
+			"label": "docker-recreate-frontend-prod-fix",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"compose",
+				"up",
+				"-d",
+				"--build",
+				"--force-recreate",
+				"aegisai-backend",
+				"aegisai-frontend"
+			]
+		},
+		{
+			"label": "probe-frontend-login-post",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"$body = @{ username = 'admin'; password = 'admin' } | ConvertTo-Json; try { $r = Invoke-RestMethod -Method Post -Uri 'http://localhost:3000/api/auth/login' -ContentType 'application/json' -Body $body; Write-Output ('OK code=' + $r.code) } catch { if ($_.Exception.Response) { $status = [int]$_.Exception.Response.StatusCode; $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream()); $txt = $reader.ReadToEnd(); Write-Output ('FAIL status=' + $status); Write-Output $txt } else { Write-Output ('FAIL ' + $_.Exception.Message) } }"
+			]
+		},
+		{
+			"label": "probe-frontend-login-post-curl",
+			"type": "shell",
+			"command": "curl.exe",
+			"args": [
+				"-sS",
+				"-o",
+				"NUL",
+				"-w",
+				"%{http_code}",
+				"-X",
+				"POST",
+				"http://localhost:3000/api/auth/login",
+				"-H",
+				"Content-Type: application/json",
+				"-d",
+				"{\"username\":\"admin\",\"password\":\"admin\"}"
+			]
+		},
+		{
+			"label": "probe-frontend-login-post-irm",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"$body = '{\\\"username\\\":\\\"admin\\\",\\\"password\\\":\\\"admin\\\"}'; try { $r = Invoke-RestMethod -Method Post -Uri 'http://localhost:3000/api/auth/login' -ContentType 'application/json' -Body $body; Write-Output ('OK:' + $r.code) } catch { if ($_.Exception.Response) { $status=[int]$_.Exception.Response.StatusCode; Write-Output ('FAIL:' + $status) } else { Write-Output ('FAIL:' + $_.Exception.Message) } }"
+			]
+		},
+		{
+			"label": "probe-frontend-api-get",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"$r = Invoke-RestMethod -Method Get -Uri http://localhost:3000/api/auth/registration-options; Write-Output ('OK:' + $r.code)"
+			]
+		},
+		{
+			"label": "probe-frontend-api-get2",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"$r = Invoke-RestMethod -Method Get -Uri http://localhost:3000/api/auth/registration-options; Write-Output $r.code"
+			]
+		},
+		{
+			"label": "probe-frontend-api-post2",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"$payload = @{username=\"admin\";password=\"admin\"} | ConvertTo-Json; $r = Invoke-RestMethod -Method Post -Uri http://localhost:3000/api/auth/login -ContentType application/json -Body $payload; Write-Output $r.code"
+			]
+		},
+		{
+			"label": "debug-build-ai-inference",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"compose",
+				"--progress=plain",
+				"build",
+				"--no-cache",
+				"ai-inference"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "build"
 		}
 	]
 }

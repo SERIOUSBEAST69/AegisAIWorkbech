@@ -10,9 +10,7 @@ RUN npm install --legacy-peer-deps
 COPY src ./src
 COPY index.html .
 COPY vite.config.js .
-
-# 可选：如果有 public/，取消注释
-# COPY public ./public
+COPY public ./public
 
 # 构建参数：设置 API 基础地址（构建时生效）
 ARG VITE_API_BASE_URL

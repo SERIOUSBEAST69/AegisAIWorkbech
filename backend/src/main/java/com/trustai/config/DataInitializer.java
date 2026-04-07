@@ -41,25 +41,9 @@ public class DataInitializer implements CommandLineRunner {
     private static final List<UserSeed> BASELINE_USERS = List.of(
         new UserSeed("admin", "治理管理员", "ADMIN", "治理中心", "13800138000", "admin@aegisai.com", "wx_admin", "admin"),
         new UserSeed("admin_reviewer", "治理复核员A", "ADMIN_REVIEWER", "治理中心", "13800138070", "admin_reviewer@aegisai.com", "wx_admin_reviewer", "admin"),
-        new UserSeed("admin_ops", "治理运维员", "ADMIN_OPS", "治理中心", "13800138071", "admin_ops@aegisai.com", "wx_admin_ops", "admin"),
-        new UserSeed("executive", "管理层", "EXECUTIVE", "经营管理部", "13800138001", "executive@aegisai.com", "wx_executive", DEFAULT_PASSWORD),
-        new UserSeed("executive_2", "管理层二号", "EXECUTIVE", "经营管理部", "13800138011", "executive2@aegisai.com", "wx_executive2", DEFAULT_PASSWORD),
-        new UserSeed("executive_3", "管理层三号", "EXECUTIVE", "经营管理部", "13800138012", "executive3@aegisai.com", "wx_executive3", DEFAULT_PASSWORD),
         new UserSeed("secops", "安全运维", "SECOPS", "安全运营中心", "13800138002", "secops@aegisai.com", "wx_secops", DEFAULT_PASSWORD),
-        new UserSeed("secops_2", "安全运维二号", "SECOPS", "安全运营中心", "13800138022", "secops2@aegisai.com", "wx_secops2", DEFAULT_PASSWORD),
-        new UserSeed("secops_3", "安全运维三号", "SECOPS", "安全运营中心", "13800138023", "secops3@aegisai.com", "wx_secops3", DEFAULT_PASSWORD),
-        new UserSeed("dataadmin", "数据管理员", "DATA_ADMIN", "数据治理部", "13800138003", "dataadmin@aegisai.com", "wx_dataadmin", DEFAULT_PASSWORD),
-        new UserSeed("dataadmin_2", "数据管理员二号", "DATA_ADMIN", "数据治理部", "13800138033", "dataadmin2@aegisai.com", "wx_dataadmin2", DEFAULT_PASSWORD),
-        new UserSeed("dataadmin_3", "数据管理员三号", "DATA_ADMIN", "数据治理部", "13800138034", "dataadmin3@aegisai.com", "wx_dataadmin3", DEFAULT_PASSWORD),
-        new UserSeed("aibuilder", "AI应用开发者", "AI_BUILDER", "模型平台组", "13800138004", "aibuilder@aegisai.com", "wx_aibuilder", DEFAULT_PASSWORD),
-        new UserSeed("aibuilder_2", "AI开发者二号", "AI_BUILDER", "模型平台组", "13800138044", "aibuilder2@aegisai.com", "wx_aibuilder2", DEFAULT_PASSWORD),
-        new UserSeed("aibuilder_3", "AI开发者三号", "AI_BUILDER", "模型平台组", "13800138045", "aibuilder3@aegisai.com", "wx_aibuilder3", DEFAULT_PASSWORD),
         new UserSeed("bizowner", "业务负责人", "BUSINESS_OWNER", "业务创新部", "13800138005", "bizowner@aegisai.com", "wx_bizowner", DEFAULT_PASSWORD),
-        new UserSeed("bizowner_2", "业务负责人二号", "BUSINESS_OWNER", "业务创新部", "13800138055", "bizowner2@aegisai.com", "wx_bizowner2", DEFAULT_PASSWORD),
-        new UserSeed("bizowner_3", "业务负责人三号", "BUSINESS_OWNER", "业务创新部", "13800138056", "bizowner3@aegisai.com", "wx_bizowner3", DEFAULT_PASSWORD),
-        new UserSeed("employee1", "普通员工一号", "EMPLOYEE", "业务一线", "13800138006", "employee1@aegisai.com", "wx_employee1", DEFAULT_PASSWORD),
-        new UserSeed("employee2", "普通员工二号", "EMPLOYEE", "业务一线", "13800138066", "employee2@aegisai.com", "wx_employee2", DEFAULT_PASSWORD),
-        new UserSeed("employee3", "普通员工三号", "EMPLOYEE", "业务一线", "13800138067", "employee3@aegisai.com", "wx_employee3", DEFAULT_PASSWORD)
+        new UserSeed("audit01", "审计员", "AUDIT", "审计中心", "13800138006", "audit01@aegisai.com", "wx_audit01", DEFAULT_PASSWORD)
     );
 
     @Autowired
@@ -78,6 +62,10 @@ public class DataInitializer implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
+        // Manual DB cleanup note (intentional no auto-migration):
+        // 1) Remove deprecated role codes: EXECUTIVE, DATA_ADMIN, AI_BUILDER, EMPLOYEE and their variants.
+        // 2) Remove historical menu/permission codes for sensitive scan, subject request, data asset, privacy shield modules.
+        // 3) Re-bind existing users to: ADMIN / ADMIN_REVIEWER / SECOPS / BUSINESS_OWNER / AUDIT.
         enforceTrustedAiModelBaseline();
         Map<String, Role> roleMap = ensureDefaultRoles(DEFAULT_COMPANY_ID);
         reconcileDeprecatedRoles(DEFAULT_COMPANY_ID, roleMap);
@@ -92,8 +80,108 @@ public class DataInitializer implements CommandLineRunner {
         seedShadowAiClientBaseline(DEFAULT_COMPANY_ID);
         repairHistoricalTraceability(DEFAULT_COMPANY_ID);
         seedSensitiveScanTraceabilityBaseline(DEFAULT_COMPANY_ID);
+        cleanupArchivedApprovalLogs(DEFAULT_COMPANY_ID);
+        ensureTraceablePendingApprovals(DEFAULT_COMPANY_ID);
         if (seedDemoData) {
             seedGovernanceAdminDemoData(DEFAULT_COMPANY_ID, roleMap);
+        }
+    }
+
+    private void cleanupArchivedApprovalLogs(Long companyId) {
+        if (!tableExists("approval_request") || !tableExists("sys_user")) {
+            return;
+        }
+        List<Long> targetIds = jdbcTemplate.query(
+            "SELECT ar.id FROM approval_request ar " +
+                "JOIN sys_user u ON u.id = ar.applicant_id " +
+                "WHERE ar.company_id = ? AND u.username = ? " +
+                "ORDER BY ar.id DESC LIMIT 15",
+            (rs, rowNum) -> rs.getLong(1),
+            companyId,
+            "archived_2028091269201293421"
+        );
+        for (Long id : targetIds) {
+            jdbcTemplate.update("DELETE FROM approval_request WHERE id = ?", id);
+        }
+    }
+
+    private void ensureTraceablePendingApprovals(Long companyId) {
+        if (!tableExists("approval_request") || !tableExists("sys_user") || !tableExists("role")) {
+            return;
+        }
+        Integer existing = jdbcTemplate.queryForObject(
+            "SELECT COUNT(1) FROM approval_request WHERE company_id = ? AND status IN ('待审批', 'pending') AND reason LIKE '[TRACE-PENDING] GOV-TODO-%'",
+            Integer.class,
+            companyId
+        );
+        int existingCount = existing == null ? 0 : existing;
+        int target = 20;
+        if (existingCount >= target) {
+            return;
+        }
+
+        Long approverId = querySingleLong(
+            "SELECT id FROM sys_user WHERE company_id = ? AND username = 'admin' ORDER BY id ASC LIMIT 1",
+            companyId
+        );
+        if (approverId == null) {
+            approverId = querySingleLong(
+                "SELECT id FROM sys_user WHERE company_id = ? ORDER BY id ASC LIMIT 1",
+                companyId
+            );
+        }
+
+        List<Map<String, Object>> applicants = jdbcTemplate.queryForList(
+            "SELECT u.id AS uid, u.username AS uname, COALESCE(r.code, '-') AS rcode, " +
+                "COALESCE(NULLIF(TRIM(u.department), ''), '-') AS dept, " +
+                "COALESCE(NULLIF(TRIM(u.device_id), ''), '-') AS device " +
+                "FROM sys_user u LEFT JOIN role r ON r.id = u.role_id " +
+                "WHERE u.company_id = ? AND u.username <> 'admin' ORDER BY u.id ASC",
+            companyId
+        );
+        if (applicants.isEmpty()) {
+            return;
+        }
+
+        for (int i = existingCount + 1; i <= target; i++) {
+            Map<String, Object> applicant = applicants.get((i - 1) % applicants.size());
+            Long applicantId = ((Number) applicant.get("uid")).longValue();
+            String username = String.valueOf(applicant.get("uname"));
+            String roleCode = String.valueOf(applicant.get("rcode"));
+            String dept = String.valueOf(applicant.get("dept"));
+            String device = String.valueOf(applicant.get("device"));
+            String todoNo = String.format(Locale.ROOT, "%03d", i);
+            String reason = String.format(Locale.ROOT,
+                "[TRACE-PENDING] GOV-TODO-%s|acct=%s|role=%s|dept=%s|cid=%d|dev=%s|rq=G%s%s",
+                todoNo,
+                username,
+                roleCode,
+                dept,
+                companyId,
+                device,
+                new java.text.SimpleDateFormat("yyMMdd").format(new Date()),
+                todoNo
+            );
+            Integer dup = jdbcTemplate.queryForObject(
+                "SELECT COUNT(1) FROM approval_request WHERE company_id = ? AND reason = ?",
+                Integer.class,
+                companyId,
+                reason
+            );
+            if (dup != null && dup > 0) {
+                continue;
+            }
+            jdbcTemplate.update(
+                "INSERT INTO approval_request(company_id, applicant_id, asset_id, reason, status, approver_id, process_instance_id, task_id, create_time, update_time) VALUES(?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())",
+                companyId,
+                applicantId,
+                880000L + i,
+                reason,
+                "待审批",
+                approverId,
+                "TGP" + todoNo,
+                "TGT" + todoNo
+            );
         }
     }
 
@@ -205,7 +293,7 @@ public class DataInitializer implements CommandLineRunner {
         if (!tableExists("model_call_stat") || !tableExists("audit_log") || !tableExists("risk_event")) {
             return;
         }
-        List<User> users = userService.lambdaQuery().eq(User::getCompanyId, companyId).list();
+        List<User> users = excludeWalkthroughUsers(userService.lambdaQuery().eq(User::getCompanyId, companyId).list());
         if (users.isEmpty()) {
             return;
         }
@@ -1231,7 +1319,7 @@ public class DataInitializer implements CommandLineRunner {
         if (!tableExists("approval_request") || !tableExists("audit_log")) {
             return;
         }
-        List<User> users = userService.lambdaQuery().eq(User::getCompanyId, companyId).list();
+        List<User> users = excludeWalkthroughUsers(userService.lambdaQuery().eq(User::getCompanyId, companyId).list());
         if (users.isEmpty()) {
             return;
         }
@@ -1440,7 +1528,7 @@ public class DataInitializer implements CommandLineRunner {
         Integer subjectCount = jdbcTemplate.queryForObject("SELECT COUNT(1) FROM subject_request WHERE company_id = ?", Integer.class, companyId);
         int targetSubject = 48;
         int existingSubject = subjectCount == null ? 0 : subjectCount;
-        List<User> users = userService.lambdaQuery().eq(User::getCompanyId, companyId).list();
+        List<User> users = excludeWalkthroughUsers(userService.lambdaQuery().eq(User::getCompanyId, companyId).list());
         List<User> demoUsers = users.stream()
             .filter(user -> !"employee1".equalsIgnoreCase(user.getUsername()))
             .toList();
@@ -1698,26 +1786,9 @@ public class DataInitializer implements CommandLineRunner {
         Map<String, String> labels = new LinkedHashMap<>();
         labels.put("ADMIN", "治理管理员");
         labels.put("ADMIN_REVIEWER", "治理复核员");
-        labels.put("ADMIN_OPS", "治理运维员");
-        labels.put("EXECUTIVE", "管理层");
-        labels.put("EXECUTIVE_OVERVIEW", "管理层总览岗");
-        labels.put("EXECUTIVE_COMPLIANCE", "管理层合规岗");
         labels.put("SECOPS", "安全运维");
-        labels.put("SECOPS_TRIAGE", "安全运维复核岗");
-        labels.put("SECOPS_RESPONDER", "安全运维阻断岗");
-        labels.put("DATA_ADMIN", "数据管理员");
-        labels.put("DATA_ADMIN_MAINTAINER", "数据管理员维护岗");
-        labels.put("DATA_ADMIN_APPROVER", "数据管理员审批岗");
-        labels.put("AI_BUILDER", "AI应用开发者");
-        labels.put("AI_BUILDER_PROMPT", "AI开发提示岗");
-        labels.put("AI_BUILDER_AUDITOR", "AI开发审计岗");
         labels.put("BUSINESS_OWNER", "业务负责人");
-        labels.put("BUSINESS_OWNER_APPROVER", "业务负责人放行岗");
-        labels.put("BUSINESS_OWNER_REVIEWER", "业务负责人复核岗");
-        labels.put("EMPLOYEE", "普通员工");
-        labels.put("EMPLOYEE_REQUESTER_FULL", "普通员工申请岗");
-        labels.put("EMPLOYEE_REQUESTER_LIMITED", "普通员工受限申请岗");
-        labels.put("EMPLOYEE_OBSERVER", "普通员工观察岗");
+        labels.put("AUDIT", "审计员");
 
         Map<String, Role> result = new LinkedHashMap<>();
         labels.forEach((code, name) -> result.put(code, ensureRole(companyId, code, name)));
@@ -1806,26 +1877,9 @@ public class DataInitializer implements CommandLineRunner {
         List<String> defaultCodes = Arrays.asList(
             "ADMIN",
             "ADMIN_REVIEWER",
-            "ADMIN_OPS",
-            "EXECUTIVE",
-            "EXECUTIVE_OVERVIEW",
-            "EXECUTIVE_COMPLIANCE",
             "SECOPS",
-            "SECOPS_TRIAGE",
-            "SECOPS_RESPONDER",
-            "DATA_ADMIN",
-            "DATA_ADMIN_MAINTAINER",
-            "DATA_ADMIN_APPROVER",
-            "AI_BUILDER",
-            "AI_BUILDER_PROMPT",
-            "AI_BUILDER_AUDITOR",
             "BUSINESS_OWNER",
-            "BUSINESS_OWNER_APPROVER",
-            "BUSINESS_OWNER_REVIEWER",
-            "EMPLOYEE",
-            "EMPLOYEE_REQUESTER_FULL",
-            "EMPLOYEE_REQUESTER_LIMITED",
-            "EMPLOYEE_OBSERVER"
+            "AUDIT"
         );
         boolean rolePermissionReady = tableExists("role_permission");
         boolean userRoleReady = tableExists("user_role");
@@ -1947,7 +2001,7 @@ public class DataInitializer implements CommandLineRunner {
 
     private boolean allowSelfRegister(String roleCode) {
         String code = String.valueOf(roleCode == null ? "" : roleCode).toUpperCase(Locale.ROOT);
-        return "EMPLOYEE".equals(code) || "AI_BUILDER".equals(code) || "BUSINESS_OWNER".equals(code);
+        return "BUSINESS_OWNER".equals(code);
     }
 
     private void ensureUser(Long companyId, UserSeed seed, Role role) {
@@ -2001,6 +2055,22 @@ public class DataInitializer implements CommandLineRunner {
         return users.stream()
             .min(Comparator.comparing(user -> user.getId() == null ? Long.MAX_VALUE : user.getId()))
             .orElse(null);
+    }
+
+    private boolean isWalkthroughUsername(String username) {
+        if (username == null) {
+            return false;
+        }
+        return username.trim().toLowerCase(Locale.ROOT).startsWith("walkthrough_");
+    }
+
+    private List<User> excludeWalkthroughUsers(List<User> users) {
+        if (users == null || users.isEmpty()) {
+            return List.of();
+        }
+        return users.stream()
+            .filter(user -> !isWalkthroughUsername(user.getUsername()))
+            .toList();
     }
 
     private String resolveJobTitle(String roleCode, String username) {

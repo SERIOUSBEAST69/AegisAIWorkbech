@@ -257,7 +257,7 @@ function collapse() {
 
 .panel-body {
   padding: 32px;
-  overflow-y: auto;
+  overflow-y: visible;
   flex: 1;
 }
 

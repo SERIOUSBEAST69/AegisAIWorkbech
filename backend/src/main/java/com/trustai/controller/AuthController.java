@@ -56,12 +56,10 @@ public class AuthController {
     private static final SecureRandom INVITE_RANDOM = new SecureRandom();
     private static final Map<String, String> ROLE_LABELS = Map.of(
         "ADMIN", "治理管理员",
-        "EXECUTIVE", "管理层",
+        "ADMIN_REVIEWER", "治理复核员",
         "SECOPS", "安全运维",
-        "DATA_ADMIN", "数据管理员",
-        "AI_BUILDER", "AI应用开发者",
         "BUSINESS_OWNER", "业务负责人",
-        "EMPLOYEE", "普通员工"
+        "AUDIT", "审计员"
     );
 
     @Autowired private UserService userService;
@@ -482,7 +480,7 @@ public class AuthController {
             return false;
         }
         String code = roleCode.trim().toUpperCase();
-        return "EMPLOYEE".equals(code) || "AI_BUILDER".equals(code) || "BUSINESS_OWNER".equals(code);
+        return "BUSINESS_OWNER".equals(code);
     }
 
     private Map<String, Object> roleOption(Role role) {

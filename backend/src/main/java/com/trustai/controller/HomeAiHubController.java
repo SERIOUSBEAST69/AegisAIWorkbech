@@ -55,12 +55,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 public class HomeAiHubController {
 
     private static final Set<String> PRIVILEGED_ROLES = Set.of(
-        "ADMIN", "ADMIN_REVIEWER", "ADMIN_OPS",
-        "SECOPS", "SECOPS_RESPONDER",
-        "EXECUTIVE", "EXECUTIVE_COMPLIANCE",
-        "DATA_ADMIN", "DATA_ADMIN_MAINTAINER",
-        "AI_BUILDER",
-        "BUSINESS_OWNER", "BUSINESS_OWNER_APPROVER"
+        "ADMIN", "ADMIN_REVIEWER", "SECOPS", "BUSINESS_OWNER", "AUDIT"
     );
     private static final Set<String> THREAT_TYPES = Set.of(
         "PRIVACY_ALERT", "ANOMALY_ALERT", "SHADOW_AI_ALERT", "SECURITY_ALERT"
@@ -481,7 +476,7 @@ public class HomeAiHubController {
         String department = current != null && StringUtils.hasText(current.getDepartment())
             ? current.getDepartment()
             : (StringUtils.hasText(selection.department) ? selection.department : "未分配部门");
-        String roleCode = current == null ? "EMPLOYEE" : roleCodeOf(current);
+        String roleCode = current == null ? "AUDIT" : roleCodeOf(current);
 
         persona.put("title", "个人画像");
         persona.put("summary", "基于用户粒度的风险、调用与审计行为分析，支持精准治理闭环。");
@@ -1237,14 +1232,14 @@ public class HomeAiHubController {
 
     private String roleCodeOf(User user) {
         if (user == null || user.getRoleId() == null) {
-            return "EMPLOYEE";
+            return "AUDIT";
         }
         String code = jdbcTemplate.query(
             "SELECT code FROM role WHERE id = ? LIMIT 1",
             (rs, rowNum) -> rs.getString(1),
             user.getRoleId()
-        ).stream().findFirst().orElse("EMPLOYEE");
-        return String.valueOf(code == null ? "EMPLOYEE" : code).toUpperCase(Locale.ROOT);
+        ).stream().findFirst().orElse("AUDIT");
+        return String.valueOf(code == null ? "AUDIT" : code).toUpperCase(Locale.ROOT);
     }
 
     private boolean canUseCompanyDepartmentScope(User viewer) {

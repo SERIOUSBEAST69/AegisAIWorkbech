@@ -183,16 +183,16 @@ public class DashboardController {
             currentUser.getDepartment() == null ? "可信AI治理中心" : currentUser.getDepartment(),
             currentUser.getAvatar()
         ));
-        dto.setHeadline("可信AI数据治理与隐私合规工作台");
+        dto.setHeadline("可信AI治理与对抗防御工作台");
         dto.setSubheadline(String.format(
-            "%s视角下，平台正在对 %d 项高敏资产、%d 个启用模型、%d 条待闭环风险与 %d 个主体工单进行统一编排。",
+            "%s视角下，平台正在对 %d 项高敏资产、%d 个启用模型、%d 条待闭环风险与 %d 个治理待办进行统一编排。",
             currentRole == null ? "运营" : currentRole.getName(),
             highSensitivityAssets,
             enabledModels,
             highRiskEvents,
             pendingSubjectRequests
         ));
-        dto.setSceneTags(Arrays.asList("审计证据链", "高敏资产纳管", "模型分级准入", "主体权利履约"));
+        dto.setSceneTags(Arrays.asList("审计证据链", "高敏资产纳管", "模型分级准入", "风险闭环处置"));
         dto.setMetrics(buildMetrics(highSensitivityAssets, newHighSensitivityAssets, previousHighSensitivityAssets, openAlerts, recentOpenAlerts, previousOpenAlerts, aiCallsLast7, aiCallsPrevious7, todayAuditCount, yesterdayAuditCount, safeDays));
         dto.setTrend(buildTrend(last7Start, recentRiskEvents, recentAuditLogs, recentModelStats, safeDays));
         dto.setRiskDistribution(buildRiskDistribution(recentRiskEvents));
@@ -738,7 +738,7 @@ public class DashboardController {
                 "P0",
                 "补齐高敏资产治理策略",
                 "高敏资产越多，越需要配套脱敏、共享审批和审计规则，区别于传统台账式治理。",
-                "/data-asset",
+                "/policy-manage",
                 highSensitivityAssets + " 个高敏资产"
             ));
         }
@@ -746,10 +746,10 @@ public class DashboardController {
             items.add(new GovernanceInsightDTO.Recommendation(
                 "pending-subject-requests",
                 "P1",
-                "压降主体权利工单积压",
-                "主体权利请求仍在处理中，平台已具备工单化闭环能力，应继续提升履约时效。",
-                "/subject-request",
-                pendingSubjectRequests + " 个待处理工单"
+                "压降治理审批积压",
+                "治理待办仍在处理中，建议优先在审批中心完成通过/驳回闭环。",
+                "/approval-center",
+                pendingSubjectRequests + " 个待处理事项"
             ));
         }
         if (highRiskModels > 0) {
@@ -918,7 +918,7 @@ public class DashboardController {
             todos.add(new WorkbenchOverviewDTO.TodoItem("P0", "处理待处置风险", "仍有高优先级风险待跟进，需进入风险编排视图。", "/risk-event-manage", openAlerts + " 条待处置风险"));
         }
         if (pendingSubjectRequests > 0) {
-            todos.add(new WorkbenchOverviewDTO.TodoItem("P1", "履约主体权利请求", "访问、删除、导出类工单仍在队列中，影响隐私履约体验。", "/subject-request", pendingSubjectRequests + " 个待处理工单"));
+            todos.add(new WorkbenchOverviewDTO.TodoItem("P1", "处理治理审批积压", "治理审批事项仍在队列中，建议优先完成审批闭环。", "/approval-center", pendingSubjectRequests + " 个待处理事项"));
         }
         todos.add(new WorkbenchOverviewDTO.TodoItem("P1", "巡检启用AI能力", "核验高风险模型额度、状态与绑定资产是否仍符合最新策略。", "/ai/risk-rating", enabledModels + " 个启用模型"));
         return todos.stream().limit(4).collect(Collectors.toList());
@@ -944,9 +944,9 @@ public class DashboardController {
             .limit(2)
             .forEach(item -> feeds.add(new WorkbenchOverviewDTO.ActivityFeed(
                 normalizeLower(item.getStatus()),
-                "主体权利 · " + defaultText(item.getType(), "access"),
+                "治理审批 · " + defaultText(item.getType(), "access"),
                 defaultText(item.getComment(), "等待处理") + "，当前状态：" + defaultText(item.getStatus(), "pending"),
-                "/subject-request",
+                "/approval-center",
                 formatTime(item.getCreateTime())
             )));
         return feeds.stream()

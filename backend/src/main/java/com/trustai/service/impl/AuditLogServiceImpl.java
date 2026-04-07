@@ -20,6 +20,8 @@ import org.springframework.data.elasticsearch.core.SearchHit;
 import org.springframework.data.elasticsearch.core.query.Criteria;
 import org.springframework.data.elasticsearch.core.query.CriteriaQuery;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
 import org.springframework.jdbc.core.JdbcTemplate;
 
@@ -188,10 +190,28 @@ public class AuditLogServiceImpl extends ServiceImpl<AuditLogMapper, AuditLog> i
 		return value == null ? "" : value;
 	}
 
-	private void sendAsync(AuditLog log) {
+	private void sendAsync(AuditLog auditLog) {
+		if (auditLog == null) {
+			return;
+		}
+		if (TransactionSynchronizationManager.isActualTransactionActive()) {
+			TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+				@Override
+				public void afterCommit() {
+					publishAuditMessage(auditLog);
+				}
+			});
+			return;
+		}
+		publishAuditMessage(auditLog);
+	}
+
+	private void publishAuditMessage(AuditLog auditLog) {
 		try {
-			rabbitTemplate.convertAndSend(RabbitConfig.AUDIT_LOG_QUEUE, MAPPER.writeValueAsString(log));
-		} catch (Exception ignored) { }
+			rabbitTemplate.convertAndSend(RabbitConfig.AUDIT_LOG_QUEUE, MAPPER.writeValueAsString(auditLog));
+		} catch (Exception ex) {
+			log.warn("publish audit message failed, logId={}", auditLog.getId(), ex);
+		}
 	}
 
 	/**

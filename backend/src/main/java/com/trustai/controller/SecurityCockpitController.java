@@ -66,7 +66,7 @@ public class SecurityCockpitController {
     }
 
     @GetMapping("/overview")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','EXECUTIVE','SECOPS','DATA_ADMIN','AI_BUILDER','BUSINESS_OWNER','EMPLOYEE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','BUSINESS_OWNER','AUDIT')")
     public R<Map<String, Object>> overview() {
         User viewer = currentUserService.requireCurrentUser();
         ViewerScope scope = resolveScope(viewer);
@@ -99,7 +99,7 @@ public class SecurityCockpitController {
     }
 
     @GetMapping("/heatmap/department")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','EXECUTIVE','SECOPS','DATA_ADMIN','AI_BUILDER','BUSINESS_OWNER','EMPLOYEE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','BUSINESS_OWNER','AUDIT')")
     public R<Map<String, Object>> departmentHeatmap(@RequestParam(defaultValue = "7") int days) {
         User viewer = currentUserService.requireCurrentUser();
         ViewerScope scope = resolveScope(viewer);
@@ -152,7 +152,7 @@ public class SecurityCockpitController {
     }
 
     @GetMapping("/trend/hourly")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','EXECUTIVE','SECOPS','DATA_ADMIN','AI_BUILDER','BUSINESS_OWNER','EMPLOYEE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','BUSINESS_OWNER','AUDIT')")
     public R<Map<String, Object>> hourlyTrend(@RequestParam(defaultValue = "24") int hours) {
         User viewer = currentUserService.requireCurrentUser();
         ViewerScope scope = resolveScope(viewer);
@@ -242,7 +242,7 @@ public class SecurityCockpitController {
     }
 
     @GetMapping("/topology")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','EXECUTIVE','SECOPS','DATA_ADMIN','AI_BUILDER','BUSINESS_OWNER','EMPLOYEE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','BUSINESS_OWNER','AUDIT')")
     public R<Map<String, Object>> riskTopology(@RequestParam(defaultValue = "7") int days) {
         User viewer = currentUserService.requireCurrentUser();
         ViewerScope scope = resolveScope(viewer);
@@ -340,7 +340,7 @@ public class SecurityCockpitController {
     }
 
     @GetMapping("/alerts/recent")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','EXECUTIVE','SECOPS','DATA_ADMIN','AI_BUILDER','BUSINESS_OWNER','EMPLOYEE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','BUSINESS_OWNER','AUDIT')")
     public R<List<Map<String, Object>>> recentAlerts(@RequestParam(defaultValue = "40") int limit) {
         User viewer = currentUserService.requireCurrentUser();
         ViewerScope scope = resolveScope(viewer);
@@ -399,7 +399,7 @@ public class SecurityCockpitController {
     }
 
     @GetMapping("/department/detail")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','EXECUTIVE','SECOPS','DATA_ADMIN','AI_BUILDER','BUSINESS_OWNER','EMPLOYEE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','BUSINESS_OWNER','AUDIT')")
     public R<List<Map<String, Object>>> departmentDetail(@RequestParam String department,
                                                          @RequestParam(defaultValue = "7") int days,
                                                          @RequestParam(defaultValue = "80") int limit) {
@@ -431,7 +431,7 @@ public class SecurityCockpitController {
     }
 
     @GetMapping("/hour/detail")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','EXECUTIVE','SECOPS','DATA_ADMIN','AI_BUILDER','BUSINESS_OWNER','EMPLOYEE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','BUSINESS_OWNER','AUDIT')")
     public R<List<Map<String, Object>>> hourDetail(@RequestParam String hour,
                                                    @RequestParam(defaultValue = "120") int limit) {
         User viewer = currentUserService.requireCurrentUser();
@@ -481,7 +481,7 @@ public class SecurityCockpitController {
     }
 
     @GetMapping("/topology/detail")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','EXECUTIVE','SECOPS','DATA_ADMIN','AI_BUILDER','BUSINESS_OWNER','EMPLOYEE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','BUSINESS_OWNER','AUDIT')")
     public R<List<Map<String, Object>>> topologyDetail(@RequestParam String sourceIp,
                                                        @RequestParam String target,
                                                        @RequestParam(defaultValue = "7") int days,
@@ -528,7 +528,7 @@ public class SecurityCockpitController {
 
     private ViewerScope resolveScope(User viewer) {
         Long companyId = companyScopeService.requireCompanyId();
-        boolean companyWide = currentUserService.hasAnyRole("ADMIN", "SECOPS", "EXECUTIVE");
+        boolean companyWide = currentUserService.hasAnyRole("ADMIN", "SECOPS", "ADMIN_REVIEWER");
         return new ViewerScope(companyId, viewer.getId(), viewer.getUsername(), companyWide);
     }
 
@@ -551,7 +551,7 @@ public class SecurityCockpitController {
             throw new IllegalArgumentException("token 用户无效");
         }
         String roleCode = currentRoleCode(user);
-        boolean companyWide = Set.of("ADMIN", "SECOPS", "EXECUTIVE").contains(roleCode);
+        boolean companyWide = Set.of("ADMIN", "SECOPS", "ADMIN_REVIEWER").contains(roleCode);
         return new ViewerScope(companyId, user.getId(), user.getUsername(), companyWide);
     }
 

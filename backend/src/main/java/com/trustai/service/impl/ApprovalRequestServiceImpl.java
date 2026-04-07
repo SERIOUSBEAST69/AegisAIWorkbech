@@ -5,6 +5,7 @@ import com.trustai.entity.ApprovalRequest;
 import com.trustai.exception.BizException;
 import com.trustai.mapper.ApprovalRequestMapper;
 import com.trustai.service.ApprovalRequestService;
+import com.trustai.service.EventHubService;
 import lombok.RequiredArgsConstructor;
 import org.flowable.engine.RuntimeService;
 import org.flowable.engine.TaskService;
@@ -15,6 +16,8 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Service
@@ -23,6 +26,9 @@ public class ApprovalRequestServiceImpl extends ServiceImpl<ApprovalRequestMappe
 
 	private final RuntimeService runtimeService;
 	private final TaskService taskService;
+	private final EventHubService eventHubService;
+
+	private static final Pattern EVENT_ID_PATTERN = Pattern.compile("(?:^|\\s)eventId=(\\d+)(?:\\s|$)");
 
 	@Override
 	public ApprovalRequest startApproval(ApprovalRequest req) {
@@ -73,6 +79,7 @@ public class ApprovalRequestServiceImpl extends ServiceImpl<ApprovalRequestMappe
 		ar.setApproverId(approverId);
 		ar.setUpdateTime(new Date());
 		this.updateById(ar);
+		syncGovernanceEventIfLinked(ar, approverId, flowStatus);
 		return ar;
 	}
 
@@ -96,5 +103,29 @@ public class ApprovalRequestServiceImpl extends ServiceImpl<ApprovalRequestMappe
 
 	private boolean isDeptTask(Task task) {
 		return task != null && "deptApproval".equals(task.getTaskDefinitionKey());
+	}
+
+	private void syncGovernanceEventIfLinked(ApprovalRequest request, Long approverId, String flowStatus) {
+		Long eventId = extractEventId(request == null ? null : request.getReason());
+		if (eventId == null) {
+			return;
+		}
+		String nextStatus = "reject".equalsIgnoreCase(flowStatus) ? "rejected" : "approved";
+		eventHubService.syncGovernanceStatus("governance", eventId, nextStatus, approverId, "approval_request:" + request.getId());
+	}
+
+	private Long extractEventId(String reason) {
+		if (reason == null || reason.isBlank()) {
+			return null;
+		}
+		Matcher matcher = EVENT_ID_PATTERN.matcher(reason);
+		if (!matcher.find()) {
+			return null;
+		}
+		try {
+			return Long.parseLong(matcher.group(1));
+		} catch (NumberFormatException ignored) {
+			return null;
+		}
 	}
 }

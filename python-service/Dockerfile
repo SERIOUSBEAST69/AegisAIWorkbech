@@ -26,9 +26,7 @@ COPY ai_risk_data.json ./
 # 若已构建好的模型文件存在，复制进镜像（可选：也可在容器启动后训练）
 # COPY models/ ./models/
 
-# 若未提供预训练模型，在构建阶段生成合成数据并训练模型
-# 注意：在 CI 环境中可以跳过此步骤，通过 docker-compose 的 command 字段覆盖
-RUN python gen_behavior_data.py && python train_anomaly.py
+# 模型在容器启动时按需自动训练；构建阶段只安装依赖与应用代码，避免长时间卡在镜像构建。
 
 # 暴露端口
 EXPOSE 5000

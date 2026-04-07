@@ -37,7 +37,7 @@ public class RiskForecastController {
     private CompanyScopeService companyScopeService;
 
     @GetMapping("/trend")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','EXECUTIVE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS')")
     public R<Map<String, Object>> trend(@RequestParam(defaultValue = "7") int days) {
         Long companyId = companyScopeService.requireCompanyId();
         LocalDate from = LocalDate.now().minusDays(days);
@@ -67,7 +67,7 @@ public class RiskForecastController {
      * 若缓存未就绪则实时计算一次。
      */
     @GetMapping("/forecast")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS','EXECUTIVE')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS')")
     public R<Map<String, Object>> forecast() {
         RiskForecastScheduler.ForecastResult result = riskForecastScheduler.getLatest();
         Map<String, Object> res = new HashMap<>();

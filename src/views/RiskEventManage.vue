@@ -554,6 +554,19 @@ function formatTime(value) {
   if (Number.isNaN(date.getTime())) return String(value);
   return date.toLocaleString('zh-CN', { hour12: false });
 }
+
+function buildRiskUpdatePayload(row, overrides = {}) {
+  return {
+    id: row?.id,
+    type: String(row?.type || '').trim(),
+    level: normalizeLevel(overrides.level ?? row?.level),
+    status: String(overrides.status ?? normalizeStatus(row)).toUpperCase(),
+    processLog: String(overrides.processLog ?? row?.processLog ?? '').trim(),
+    relatedLogId: row?.relatedLogId ?? null,
+    auditLogIds: row?.auditLogIds ?? null,
+  };
+}
+
 async function updateEvent() {
   if (!canHandleRiskEvent.value) {
     ElMessage.warning('当前身份仅可查看合规风险记录，不能编辑');
@@ -564,11 +577,12 @@ async function updateEvent() {
     if (!valid) return;
     saving.value = true;
     try {
-      await request.post('/risk-event/update', {
-        ...editForm.value,
-        level: normalizeLevel(editForm.value.level),
+      const payload = buildRiskUpdatePayload(editForm.value, {
+        level: editForm.value.level,
         status: normalizeStatus(editForm.value),
+        processLog: editForm.value.processLog,
       });
+      await request.post('/risk-event/update', payload);
       ElMessage.success('更新成功');
       showEdit.value = false;
       fetchEvents();
@@ -590,12 +604,11 @@ async function markStatus(row, status) {
     await ElMessageBox.confirm(`确认将该事件标记为${label}吗？`, '提示', { type: 'warning' });
     const nextLog = cleanProcessLog(row?.processLog);
     const appended = nextLog ? `${nextLog}；状态更新为${label}` : `状态更新为${label}`;
-    await request.post('/risk-event/update', {
-      ...row,
-      level: normalizeLevel(row?.level),
+    const payload = buildRiskUpdatePayload(row, {
       status,
       processLog: appended,
     });
+    await request.post('/risk-event/update', payload);
     ElMessage.success('状态更新成功');
     fetchEvents();
   } catch (err) {
@@ -671,11 +684,11 @@ onBeforeUnmount(() => {
 }
 
 .risk-event-page :deep(.el-table__body-wrapper) {
-  overflow-x: auto;
+  overflow-x: visible;
 }
 
 .risk-table-wrap {
-  overflow-x: auto;
+  overflow-x: visible;
 }
 
 .risk-event-page :deep(.el-table) {
