@@ -1058,6 +1058,15 @@ public class DataInitializer implements CommandLineRunner {
             "risk:event:view",
             "security:event:view"
         ));
+        bindPermissions(roleMap.get("AUDIT"), Arrays.asList(
+            "menu:audit_log",
+            "menu:audit_report",
+            "audit:log:view",
+            "audit:report:view",
+            "govern:change:view",
+            "risk:event:view",
+            "security:event:view"
+        ));
         bindPermissions(roleMap.get("DATA_ADMIN"), Arrays.asList(
             "menu:data_asset",
             "data_asset:upload",

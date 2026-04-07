@@ -3,6 +3,7 @@
     { "role": "ADMIN", "username": "admin", "password": "admin" },
     { "role": "EXECUTIVE", "username": "executive", "password": "Passw0rd!" },
     { "role": "SECOPS", "username": "secops", "password": "Passw0rd!" },
+    { "role": "AUDIT", "username": "audit01", "password": "auditpass" },
     { "role": "DATA_ADMIN", "username": "dataadmin", "password": "Passw0rd!" },
     { "role": "AI_BUILDER", "username": "aibuilder", "password": "Passw0rd!" },
     { "role": "BUSINESS_OWNER", "username": "bizowner", "password": "Passw0rd!" },
@@ -43,13 +44,13 @@
       "name": "AUDIT_LOG_SEARCH",
       "method": "GET",
       "path": "/api/audit-log/search",
-      "allow": ["ADMIN", "SECOPS"]
+      "allow": ["ADMIN", "AUDIT"]
     },
     {
       "name": "AUDIT_REPORT_COMPARE",
       "method": "GET",
       "path": "/api/audit-report/compare?from=2026-03-01&to=2026-03-10",
-      "allow": ["ADMIN", "SECOPS", "EXECUTIVE"]
+      "allow": ["ADMIN", "AUDIT", "EXECUTIVE"]
     },
     {
       "name": "SENSITIVE_SCAN_LIST",

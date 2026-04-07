@@ -8,38 +8,40 @@
     ref="stageRef"
   >
     <section class="hero-scene card-glass scene-block" ref="heroRef">
-      <div class="hero-rings-bg" aria-hidden="true">
-        <MagicRings
-          color="#4f8dff"
-          color-two="#63d6ff"
-          :ring-count="6"
-          :speed="1"
-          :attenuation="10"
-          :line-thickness="2"
-          :base-radius="0.35"
-          :radius-step="0.1"
-          :scale-rate="0.1"
-          :opacity="1"
-          :blur="0"
-          :noise-amount="0.08"
-          :rotation="0"
-          :ring-gap="1.5"
-          :fade-in="0.7"
-          :fade-out="0.5"
-          :follow-mouse="false"
-          :mouse-influence="0.2"
-          :hover-scale="1.08"
-          :parallax="0.03"
-          :click-burst="false"
-        />
-      </div>
       <div class="hero-stage">
         <div class="hero-copy">
           <div class="eyebrow">{{ personaExperience.kicker }}</div>
-          <h1 class="hero-headline">
-            <span class="hero-title-primary workbench-title-core" data-workbench-title-anchor="home">{{ heroHeadline.primary }}</span>
-            <span v-if="heroHeadline.suffix" class="hero-title-suffix">{{ heroHeadline.suffix }}</span>
-          </h1>
+          <div class="hero-headline-wrap">
+            <div class="hero-title-rings" aria-hidden="true">
+              <MagicRings
+                color="#4f8dff"
+                color-two="#63d6ff"
+                :ring-count="6"
+                :speed="1"
+                :attenuation="11"
+                :line-thickness="2"
+                :base-radius="0.02"
+                :radius-step="0.045"
+                :scale-rate="0.42"
+                :opacity="1"
+                :blur="0"
+                :noise-amount="0.08"
+                :rotation="0"
+                :ring-gap="1.44"
+                :fade-in="0.08"
+                :fade-out="0.6"
+                :follow-mouse="false"
+                :mouse-influence="0.2"
+                :hover-scale="1.08"
+                :parallax="0.03"
+                :click-burst="false"
+              />
+            </div>
+            <h1 class="hero-headline">
+              <span class="hero-title-primary workbench-title-core" data-workbench-title-anchor="home">{{ heroHeadline.primary }}</span>
+              <span v-if="heroHeadline.suffix" class="hero-title-suffix">{{ heroHeadline.suffix }}</span>
+            </h1>
+          </div>
           <p>{{ heroSubheadline }}</p>
           <div class="scene-tags">
             <span v-for="tag in overview.sceneTags" :key="tag" class="scene-tag">{{ tag }}</span>
@@ -3171,12 +3173,26 @@ onBeforeUnmount(() => {
   box-shadow: inset 0 1px 0 rgba(197, 222, 255, 0.08), 0 24px 48px rgba(4, 10, 24, 0.44);
 }
 
-.hero-rings-bg {
+
+.hero-headline-wrap {
+  position: relative;
+  width: min(760px, 100%);
+  display: grid;
+  justify-items: center;
+  padding: 24px 14px;
+}
+
+.hero-title-rings {
   position: absolute;
-  inset: 0;
+  top: 50%;
+  left: 50%;
+  width: min(680px, 92vw);
+  height: clamp(180px, 30vw, 260px);
+  transform: translate(-50%, -50%);
   pointer-events: none;
+  opacity: 0.84;
   z-index: 0;
-  opacity: 0.78;
+  mix-blend-mode: screen;
 }
 
 .hero-scene::before {
@@ -3241,6 +3257,8 @@ onBeforeUnmount(() => {
 }
 
 .hero-headline {
+  position: relative;
+  z-index: 1;
   margin: 18px 0 14px;
   font-size: clamp(36px, 4vw, 52px);
   line-height: 1.04;
@@ -3742,8 +3760,8 @@ onBeforeUnmount(() => {
   }
 }
 
-.workbench-home.motion-tier-low .hero-rings-bg,
-.workbench-home.reduce-motion .hero-rings-bg {
+.workbench-home.motion-tier-low .hero-title-rings,
+.workbench-home.reduce-motion .hero-title-rings {
   opacity: 0.45;
 }
 

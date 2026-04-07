@@ -39,6 +39,7 @@ public class CurrentUserService {
         Map.entry("DATA_ADMIN_MAINTAINER", Set.of("audit:log:view")),
         Map.entry("BUSINESS_OWNER", Set.of("audit:log:view")),
         Map.entry("BUSINESS_OWNER_APPROVER", Set.of("audit:log:view")),
+        Map.entry("AUDIT", Set.of("audit:log:view", "audit:report:view")),
         Map.entry("EMPLOYEE", Set.of("audit:log:view")),
         Map.entry("EMPLOYEE_REQUESTER", Set.of("audit:log:view")),
         Map.entry("AI_BUILDER", Set.of("model:call:log:view"))

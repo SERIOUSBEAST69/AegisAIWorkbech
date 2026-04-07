@@ -989,6 +989,43 @@
 			"type": "shell",
 			"command": "docker ps --filter name=aegisai-backend --format \"STATUS={{.Status}} PORTS={{.Ports}}\"; $tmp = Join-Path $env:TEMP 'aegis_client_verify.exe'; try { Invoke-WebRequest -Uri \"http://localhost:8080/api/download/client/windows\" -OutFile $tmp -TimeoutSec 30; $b = [System.IO.File]::ReadAllBytes($tmp); Write-Output ('DL_SIZE=' + $b.Length); if($b.Length -ge 2){ Write-Output (('DL_SIG={0:X2} {1:X2}' -f $b[0], $b[1])) } else { Write-Output 'DL_SIG=<short>' } } finally { if(Test-Path $tmp){ Remove-Item $tmp -Force } }",
 			"isBackground": false
-		}
+		},
+		{
+			"label": "quick-powershell-echo",
+			"type": "shell",
+			"command": "Write-Output 'HELLO_OK'",
+			"isBackground": false
+		},
+		{
+			"label": "verify-endpoint-first2bytes-range",
+			"type": "shell",
+			"command": "$url='http://localhost:8080/api/download/client/windows'; $req=[System.Net.HttpWebRequest]::Create($url); $req.Method='GET'; $req.AddRange(0,1); $resp=$req.GetResponse(); try { $stream=$resp.GetResponseStream(); $buf=New-Object byte[] 2; $read=$stream.Read($buf,0,2); Write-Output ('HTTP_STATUS=' + [int]$resp.StatusCode); if($read -ge 2){ Write-Output (('RANGE_SIG={0:X2} {1:X2}' -f $buf[0],$buf[1])) } else { Write-Output 'RANGE_SIG=<short>' } } finally { $resp.Close() }",
+			"isBackground": false
+		},
+		{
+			"label": "probe-login-credentials-secops-biz",
+			"type": "shell",
+			"command": "$url='http://localhost:8080/api/auth/login'; $pairs=@(@{u='secops.demo';p='Passw0rd!'},@{u='secops.demo';p='secpass'},@{u='secops.demo';p='admin'},@{u='sec01';p='secpass'},@{u='sec01';p='Passw0rd!'},@{u='biz.demo';p='Passw0rd!'},@{u='biz.demo';p='bizpass'},@{u='biz.demo';p='admin'},@{u='biz01';p='bizpass'},@{u='biz01';p='Passw0rd!'},@{u='business01';p='bizpass'},@{u='business_owner';p='Passw0rd!'}); foreach($it in $pairs){ try { $body=@{username=$it.u; password=$it.p} | ConvertTo-Json; $resp=Invoke-WebRequest -Uri $url -Method Post -ContentType 'application/json' -Body $body -TimeoutSec 15; Write-Output ('OK ' + $it.u + '/' + $it.p + ' STATUS=' + [int]$resp.StatusCode); } catch { $code='ERR'; if($_.Exception.Response){ try{$code=[int]$_.Exception.Response.StatusCode}catch{} }; Write-Output ('NO ' + $it.u + '/' + $it.p + ' STATUS=' + $code); } }",
+			"isBackground": false
+		},
+		{
+			"label": "probe-login-credentials-secops-biz-v2",
+			"type": "shell",
+			"command": "$url='http://localhost:8080/api/auth/login'; $pairs=@(@{u='secops.demo';p='Passw0rd!'},@{u='secops.demo';p='secpass'},@{u='sec01';p='secpass'},@{u='biz.demo';p='Passw0rd!'},@{u='biz.demo';p='bizpass'},@{u='biz01';p='bizpass'},@{u='business01';p='bizpass'}); foreach($it in $pairs){ try { $body=@{username=$it.u; password=$it.p} | ConvertTo-Json; $resp=Invoke-RestMethod -Uri $url -Method Post -ContentType 'application/json' -Body $body -TimeoutSec 15; Write-Output ('OK ' + $it.u + '/' + $it.p); } catch { $code='ERR'; if($_.Exception.Response){ try{$code=[int]$_.Exception.Response.StatusCode}catch{} }; Write-Output ('NO ' + $it.u + '/' + $it.p + ' STATUS=' + $code); } }",
+			"isBackground": false
+		},
+		{
+			"label": "probe-login-response-codes",
+			"type": "shell",
+			"command": "$url='http://localhost:8080/api/auth/login'; $pairs=@(@{u='secops.demo';p='Passw0rd!'},@{u='secops.demo';p='wrong123'},@{u='biz.demo';p='Passw0rd!'},@{u='biz.demo';p='wrong123'}); foreach($it in $pairs){ $body=@{username=$it.u; password=$it.p} | ConvertTo-Json; $resp=Invoke-RestMethod -Uri $url -Method Post -ContentType 'application/json' -Body $body -TimeoutSec 15; $code = if($null -ne $resp.code){$resp.code}else{'<null>'}; $msg = if($null -ne $resp.message){$resp.message}else{'<null>'}; $ok = if($null -ne $resp.success){$resp.success}else{'<null>'}; Write-Output ('TRY ' + $it.u + '/' + $it.p + ' -> code=' + $code + ' success=' + $ok + ' message=' + $msg); }",
+			"isBackground": false
+		},
+		{
+			"label": "probe-real-login-success-candidates",
+			"type": "shell",
+			"command": "$url='http://localhost:8080/api/auth/login'; $pairs=@(@{u='admin';p='admin'},@{u='secops';p='Passw0rd!'},@{u='secops';p='secpass'},@{u='sec01';p='secpass'},@{u='bizowner';p='Passw0rd!'},@{u='bizowner';p='bizpass'},@{u='biz';p='Passw0rd!'},@{u='biz';p='bizpass'},@{u='biz.demo';p='Passw0rd!'}); foreach($it in $pairs){ $body=@{username=$it.u; password=$it.p} | ConvertTo-Json; $resp=Invoke-RestMethod -Uri $url -Method Post -ContentType 'application/json' -Body $body -TimeoutSec 15; $code = [string]$resp.code; $token=''; if($resp.data -and $resp.data.token){$token=$resp.data.token}; $ok = if([string]::IsNullOrEmpty($token)){ 'NO_TOKEN' } else { 'TOKEN' }; Write-Output ('TRY ' + $it.u + '/' + $it.p + ' -> code=' + $code + ' ' + $ok); }",
+			"isBackground": false
+		},
+
 	]
 }
