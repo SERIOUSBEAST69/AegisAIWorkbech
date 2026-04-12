@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { clearSession, getAuthHeaderToken, getSession } from '../utils/auth';
 import { assessOutboundRisk } from '../utils/clientRiskGuard';
+import { isClientLiteMode } from '../utils/runtimeProfile';
 
 const service = axios.create({
   baseURL: '/api',
@@ -33,6 +34,9 @@ function isIdempotentRequest(config) {
 }
 
 function shouldRetryTransientError(err) {
+  if (isClientLiteMode()) {
+    return false;
+  }
   if (!err || !err.config || !isIdempotentRequest(err.config)) {
     return false;
   }
@@ -97,6 +101,10 @@ function handleUnauthorized(message, data, requestPath) {
 }
 
 service.interceptors.request.use(config => {
+  if (isClientLiteMode()) {
+    // Electron lite mode prefers fast failover over long blocking retries.
+    config.timeout = Math.min(Number(config.timeout || 22000), 9000);
+  }
   const token = getAuthHeaderToken();
   const requestPath = String(config.url || '').split('?')[0];
   const authBypassPaths = new Set([

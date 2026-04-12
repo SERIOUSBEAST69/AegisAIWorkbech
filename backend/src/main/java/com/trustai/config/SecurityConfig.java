@@ -77,6 +77,8 @@ public class SecurityConfig {
                         // 轻量级客户端上报接口（无需登录，客户端用 clientId 标识）
                         "/api/client/register",
                         "/api/client/report",
+                        "/api/client/policy/snapshot",
+                        "/api/client/simulation/**",
                         // 云端扫描队列（下载触发时写入，前端查询）
                         "/api/client/queue",
                         "/api/client/queue/**",

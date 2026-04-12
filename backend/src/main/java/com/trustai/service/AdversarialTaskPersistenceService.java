@@ -164,6 +164,58 @@ public class AdversarialTaskPersistenceService {
         );
     }
 
+    public int countUntrainedSamples(Long companyId) {
+        Integer count = jdbcTemplate.queryForObject(
+            "SELECT COUNT(1) FROM adversarial_training_sample WHERE company_id = ? AND used_in_run_id IS NULL",
+            Integer.class,
+            companyId
+        );
+        return count == null ? 0 : count;
+    }
+
+    public int countHighQualityUntrainedSamples(Long companyId) {
+        Integer count = jdbcTemplate.queryForObject(
+            """
+                SELECT COUNT(1)
+                FROM adversarial_training_sample
+                WHERE company_id = ?
+                  AND used_in_run_id IS NULL
+                  AND sample_quality = 'high'
+            """,
+            Integer.class,
+            companyId
+        );
+        return count == null ? 0 : count;
+    }
+
+    public int reserveTrainingSamplesForRun(Long companyId, int limit, String runId) {
+        int safeLimit = Math.max(1, Math.min(1000, limit));
+        return jdbcTemplate.update(
+            """
+                UPDATE adversarial_training_sample
+                SET used_in_run_id = ?, updated_at = NOW()
+                WHERE company_id = ? AND used_in_run_id IS NULL
+                ORDER BY id ASC
+                LIMIT ?
+            """,
+            runId,
+            companyId,
+            safeLimit
+        );
+    }
+
+    public int clearTrainingRunReservation(Long companyId, String runId) {
+        return jdbcTemplate.update(
+            """
+                UPDATE adversarial_training_sample
+                SET used_in_run_id = NULL, updated_at = NOW()
+                WHERE company_id = ? AND used_in_run_id = ?
+            """,
+            companyId,
+            runId
+        );
+    }
+
     private void upsertRoundMetrics(Long companyId, String taskId, List<?> rounds) {
         List<Map<String, Object>> rows = castObjectList(rounds);
         for (Map<String, Object> row : rows) {
@@ -207,7 +259,95 @@ public class AdversarialTaskPersistenceService {
                 parseTimestamp(firstNonNull(row.get("timestamp"), row.get("event_time"))),
                 toJson(row)
             );
+
+            upsertTrainingSample(companyId, taskId, roundNum, row);
         }
+    }
+
+    private void upsertTrainingSample(Long companyId, String taskId, int roundNum, Map<String, Object> row) {
+        String attackStrategy = safeText(firstNonNull(row.get("attack_strategy"), row.get("attackStrategy")));
+        String attackType = normalizeAttackType(firstNonNull(row.get("attack_type"), row.get("attackType"), attackStrategy));
+        Double predictedScore = asDecimal(firstNonNull(row.get("attack_success_rate"), row.get("final_effectiveness")));
+        String predictedLabel = predictedScore != null && predictedScore >= 0.5 ? "attack_success" : "intercepted";
+        String sampleQuality = resolveSampleQuality(row);
+
+        Object candidateVector = firstNonNull(row.get("feature_vector"), row.get("featureVector"));
+        String featureVectorJson = candidateVector == null ? toJson(buildFeatureVector(row)) : toJson(candidateVector);
+
+        jdbcTemplate.update(
+            """
+                INSERT INTO adversarial_training_sample(
+                    company_id, task_id, round_num, attack_type, attack_strategy,
+                    feature_vector_json, predicted_score, predicted_label, sample_quality, raw_payload
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE
+                    attack_type = VALUES(attack_type),
+                    attack_strategy = VALUES(attack_strategy),
+                    feature_vector_json = VALUES(feature_vector_json),
+                    predicted_score = VALUES(predicted_score),
+                    predicted_label = VALUES(predicted_label),
+                    sample_quality = VALUES(sample_quality),
+                    raw_payload = VALUES(raw_payload),
+                    updated_at = NOW()
+            """,
+            companyId,
+            taskId,
+            roundNum,
+            attackType,
+            attackStrategy,
+            featureVectorJson,
+            predictedScore,
+            predictedLabel,
+            sampleQuality,
+            toJson(row)
+        );
+    }
+
+    private String normalizeAttackType(Object value) {
+        String attack = safeText(value).toLowerCase();
+        if (attack.contains("jailbreak") || attack.contains("prompt") || attack.contains("context")) {
+            return "JAILBREAK_ATTEMPT";
+        }
+        if (attack.contains("poison")) {
+            return "DATA_POISONING";
+        }
+        if (attack.contains("exfil") || attack.contains("leak") || attack.contains("credential")) {
+            return "SENSITIVE_DATA_EXFILTRATION";
+        }
+        return attack.isBlank() ? "GENERIC_ATTACK" : attack.toUpperCase();
+    }
+
+    private String resolveSampleQuality(Map<String, Object> row) {
+        int tokenCount = 0;
+        Object tokens = firstNonNull(row.get("token_features"), row.get("tokenFeatures"));
+        if (tokens instanceof List<?> list) {
+            tokenCount = list.size();
+        }
+        Double score = asDecimal(firstNonNull(row.get("attack_success_rate"), row.get("final_effectiveness")));
+        if (tokenCount >= 3 && score != null && score >= 0.45) {
+            return "high";
+        }
+        if (tokenCount >= 1) {
+            return "medium";
+        }
+        return "low";
+    }
+
+    private Map<String, Object> buildFeatureVector(Map<String, Object> row) {
+        List<Object> numeric = new ArrayList<>();
+        numeric.add(asDecimal(firstNonNull(row.get("final_effectiveness"), row.get("attack_success_rate"))));
+        numeric.add(asDecimal(row.get("defense_intercept_rate")));
+        numeric.add(asDecimal(row.get("adaptive_threshold")));
+        numeric.add(asDecimal(row.get("threshold_delta")));
+        numeric.add(asDecimal(row.get("strategy_delta")));
+
+        Map<String, Object> vector = new java.util.LinkedHashMap<>();
+        vector.put("schema", "adv-round-v1");
+        vector.put("attackType", normalizeAttackType(firstNonNull(row.get("attack_type"), row.get("attackType"), row.get("attack_strategy"))));
+        vector.put("numeric", numeric);
+        vector.put("tokenFeatures", firstNonNull(row.get("token_features"), row.get("tokenFeatures"), List.of()));
+        vector.put("ruleId", safeText(firstNonNull(row.get("rule_id"), row.get("ruleId"))));
+        return vector;
     }
 
     private void upsertEventLogs(Long companyId, String taskId, List<?> eventLogs) {

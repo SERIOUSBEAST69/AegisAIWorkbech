@@ -126,6 +126,40 @@ public class UserController {
         return R.ok(list);
     }
 
+    @GetMapping("/directory")
+    @PreAuthorize("isAuthenticated()")
+    public R<List<Map<String, Object>>> directory() {
+        Long companyId = requireBoundCompanyId();
+        QueryWrapper<User> qw = new QueryWrapper<>();
+        qw.eq("company_id", companyId)
+            .eq("account_type", "real")
+            .eq("account_status", ACCOUNT_STATUS_ACTIVE)
+            .select("id", "username", "real_name", "department", "job_title", "company_id", "role_id", "update_time")
+            .orderByDesc("update_time")
+            .last("limit 1000");
+
+        List<User> list = userService.list(qw);
+        hydrateUserRoles(list);
+        normalizeUserMasterData(list, companyId);
+
+        List<Map<String, Object>> rows = list.stream().map(item -> {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("id", item.getId());
+            row.put("username", item.getUsername());
+            row.put("realName", item.getRealName());
+            row.put("department", item.getDepartment());
+            row.put("jobTitle", item.getJobTitle());
+            row.put("companyId", item.getCompanyId());
+            row.put("roleId", item.getRoleId());
+            row.put("roleCode", item.getRoleCodes() == null || item.getRoleCodes().isEmpty() ? null : item.getRoleCodes().get(0));
+            row.put("roleName", item.getRoleNames() == null || item.getRoleNames().isEmpty() ? null : item.getRoleNames().get(0));
+            row.put("roleCodes", item.getRoleCodes());
+            row.put("updateTime", item.getUpdateTime());
+            return row;
+        }).toList();
+        return R.ok(rows);
+    }
+
     @GetMapping("/page")
     @PreAuthorize("@currentUserService.hasPermission('user:manage') || @currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER')")
     public R<Map<String, Object>> page(@RequestParam(defaultValue = "1") int page,

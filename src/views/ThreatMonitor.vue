@@ -5,10 +5,10 @@
     <div class="page-header scene-block">
       <div class="page-header-copy">
         <div class="page-eyebrow">REAL-TIME THREAT MONITOR</div>
-        <h1 class="page-title">AI数据防泄漏</h1>
+        <h1 class="page-title">AI攻击实时防御</h1>
         <p class="page-subtitle">
-          检测并响应AI相关敏感数据外泄、异常访问与代理窃取行为。
-          提供实时告警、人工阻断与规则配置能力。
+          识别并防御提示注入、越权调用与隐蔽外传等AI攻击行为。
+          提供实时联动告警、阻断处置与攻防演练能力。
         </p>
       </div>
       <div class="page-header-actions">
@@ -19,6 +19,16 @@
         </el-button>
       </div>
     </div>
+
+    <el-card class="card-glass" style="margin-bottom: 16px;">
+      <template #header>
+        <div class="card-header">攻防演示 3D 联动</div>
+      </template>
+      <Security3DVisualizer
+        :active-event="activeSimulationEvent"
+        @animation-complete="handleSimulationAnimationComplete"
+      />
+    </el-card>
 
     <!-- 统计卡片 -->
     <div class="stats-row">
@@ -53,7 +63,7 @@
     <el-tabs v-model="activeTab" class="main-tabs">
 
       <!-- ── 事件列表 Tab ── -->
-      <el-tab-pane label="实时威胁告警" name="events">
+      <el-tab-pane label="AI攻击实时防御" name="events">
         <el-card class="card-glass" style="margin-top: 0">
 
           <!-- 筛选工具栏 -->
@@ -123,6 +133,18 @@
             <el-table-column label="事件类型" width="160">
               <template #default="{ row }">
                 <span class="event-type">{{ eventTypeLabel(row.eventType) }}</span>
+              </template>
+            </el-table-column>
+
+            <el-table-column label="攻击类型" width="170">
+              <template #default="{ row }">
+                <span class="event-type">{{ attackTypeLabel(row.attackType) }}</span>
+              </template>
+            </el-table-column>
+
+            <el-table-column label="特效主题" width="140">
+              <template #default="{ row }">
+                <span>{{ effectThemeLabel(row.effectProfile) }}</span>
               </template>
             </el-table-column>
 
@@ -250,6 +272,12 @@
             </el-table-column>
             <el-table-column prop="eventType" label="类型" width="130">
               <template #default="{ row }">{{ centerEventTypeLabel(row.eventType) }}</template>
+            </el-table-column>
+            <el-table-column label="攻击类型" width="170">
+              <template #default="{ row }">{{ attackTypeLabel(row.attackType) }}</template>
+            </el-table-column>
+            <el-table-column label="特效主题" width="140">
+              <template #default="{ row }">{{ effectThemeLabel(row.effectProfile) }}</template>
             </el-table-column>
             <el-table-column prop="severity" label="级别" width="100">
               <template #default="{ row }">
@@ -577,6 +605,7 @@ import {
 import { ElMessage, ElMessageBox } from 'element-plus';
 import request from '../api/request';
 import { alertCenterApi } from '../api/alertCenter';
+import { fetchSimulationPending, markSimulationProcessed } from '../api/simulationEvents';
 import { useUserStore } from '../store/user';
 import {
   canAccessThreatMonitor,
@@ -585,9 +614,12 @@ import {
   canBlockThreatEvent,
   canIgnoreThreatEvent,
 } from '../utils/roleBoundary';
+import { isClientLiteMode } from '../utils/runtimeProfile';
+import Security3DVisualizer from '../components/Security3DVisualizer.vue';
 
 const userStore = useUserStore();
 const router = useRouter();
+const clientLiteMode = isClientLiteMode();
 
 const canViewThreatMonitor = computed(() => canAccessThreatMonitor(userStore.userInfo));
 const canHandleThreats = computed(() => canHandleThreatEvent(userStore.userInfo));
@@ -729,9 +761,41 @@ function normalizeSeverity(value) {
 
 function normalizeThreatRow(row) {
   const item = { ...(row || {}) };
+  const payload = parseLooseJson(item.payloadJson);
   item.status = normalizeStatus(item.status);
   item.severity = normalizeSeverity(item.severity);
+  item.attackType = normalizeAttackType(
+    item.attackType
+      || item.attack_type
+      || payload.attackType
+      || payload.attack_type
+      || item?.rawPayload?.attackType
+      || item?.rawPayload?.attack_type
+      || item?.metadata?.attackType
+      || item?.metadata?.attack_type,
+  );
+  item.effectProfile = item.effectProfile || item.effect_profile || payload.effectProfile || payload.effect_profile || item?.rawPayload?.effectProfile || item?.metadata?.effectProfile || null;
   return item;
+}
+
+function parseLooseJson(value) {
+  if (!value) return {};
+  if (typeof value === 'object') return value || {};
+  try {
+    const parsed = JSON.parse(String(value));
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function normalizeAttackType(value) {
+  const raw = String(value || '').trim().toUpperCase();
+  if (!raw) return 'GENERIC_ATTACK';
+  if (raw.includes('JAILBREAK') || raw.includes('PROMPT')) return 'JAILBREAK_ATTEMPT';
+  if (raw.includes('POISON')) return 'DATA_POISONING';
+  if (raw.includes('EXFIL') || raw.includes('LEAK')) return 'SENSITIVE_DATA_EXFILTRATION';
+  return raw;
 }
 
 function canHandlePendingRow(row) {
@@ -900,6 +964,12 @@ const simDrillConfig = ref({
   seed: '',
 });
 let battlePlaybackTimer = null;
+let simulationPollTimer = null;
+let simulationCursor = 0;
+let simulationSeenIds = new Set();
+
+const simulationQueue = ref([]);
+const activeSimulationEvent = ref(null);
 
 const simulationScenarios = computed(() => {
   const all = Array.isArray(adversarialMeta.value?.scenarios) ? adversarialMeta.value.scenarios : [];
@@ -1076,7 +1146,7 @@ function startBattlePlayback(rounds) {
     if (cursor >= rounds.length) {
       stopBattlePlayback();
     }
-  }, 320);
+  }, clientLiteMode ? 560 : 320);
 }
 
 async function runPythonBattleDrill() {
@@ -1143,6 +1213,60 @@ function goHomeAdversarial() {
   router.push('/');
 }
 
+function enqueueSimulationEvents(items) {
+  const incoming = Array.isArray(items) ? items : [];
+  for (const item of incoming) {
+    const eventId = Number(item?.eventId || 0);
+    if (!eventId || simulationSeenIds.has(eventId)) continue;
+    simulationSeenIds.add(eventId);
+    simulationQueue.value.push(item);
+    simulationCursor = Math.max(simulationCursor, eventId);
+  }
+  playNextSimulationEvent();
+}
+
+function playNextSimulationEvent() {
+  if (activeSimulationEvent.value) return;
+  if (!simulationQueue.value.length) return;
+  activeSimulationEvent.value = simulationQueue.value.shift();
+}
+
+async function handleSimulationAnimationComplete(eventId) {
+  const id = Number(eventId || activeSimulationEvent.value?.eventId || 0);
+  activeSimulationEvent.value = null;
+  if (!id) {
+    playNextSimulationEvent();
+    return;
+  }
+  try {
+    await markSimulationProcessed([id]);
+  } catch {
+    // Keep animation loop resilient.
+  }
+  try {
+    await refresh();
+  } catch {
+    // Ignore refresh failures in animation callback.
+  }
+  playNextSimulationEvent();
+}
+
+async function pollSimulationEvents(silent = true) {
+  try {
+    const data = await fetchSimulationPending(simulationCursor, 20);
+    const items = Array.isArray(data?.items) ? data.items : [];
+    enqueueSimulationEvents(items);
+    const cursor = Number(data?.cursor || 0);
+    if (cursor > 0) {
+      simulationCursor = Math.max(simulationCursor, cursor);
+    }
+  } catch (e) {
+    if (!silent) {
+      ElMessage.error(e?.message || '演示事件获取失败');
+    }
+  }
+}
+
 // ── 格式化工具 ────────────────────────────────────────────────────────────────
 function severityTagType(s) {
   return { critical: 'danger', high: 'warning', medium: '', low: 'info' }[normalizeSeverity(s)] ?? '';
@@ -1182,6 +1306,28 @@ function centerEventTypeLabel(t) {
   return map[t] ?? (t || '未知');
 }
 
+function attackTypeLabel(type) {
+  const map = {
+    JAILBREAK_ATTEMPT: '提示越狱',
+    DATA_POISONING: '数据投毒',
+    SENSITIVE_DATA_EXFILTRATION: '敏感外传',
+    GENERIC_ATTACK: '通用攻击',
+  };
+  return map[normalizeAttackType(type)] || normalizeAttackType(type);
+}
+
+function effectThemeLabel(profile) {
+  const theme = String(profile?.theme || profile?.name || '').trim();
+  if (!theme) return '默认';
+  const map = {
+    jailbreak_breach: '越狱突破',
+    poisoning_cloud: '投毒污染',
+    exfiltration_stream: '外泄流',
+    default_alert: '默认告警',
+  };
+  return map[theme] || theme;
+}
+
 function formatSize(bytes) {
   if (!bytes && bytes !== 0) return '—';
   if (bytes >= 1073741824) return (bytes / 1073741824).toFixed(1) + ' GB';
@@ -1205,13 +1351,17 @@ function rowStyle({ row }) {
 // ── 生命周期 ──────────────────────────────────────────────────────────────────
 onMounted(() => {
   if (!canViewThreatMonitor.value) {
-    ElMessage.error('当前身份无权访问实时威胁监控模块');
+    ElMessage.error('当前身份无权访问AI攻击实时防御模块');
     return;
   }
   if (isAdminUser.value && activeTab.value === 'alertCenter') {
     activeTab.value = 'events';
   }
   refresh().catch(() => {});
+  pollSimulationEvents(true);
+  simulationPollTimer = window.setInterval(() => {
+    pollSimulationEvents(true);
+  }, 3000);
   if (canManageThreatRules.value) {
     fetchRules();
   }
@@ -1222,6 +1372,13 @@ onMounted(() => {
 
 onUnmounted(() => {
   stopBattlePlayback();
+  if (simulationPollTimer) {
+    window.clearInterval(simulationPollTimer);
+    simulationPollTimer = null;
+  }
+  simulationSeenIds = new Set();
+  simulationQueue.value = [];
+  activeSimulationEvent.value = null;
 });
 </script>
 

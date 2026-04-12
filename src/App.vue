@@ -1,12 +1,12 @@
 <template>
   <!-- 全局自定义光标（始终存在，登录页与主应用均生效） -->
-  <CustomCursor />
+  <CustomCursor v-if="!isLogin && !clientLiteMode && !isElectronClient" />
   <!-- 鼠标点击动画 -->
-  <ClickEffect />
+  <ClickEffect v-if="!isLogin && !clientLiteMode && !isElectronClient" />
 
   <!-- App Static Background (Liquid Chrome) -->
   <LiquidChrome 
-    v-if="!isLogin && userStore.initialized"
+    v-if="!isLogin && userStore.initialized && !clientLiteMode"
     :baseColor="[0.01, 0.02, 0.04]" 
     :interactive="false"
     :staticTimeOffset="850.0"
@@ -70,7 +70,8 @@
       <main class="app-main">
         <router-view v-slot="{ Component, route }">
           <div class="route-stage">
-            <transition :name="transitionName" @enter="onPageEnter">
+            <component v-if="clientLiteMode" :is="Component" :key="route.fullPath" class="route-layer" />
+            <transition v-else :name="transitionName" @enter="onPageEnter">
               <component :is="Component" :key="route.fullPath" class="route-layer" />
             </transition>
           </div>
@@ -100,7 +101,6 @@
 <script setup>
 import { computed, nextTick, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import gsap from 'gsap';
 import { useUserStore } from './store/user';
 import CustomCursor from './components/CustomCursor.vue';
 import ClickEffect from './components/ClickEffect.vue';
@@ -109,6 +109,7 @@ import StaggeredMenu from './components/StaggeredMenu.vue';
 import LiquidChrome from './components/LiquidChrome.vue';
 import { usePageTransition } from './composables/usePageTransition';
 import { getPersonaExperience, getVisibleMenuSections } from './utils/persona';
+import { isClientLiteMode, isElectronClient as detectElectronClient } from './utils/runtimeProfile';
 import {
   UserFilled,
   ArrowDown,
@@ -139,9 +140,9 @@ const menuDescriptions = {
   '/': '总控视窗',
   '/operations-command': '治理关键动作',
   '/shadow-ai': '影子AI发现与风险评级',
-  '/threat-monitor': 'AI数据防泄漏实时威胁告警',
+  '/threat-monitor': 'AI攻击实时防御',
   '/ai/risk-rating': '已并入影子AI发现与风险评级',
-  '/ai/anomaly': '员工AI行为监控',
+  '/ai/anomaly': 'AI使用合规监控',
   '/audit-center': '审计日志与报告中枢',
   '/approval-center': '待办审批与我发起',
   '/risk-event-manage': '合规风险记录',
@@ -182,7 +183,16 @@ const staggeredQuickLinks = computed(() => ([
 const menuPanelTitle = computed(() => `${personaExperience.value.label} 导航剧场`);
 const menuPanelSubtitle = computed(() => personaExperience.value.signature);
 const go = (path) => router.push(path);
-const isElectronClient = typeof window !== 'undefined' && !!window.aegisClient;
+const isElectronClient = detectElectronClient();
+const clientLiteMode = isClientLiteMode();
+let gsapLib = null;
+
+async function ensureGsap() {
+  if (gsapLib) return gsapLib;
+  const mod = await import('gsap');
+  gsapLib = mod?.default || mod;
+  return gsapLib;
+}
 
 localStorage.removeItem('theme');
 document.documentElement.classList.remove('light-mode');
@@ -225,9 +235,10 @@ function handleUtilitySelect(item) {
 // ── 页面转场集成 ──────────────────────────────
 const { direction, triggerEnter } = usePageTransition();
 const transitionName = computed(() =>
-  direction.value === 'back' ? 'page-slide-right' : 'page-slide-left'
+  clientLiteMode ? '' : (direction.value === 'back' ? 'page-slide-right' : 'page-slide-left')
 );
 function onPageEnter() {
+  if (clientLiteMode) return;
   triggerEnter();
 }
 
@@ -264,6 +275,12 @@ function getElementFlight(sourceEl, targetEl) {
 }
 
 async function playWorkbenchIntro() {
+  if (clientLiteMode) {
+    showWorkbenchIntro.value = false;
+    removeTransitionArtifacts();
+    return;
+  }
+
   if (document.startViewTransition) {
     showWorkbenchIntro.value = false;
     removeTransitionArtifacts();
@@ -283,6 +300,7 @@ async function playWorkbenchIntro() {
 
   const titleGhost = getTitleGhost();
   const targetTitle = getIntroTitleTargetEl();
+  const gsap = await ensureGsap();
 
   gsap.killTweensOf([
     introOverlayEl.value,
@@ -374,7 +392,7 @@ watch(
 watch(
   () => [isLogin.value, userStore.initialized, route.fullPath],
   async ([login, initialized]) => {
-    if (login || !initialized || introConsumed.value) {
+    if (clientLiteMode || login || !initialized || introConsumed.value) {
       return;
     }
     if (sessionStorage.getItem('aegis.transition.origin') !== 'login') {

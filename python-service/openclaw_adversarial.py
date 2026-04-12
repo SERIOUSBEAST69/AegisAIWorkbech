@@ -76,6 +76,7 @@ class AttackStrategy(str, Enum):
     SESSION_LATERAL_ABUSE = "session_lateral_abuse"    # 会话横移滥用
     SOCIAL_ENGINEERING_AUTOMATION = "social_engineering_automation"  # 自动化社工攻击
     LOW_SLOW_EXFIL = "low_slow_exfil"                  # 低慢速外泄
+    JAILBREAK_ATTEMPT = "jailbreak_attempt"            # 越狱尝试
 
 
 class DefenseStrategy(str, Enum):
@@ -267,6 +268,18 @@ EFFECTIVENESS_MATRIX: Dict[AttackStrategy, Dict[DefenseStrategy, float]] = {
         DefenseStrategy.IMMUTABLE_INFRA:    0.52,
         DefenseStrategy.DECISION_ALIGNMENT: 0.35,
     },
+    AttackStrategy.JAILBREAK_ATTEMPT: {
+        DefenseStrategy.SANDBOX_ISOLATION:  0.42,
+        DefenseStrategy.INPUT_SANITIZER:    0.14,
+        DefenseStrategy.MEMORY_FIREWALL:    0.48,
+        DefenseStrategy.BEHAVIOR_MONITOR:   0.20,
+        DefenseStrategy.CIRCUIT_BREAKER:    0.16,
+        DefenseStrategy.DLP_ENGINE:         0.40,
+        DefenseStrategy.SUPPLY_CHAIN_AUDIT: 0.55,
+        DefenseStrategy.HUMAN_OVERSIGHT:    0.18,
+        DefenseStrategy.IMMUTABLE_INFRA:    0.52,
+        DefenseStrategy.DECISION_ALIGNMENT: 0.12,
+    },
 }
 
 
@@ -358,6 +371,7 @@ class AttackAgent:
             AttackStrategy.SESSION_LATERAL_ABUSE: "窃取或借用会话后在权限边界内横向滥用",
             AttackStrategy.SOCIAL_ENGINEERING_AUTOMATION: "自动化仿真高信任沟通诱导执行敏感动作",
             AttackStrategy.LOW_SLOW_EXFIL: "以低速小包持续外泄规避阈值告警",
+            AttackStrategy.JAILBREAK_ATTEMPT: "构造越狱提示链突破系统防护边界",
         }
 
     def _update_phase(self):
@@ -379,6 +393,7 @@ class AttackAgent:
                 AttackStrategy.SOCIAL_ENGINEERING_AUTOMATION,
             ],
             "infiltration": [
+                AttackStrategy.JAILBREAK_ATTEMPT,
                 AttackStrategy.PROMPT_INJECTION,
                 AttackStrategy.FRAGMENTED_PROMPT_CHAIN,
                 AttackStrategy.SUPPLY_CHAIN_POISON,
@@ -457,6 +472,7 @@ class AttackAgent:
             AttackStrategy.SESSION_LATERAL_ABUSE:   13,
             AttackStrategy.SOCIAL_ENGINEERING_AUTOMATION: 9,
             AttackStrategy.LOW_SLOW_EXFIL:          7,
+            AttackStrategy.JAILBREAK_ATTEMPT:       10,
         }
         return costs.get(strategy, 10)
 
@@ -754,6 +770,16 @@ class NarrativeEngine:
                 "DLP 长窗口聚合发现分散片段可重构敏感内容，渗出通道被封禁",
             ],
         },
+        AttackStrategy.JAILBREAK_ATTEMPT: {
+            True:  [
+                "攻击者通过多轮越狱提示链成功绕过系统约束，触发了越权执行路径",
+                "越狱尝试借助上下文污染突破了安全护栏，模型响应进入高风险区",
+            ],
+            False: [
+                "输入净化与对齐监控联合识别越狱语义，恶意提示链被提前切断",
+                "行为熔断器检测到越狱轨迹并降级会话，敏感执行未被触发",
+            ],
+        },
     }
 
     @classmethod
@@ -799,7 +825,7 @@ SCENARIOS: Dict[str, Dict] = {
     },
     "prompt_injection_blitz": {
         "description": "提示注入闪电战：快速多轮注入攻击测试输入过滤能力",
-        "attack_bias":  [AttackStrategy.PROMPT_INJECTION, AttackStrategy.CONTEXT_MANIPULATION,
+        "attack_bias":  [AttackStrategy.PROMPT_INJECTION, AttackStrategy.JAILBREAK_ATTEMPT, AttackStrategy.CONTEXT_MANIPULATION,
                          AttackStrategy.REPLAY_ATTACK],
         "defense_bias": [DefenseStrategy.INPUT_SANITIZER, DefenseStrategy.CIRCUIT_BREAKER],
     },

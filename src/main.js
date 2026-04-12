@@ -7,6 +7,7 @@ import 'element-plus/dist/index.css';
 import 'element-plus/theme-chalk/dark/css-vars.css';
 import './assets/theme.css';
 import { useUserStore } from './store/user';
+import { isClientLiteMode } from './utils/runtimeProfile';
 
 // 全局错误处理：忽略浏览器 ResizeObserver 循环告警，其他错误仍上报
 window.onerror = function(msg, url, line, col, error) {
@@ -20,6 +21,11 @@ const pinia = createPinia();
 app.use(router);
 app.use(pinia);
 app.use(ElementPlus);
+
+if (isClientLiteMode()) {
+  document.documentElement.classList.add('client-lite');
+  document.body.classList.add('client-lite');
+}
 
 function reportWebVital(metric) {
   const payload = {
@@ -114,9 +120,16 @@ function setupWebVitals() {
 
 async function bootstrap() {
   const userStore = useUserStore(pinia);
-  await userStore.bootstrapSession();
-  setupWebVitals();
   app.mount('#app');
+
+  // Defer non-critical telemetry so login inputs are interactive sooner.
+  if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+    window.requestIdleCallback(() => setupWebVitals());
+  } else {
+    setTimeout(() => setupWebVitals(), 1500);
+  }
+
+  void userStore.bootstrapSession();
 }
 
 bootstrap();

@@ -672,15 +672,97 @@ public class AiGatewayService {
             if (remote == null || remote.isEmpty()) {
                 throw new BizException(502, "未获取到任务报告");
             }
+            Long companyId = currentUserService.requireCurrentUser().getCompanyId();
             try {
-                Long companyId = currentUserService.requireCurrentUser().getCompanyId();
                 adversarialTaskPersistenceService.recordTaskReport(companyId, taskId, remote);
             } catch (Exception ignored) {
                 // ignore persistence failures in report passthrough
             }
-            return remote;
+            Map<String, Object> response = new HashMap<>(remote);
+            response.put("autoIncrementalTraining", triggerAutoIncrementalTrainingIfReady(companyId, taskId));
+            return response;
         } catch (Exception ex) {
             throw new BizException(503, "导出真实攻防优化报告失败: " + (ex.getMessage() == null ? "unknown" : ex.getMessage()));
+        }
+    }
+
+    private Map<String, Object> triggerAutoIncrementalTrainingIfReady(Long companyId, String sourceTaskId) {
+        final int triggerThreshold = 50;
+        final double qualityRatioThreshold = 0.70;
+        final int maxBatch = 120;
+        int pending = 0;
+        int highQualityPending = 0;
+        try {
+            pending = adversarialTaskPersistenceService.countUntrainedSamples(companyId);
+            highQualityPending = adversarialTaskPersistenceService.countHighQualityUntrainedSamples(companyId);
+        } catch (Exception ex) {
+            return Map.of(
+                "triggered", false,
+                "reason", "sample_pool_unavailable",
+                "message", ex.getMessage() == null ? "unknown" : ex.getMessage()
+            );
+        }
+
+        if (pending < triggerThreshold) {
+            return Map.of(
+                "triggered", false,
+                "reason", "insufficient_samples",
+                "pending", pending,
+                "required", triggerThreshold
+            );
+        }
+
+        double qualityRatio = pending <= 0 ? 0D : ((double) highQualityPending) / pending;
+        if (qualityRatio < qualityRatioThreshold) {
+            Map<String, Object> blocked = new HashMap<>();
+            blocked.put("triggered", false);
+            blocked.put("reason", "insufficient_high_quality_ratio");
+            blocked.put("pending", pending);
+            blocked.put("highQualityPending", highQualityPending);
+            blocked.put("qualityRatio", Math.round(qualityRatio * 10000D) / 10000D);
+            blocked.put("requiredQualityRatio", qualityRatioThreshold);
+            return blocked;
+        }
+
+        String runId = "adv-auto-" + System.currentTimeMillis();
+        int reserved = adversarialTaskPersistenceService.reserveTrainingSamplesForRun(companyId, Math.min(pending, maxBatch), runId);
+        if (reserved < triggerThreshold) {
+            if (reserved > 0) {
+                adversarialTaskPersistenceService.clearTrainingRunReservation(companyId, runId);
+            }
+            return Map.of(
+                "triggered", false,
+                "reason", "reservation_below_threshold",
+                "reserved", reserved,
+                "required", triggerThreshold
+            );
+        }
+
+        try {
+            Map<String, Object> trainResult = aiInferenceClient.trainAdversarialFeedback(Map.of(
+                "reason", "auto_adversarial_sample_pool_threshold",
+                "sample_source", "adversarial_training_pool",
+                "max_samples", reserved,
+                "runId", runId,
+                "triggerTaskId", sourceTaskId
+            ));
+            Map<String, Object> response = new HashMap<>();
+            response.put("triggered", true);
+            response.put("pending", pending);
+            response.put("highQualityPending", highQualityPending);
+            response.put("qualityRatio", Math.round(qualityRatio * 10000D) / 10000D);
+            response.put("reserved", reserved);
+            response.put("runId", runId);
+            response.put("trainResult", trainResult);
+            return response;
+        } catch (Exception ex) {
+            adversarialTaskPersistenceService.clearTrainingRunReservation(companyId, runId);
+            return Map.of(
+                "triggered", false,
+                "reason", "train_failed",
+                "reserved", reserved,
+                "message", ex.getMessage() == null ? "unknown" : ex.getMessage()
+            );
         }
     }
 

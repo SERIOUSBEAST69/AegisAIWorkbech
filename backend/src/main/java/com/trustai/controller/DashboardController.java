@@ -234,7 +234,7 @@ public class DashboardController {
         traceContext.put("monitorPending", asLong(monitorCaliber.get("pendingTotal")));
         traceContext.put("monitorDuplicateCollapsed", asLong(monitorCaliber.get("duplicateCollapsed")));
         traceContext.put("monitorCaliberNote",
-            String.format("统一口径：治理事件去重后统计（异常 %d、隐私 %d、待处置 %d，去重压缩 %d）。与员工AI行为监控页口径一致。",
+            String.format("统一口径：治理事件去重后统计（异常 %d、隐私 %d、待处置 %d，去重压缩 %d）。与AI使用合规监控页口径一致。",
                 asLong(monitorCaliber.get("anomaly")),
                 asLong(monitorCaliber.get("privacy")),
                 asLong(monitorCaliber.get("pendingTotal")),

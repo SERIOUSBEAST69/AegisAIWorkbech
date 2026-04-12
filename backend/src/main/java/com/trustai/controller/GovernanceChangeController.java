@@ -165,7 +165,7 @@ public class GovernanceChangeController {
     }
 
     @GetMapping("/page")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS') || @currentUserService.hasAnyPermission('govern:change:view','govern:change:review')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','ADMIN_OPS','SECOPS') || @currentUserService.hasAnyPermission('govern:change:view','govern:change:review')")
     public R<Map<String, Object>> page(@RequestParam(defaultValue = "1") int page,
                                        @RequestParam(defaultValue = "10") int pageSize,
                                        @RequestParam(required = false) String status,
@@ -191,7 +191,7 @@ public class GovernanceChangeController {
     }
 
     @GetMapping("/todo-page")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS') || @currentUserService.hasPermission('govern:change:review')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','ADMIN_OPS','SECOPS') || @currentUserService.hasPermission('govern:change:review')")
     public R<Map<String, Object>> todoPage(@RequestParam(defaultValue = "1") int page,
                                            @RequestParam(defaultValue = "10") int pageSize,
                                            @RequestParam(required = false) String status,
@@ -242,7 +242,7 @@ public class GovernanceChangeController {
     }
 
     @GetMapping("/my-page")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS') || @currentUserService.hasPermission('govern:change:create')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_OPS','SECOPS') || @currentUserService.hasPermission('govern:change:create')")
     public R<Map<String, Object>> myPage(@RequestParam(defaultValue = "1") int page,
                                          @RequestParam(defaultValue = "10") int pageSize,
                                          @RequestParam(required = false) String status,
@@ -292,7 +292,7 @@ public class GovernanceChangeController {
     }
 
     @GetMapping("/detail/{id}")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS') || @currentUserService.hasAnyPermission('govern:change:view','govern:change:review')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','ADMIN_OPS','SECOPS') || @currentUserService.hasAnyPermission('govern:change:view','govern:change:review')")
     public R<Map<String, Object>> detail(@PathVariable Long id) {
         GovernanceChangeRequest request = requireScopedRequest(id);
         User current = currentUserService.requireCurrentUser();
@@ -301,7 +301,7 @@ public class GovernanceChangeController {
     }
 
     @GetMapping("/diff/{id}")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS') || @currentUserService.hasAnyPermission('govern:change:view','govern:change:review')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','ADMIN_OPS','SECOPS') || @currentUserService.hasAnyPermission('govern:change:view','govern:change:review')")
     public R<Map<String, Object>> diff(@PathVariable Long id) {
         GovernanceChangeRequest request = requireScopedRequest(id);
         User current = currentUserService.requireCurrentUser();
@@ -344,7 +344,7 @@ public class GovernanceChangeController {
     }
 
     @PostMapping("/approve")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','SECOPS') || @currentUserService.hasPermission('govern:change:review')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS') || @currentUserService.hasPermission('govern:change:review')")
     public R<?> approve(@Valid @RequestBody ApproveReq req) {
         User approver = currentUserService.requireCurrentUser();
         enforceGovernanceDuty(approver, "review");
@@ -829,7 +829,8 @@ public class GovernanceChangeController {
         if (request == null || currentUser == null) {
             throw new BizException(40300, "无权限");
         }
-        boolean canReview = currentUserService.hasPermission("govern:change:review") || currentUserService.hasAnyRole("ADMIN", "SECOPS");
+        boolean canReview = currentUserService.hasPermission("govern:change:review")
+            || currentUserService.hasAnyRole("ADMIN", "ADMIN_REVIEWER", "ADMIN_OPS", "SECOPS");
         if (canReview) {
             return;
         }

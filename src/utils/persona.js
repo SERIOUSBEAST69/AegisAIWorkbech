@@ -83,7 +83,7 @@ const PERSONAS = {
       { step: '03', title: '策略处置', description: '调整策略并完成闭环。' },
     ],
     quickActions: [
-      { title: '实时威胁监控', description: '查看告警态势', route: '/threat-monitor' },
+      { title: 'AI攻击实时防御', description: '查看攻击告警态势', route: '/threat-monitor' },
       { title: '审计中心', description: '核验处置证据', route: '/audit-center' },
     ],
     roleHints: ['security', 'soc', 'secops', '运维', '安全'],
@@ -153,8 +153,8 @@ const MENU_SECTIONS = [
     title: '安全与闭环',
     items: [
       { path: '/shadow-ai', label: '影子AI发现与风险评级', icon: 'View', audiences: ['governanceAdmin', 'governanceReviewer', 'secops', 'businessOwner', 'audit'] },
-      { path: '/threat-monitor', label: '实时威胁告警', icon: 'AlarmClock', audiences: ['governanceAdmin', 'secops'] },
-      { path: '/ai/anomaly', label: '员工AI行为监控', icon: 'AlarmClock', audiences: ['governanceAdmin', 'governanceReviewer', 'secops', 'businessOwner', 'audit'] },
+      { path: '/threat-monitor', label: 'AI攻击实时防御', icon: 'AlarmClock', audiences: ['governanceAdmin', 'secops'] },
+      { path: '/ai/anomaly', label: 'AI使用合规监控', icon: 'AlarmClock', audiences: ['governanceAdmin', 'governanceReviewer', 'secops', 'businessOwner', 'audit'] },
       { path: '/audit-center', label: '审计中心', icon: 'Document', audiences: ['governanceAdmin', 'governanceReviewer', 'secops', 'audit'] },
     ],
   },

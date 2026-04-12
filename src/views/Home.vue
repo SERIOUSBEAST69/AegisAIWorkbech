@@ -318,7 +318,7 @@
       </div>
     </el-card>
 
-    <div v-if="isAdmin" class="adversarial-floating-wrap">
+    <div v-if="false && isAdmin" class="adversarial-floating-wrap">
       <button
         class="floating-btn adversarial-orb"
         type="button"
@@ -4073,6 +4073,7 @@ onBeforeUnmount(() => {
   right: 24px;
   bottom: 36px;
   z-index: 1100;
+  display: none !important;
 }
 
 .adversarial-orb {

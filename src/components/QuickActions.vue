@@ -130,8 +130,8 @@ const quickActions = [
   },
   {
     id: 6,
-    title: '实时威胁告警',
-    description: '实时安全监控',
+    title: 'AI攻击实时防御',
+    description: '实时识别并阻断AI攻击链路',
     icon: Monitor,
     color: 'danger',
     shortcut: 'Ctrl+T',

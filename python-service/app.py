@@ -68,6 +68,8 @@ DRIFT_MAX_RECENT: int = int(os.environ.get("DRIFT_MAX_RECENT", "500"))
 DRIFT_ALERT_THRESHOLD: float = float(os.environ.get("DRIFT_ALERT_THRESHOLD", "0.35"))
 RELEASE_TRAFFIC_FILE: Path = Path(MODEL_DIR) / "release_traffic_metrics.json"
 PREDICT_FEEDBACK_FILE: Path = Path(MODEL_DIR) / "prediction_feedback.json"
+ADVERSARIAL_THRESHOLD_PROFILE_FILE: Path = Path(MODEL_DIR) / "adversarial_threshold_profile.json"
+ADVERSARIAL_THRESHOLD_PROFILE_VERSION: str = "adv-threshold-profile-v1"
 DEFAULT_RELEASE_GATE: Dict[str, float] = {"macroF1Min": 0.88, "testAccuracyMin": 0.90}
 
 DATA_FACTORY = TrainingDataFactory(base_dir=str(BASE_DIR), model_dir=MODEL_DIR)
@@ -2198,6 +2200,218 @@ def _derive_rule_id(round_data: Dict[str, Any], adaptive_threshold: float) -> st
     return "RULE_BEHAVIOR_BASELINE_GUARD"
 
 
+def _normalize_attack_type(attack_strategy: str) -> str:
+    attack = str(attack_strategy or "").lower()
+    if "prompt" in attack or "context" in attack or "jailbreak" in attack:
+        return "JAILBREAK_ATTEMPT"
+    if "poison" in attack:
+        return "DATA_POISONING"
+    if "exfil" in attack or "credential" in attack or "leak" in attack:
+        return "SENSITIVE_DATA_EXFILTRATION"
+    return "GENERIC_ATTACK"
+
+
+def _attack_profile(attack_type: str, attack_strategy: str, attack_success_rate: float) -> Dict[str, Any]:
+    if attack_type == "JAILBREAK_ATTEMPT":
+        return {
+            "jailbreak_pattern": str(attack_strategy),
+            "prompt_chain_depth": 3 if attack_success_rate >= 0.35 else 2,
+            "guardrail_bypass_score": round(min(1.0, attack_success_rate + 0.18), 4),
+            "model_response_risk": "high" if attack_success_rate >= 0.45 else "medium",
+        }
+    if attack_type == "DATA_POISONING":
+        return {
+            "poison_source": "adversarial_drill_stream",
+            "label_flip_ratio": round(min(0.95, 0.18 + attack_success_rate * 0.62), 4),
+            "contamination_window": "rolling_24h",
+            "data_lineage_gap_score": round(min(1.0, 0.26 + attack_success_rate * 0.55), 4),
+        }
+    if attack_type == "SENSITIVE_DATA_EXFILTRATION":
+        return {
+            "exfil_channel": "steganographic_output",
+            "dlp_match_count": int(round(4 + attack_success_rate * 12)),
+            "transfer_entropy": round(min(1.0, 0.22 + attack_success_rate * 0.64), 4),
+            "destination_reputation": "unknown" if attack_success_rate >= 0.4 else "suspect",
+        }
+    return {
+        "generic_signature": str(attack_strategy),
+        "risk_hint": "medium" if attack_success_rate >= 0.3 else "low",
+    }
+
+
+def _effect_profile_for_attack(attack_type: str, severity: str) -> Dict[str, Any]:
+    if attack_type == "JAILBREAK_ATTEMPT":
+        return {
+            "theme": "jailbreak_beacon",
+            "primaryColor": "#4AA8FF",
+            "particlePreset": "prompt_shards",
+            "beamPreset": "blue_pillar",
+            "durationMs": 820,
+            "intensity": "high",
+            "severity": severity,
+        }
+    if attack_type == "DATA_POISONING":
+        return {
+            "theme": "poison_wave",
+            "primaryColor": "#27C66F",
+            "particlePreset": "green_contaminate",
+            "beamPreset": "toxic_diffusion",
+            "durationMs": 920,
+            "intensity": "medium",
+            "severity": severity,
+        }
+    if attack_type == "SENSITIVE_DATA_EXFILTRATION":
+        return {
+            "theme": "exfiltration_stream",
+            "primaryColor": "#3BD7C8",
+            "secondaryColor": "#FF5A5A",
+            "particlePreset": "exfil_stream",
+            "beamPreset": "data_leak_arc",
+            "durationMs": 860,
+            "intensity": "high",
+            "severity": severity,
+        }
+    return {
+        "theme": "default_alert",
+        "primaryColor": "#FF213F" if severity == "critical" else "#FF5F3D",
+        "particlePreset": "default_burst",
+        "beamPreset": "default_trace",
+        "durationMs": 680,
+        "intensity": "medium",
+        "severity": severity,
+    }
+
+
+def _build_round_feature_vector(
+    attack_type: str,
+    token_features: List[str],
+    attack_signal: float,
+    attack_success_rate: float,
+    intercept_rate: float,
+    adaptive_threshold: float,
+    threshold_delta: float,
+    strategy_delta: float,
+) -> Dict[str, Any]:
+    return {
+        "schema": "adv-round-v1",
+        "attackType": attack_type,
+        "numeric": [
+            round(attack_signal, 6),
+            round(attack_success_rate, 6),
+            round(intercept_rate, 6),
+            round(adaptive_threshold, 6),
+            round(threshold_delta, 6),
+            round(strategy_delta, 6),
+        ],
+        "tokenFeatures": token_features,
+    }
+
+
+def _safe_quantile(values: List[float], q: float, fallback: float) -> float:
+    if not values:
+        return fallback
+    try:
+        return float(np.quantile(np.asarray(values, dtype=float), q))
+    except Exception:
+        return fallback
+
+
+def _load_adversarial_threshold_profile() -> Dict[str, Any]:
+    default_profile = {
+        "profileVersion": ADVERSARIAL_THRESHOLD_PROFILE_VERSION,
+        "profileId": f"{ADVERSARIAL_THRESHOLD_PROFILE_VERSION}-bootstrap",
+        "updatedAt": _now_iso(),
+        "sampleCount": 0,
+        "rollingSignals": [],
+        "quantiles": {
+            "p60": 0.56,
+            "p90": 0.78,
+        },
+        "thresholds": {
+            "medium": 0.56,
+            "high": 0.67,
+            "critical": 0.78,
+        },
+    }
+    if not ADVERSARIAL_THRESHOLD_PROFILE_FILE.exists():
+        return default_profile
+    try:
+        payload = json.loads(ADVERSARIAL_THRESHOLD_PROFILE_FILE.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            return default_profile
+        quantiles = payload.get("quantiles") if isinstance(payload.get("quantiles"), dict) else {}
+        p60 = float(quantiles.get("p60") or default_profile["quantiles"]["p60"])
+        p90 = float(quantiles.get("p90") or default_profile["quantiles"]["p90"])
+        p60 = _clamp(p60, 0.38, 0.92)
+        p90 = _clamp(max(p90, p60 + 0.02), 0.40, 0.95)
+        rolling = payload.get("rollingSignals") if isinstance(payload.get("rollingSignals"), list) else []
+        rolling = [float(x) for x in rolling if isinstance(x, (int, float))][-2000:]
+        medium = _clamp(float((payload.get("thresholds") or {}).get("medium") or p60), 0.38, 0.92)
+        high = _clamp(float((payload.get("thresholds") or {}).get("high") or ((p60 + p90) / 2.0)), 0.40, 0.94)
+        critical = _clamp(float((payload.get("thresholds") or {}).get("critical") or p90), 0.42, 0.96)
+        return {
+            "profileVersion": str(payload.get("profileVersion") or ADVERSARIAL_THRESHOLD_PROFILE_VERSION),
+            "profileId": str(payload.get("profileId") or f"{ADVERSARIAL_THRESHOLD_PROFILE_VERSION}-bootstrap"),
+            "updatedAt": str(payload.get("updatedAt") or _now_iso()),
+            "sampleCount": int(payload.get("sampleCount") or len(rolling)),
+            "rollingSignals": rolling,
+            "quantiles": {"p60": round(p60, 6), "p90": round(p90, 6)},
+            "thresholds": {
+                "medium": round(min(medium, high - 0.01), 6),
+                "high": round(min(max(high, medium + 0.01), critical - 0.01), 6),
+                "critical": round(max(critical, high + 0.01), 6),
+            },
+        }
+    except Exception as ex:
+        logger.warning("[AdversarialTask] load threshold profile failed: %s", ex)
+        return default_profile
+
+
+def _persist_adversarial_threshold_profile(current_profile: Dict[str, Any],
+                                           task_id: str,
+                                           scenario: str,
+                                           new_signals: List[float]) -> Dict[str, Any]:
+    history = current_profile.get("rollingSignals") if isinstance(current_profile.get("rollingSignals"), list) else []
+    merged = [float(x) for x in history if isinstance(x, (int, float))]
+    merged.extend(float(x) for x in new_signals if isinstance(x, (int, float)))
+    merged = merged[-2000:]
+
+    p60 = _safe_quantile(merged, 0.60, float((current_profile.get("quantiles") or {}).get("p60") or 0.56))
+    p90 = _safe_quantile(merged, 0.90, float((current_profile.get("quantiles") or {}).get("p90") or 0.78))
+    p60 = _clamp(p60, 0.38, 0.92)
+    p90 = _clamp(max(p90, p60 + 0.02), 0.40, 0.95)
+    high = _clamp((p60 + p90) / 2.0, 0.40, 0.94)
+
+    profile_id = f"{ADVERSARIAL_THRESHOLD_PROFILE_VERSION}-{datetime.datetime.utcnow().strftime('%Y%m%d%H%M%S')}-{task_id[:8]}"
+    persisted = {
+        "profileVersion": ADVERSARIAL_THRESHOLD_PROFILE_VERSION,
+        "profileId": profile_id,
+        "updatedAt": _now_iso(),
+        "sourceTaskId": task_id,
+        "scenario": scenario,
+        "sampleCount": len(merged),
+        "rollingSignals": [round(x, 6) for x in merged],
+        "quantiles": {
+            "p60": round(p60, 6),
+            "p90": round(p90, 6),
+        },
+        "thresholds": {
+            "medium": round(p60, 6),
+            "high": round(high, 6),
+            "critical": round(p90, 6),
+        },
+    }
+    try:
+        ADVERSARIAL_THRESHOLD_PROFILE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        ADVERSARIAL_THRESHOLD_PROFILE_FILE.write_text(
+            json.dumps(persisted, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    except Exception as ex:
+        logger.warning("[AdversarialTask] persist threshold profile failed: %s", ex)
+    return persisted
+
+
 def _summarize_key_changes(round_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     if not round_rows:
         return []
@@ -2277,11 +2491,18 @@ def _run_adversarial_task(task_id: str) -> None:
         rounds = int(task.get("roundsPlanned", 12))
         base_seed = int(task.get("seed", np.random.randint(1, 1_000_000)))
 
-        adaptive_threshold = 0.56
+        threshold_profile = _load_adversarial_threshold_profile()
+        initial_quantiles = threshold_profile.get("quantiles") if isinstance(threshold_profile.get("quantiles"), dict) else {}
+        initial_thresholds = threshold_profile.get("thresholds") if isinstance(threshold_profile.get("thresholds"), dict) else {}
+        p60 = float(initial_quantiles.get("p60") or 0.56)
+        p90 = float(initial_quantiles.get("p90") or 0.78)
+
+        adaptive_threshold = float(initial_thresholds.get("high") or ((p60 + p90) / 2.0))
         defense_strength = 62.0
         rounds_out: List[Dict[str, Any]] = []
         event_logs: List[Dict[str, Any]] = []
         train_logs: List[Dict[str, Any]] = []
+        observed_signals: List[float] = []
 
         for idx in range(1, rounds + 1):
             arena = BattleArena(scenario=scenario, rounds=1, seed=base_seed + idx, verbose=False)
@@ -2312,17 +2533,49 @@ def _run_adversarial_task(task_id: str) -> None:
                         }
 
             attack_signal = float(raw_round.get("final_effectiveness", 0.5))
+            observed_signals.append(attack_signal)
+            rolling_signals = (threshold_profile.get("rollingSignals") if isinstance(threshold_profile.get("rollingSignals"), list) else []) + observed_signals
+            rolling_signals = [float(x) for x in rolling_signals if isinstance(x, (int, float))][-2000:]
+            p60 = _safe_quantile(rolling_signals, 0.60, p60)
+            p90 = _safe_quantile(rolling_signals, 0.90, p90)
+            p60 = _clamp(p60, 0.38, 0.92)
+            p90 = _clamp(max(p90, p60 + 0.02), 0.40, 0.95)
+
+            target_threshold = _clamp((p60 * 0.65) + (p90 * 0.35), 0.38, 0.92)
+            threshold_shift = 0.012 if attack_signal >= p90 else (-0.004 if attack_signal < p60 else 0.003)
+            previous_threshold = adaptive_threshold
+            adaptive_threshold = _clamp((adaptive_threshold * 0.72) + (target_threshold * 0.28) + threshold_shift, 0.38, 0.92)
+
             attack_success = attack_signal > adaptive_threshold
             intercept_rate = 1.0 - (1.0 if attack_success else 0.0)
             attack_success_rate = 1.0 - intercept_rate
 
-            threshold_delta = 0.03 if attack_success else 0.016
-            strategy_delta = 0.02 if attack_success else 0.012
-            adaptive_threshold = _clamp(adaptive_threshold + threshold_delta, 0.38, 0.92)
+            threshold_delta = adaptive_threshold - previous_threshold
+            strategy_delta = 0.024 if attack_signal >= p90 else (0.016 if attack_signal >= p60 else 0.01)
             defense_strength = _clamp(defense_strength + (strategy_delta * 100.0), 40.0, 99.0)
 
             token_features = _extract_feature_tokens(raw_round)
             rule_id = _derive_rule_id(raw_round, adaptive_threshold)
+            attack_strategy = str(raw_round.get("attack_strategy") or "unknown_attack")
+            attack_type = _normalize_attack_type(attack_strategy)
+            if attack_signal >= p90:
+                severity = "critical"
+            elif attack_signal >= p60:
+                severity = "high"
+            else:
+                severity = "medium"
+            attack_profile = _attack_profile(attack_type, attack_strategy, attack_success_rate)
+            effect_profile = _effect_profile_for_attack(attack_type, severity)
+            feature_vector = _build_round_feature_vector(
+                attack_type=attack_type,
+                token_features=token_features,
+                attack_signal=attack_signal,
+                attack_success_rate=attack_success_rate,
+                intercept_rate=intercept_rate,
+                adaptive_threshold=adaptive_threshold,
+                threshold_delta=threshold_delta,
+                strategy_delta=strategy_delta,
+            )
             explain = (
                 f"命中规则 {rule_id}；关键token={','.join(token_features) if token_features else '-'}；"
                 f"阈值调整到 {adaptive_threshold:.3f}，策略增益 {strategy_delta:.3f}。"
@@ -2330,7 +2583,8 @@ def _run_adversarial_task(task_id: str) -> None:
 
             round_row = {
                 "round_num": idx,
-                "attack_strategy": raw_round.get("attack_strategy"),
+                "attack_strategy": attack_strategy,
+                "attack_type": attack_type,
                 "defense_strategy": raw_round.get("defense_strategy"),
                 "final_effectiveness": round(attack_signal, 4),
                 "attack_success": bool(attack_success),
@@ -2342,6 +2596,17 @@ def _run_adversarial_task(task_id: str) -> None:
                 "strategy_delta": round(strategy_delta, 4),
                 "rule_id": rule_id,
                 "token_features": token_features,
+                "feature_vector": feature_vector,
+                "threshold_profile_version": str(threshold_profile.get("profileVersion") or ADVERSARIAL_THRESHOLD_PROFILE_VERSION),
+                "threshold_profile_id": str(threshold_profile.get("profileId") or ""),
+                "adaptive_percentiles": {
+                    "p60": round(p60, 4),
+                    "p90": round(p90, 4),
+                },
+                "attack_profile": attack_profile,
+                "effect_profile": effect_profile,
+                "severity": severity,
+                "target_key": "core-network",
                 "narrative": raw_round.get("narrative"),
                 "explain": explain,
                 "timestamp": _now_iso(),
@@ -2352,8 +2617,16 @@ def _run_adversarial_task(task_id: str) -> None:
                     "time": round_row["timestamp"],
                     "round": idx,
                     "eventType": "bypass" if attack_success else "intercept",
+                    "attackType": attack_type,
+                    "severity": severity,
+                    "targetKey": "core-network",
                     "ruleId": rule_id,
                     "tokenFeatures": token_features,
+                    "effectProfile": effect_profile,
+                    "adaptivePercentiles": {
+                        "p60": round(p60, 4),
+                        "p90": round(p90, 4),
+                    },
                     "explain": explain,
                 }
             )
@@ -2404,6 +2677,22 @@ def _run_adversarial_task(task_id: str) -> None:
         winner = "防御方" if avg_intercept >= 0.5 else "攻击方"
         key_changes = _summarize_key_changes(rounds_out)
         suggestions = _build_model_suggestions(rounds_out)
+        persisted_threshold_profile = _persist_adversarial_threshold_profile(
+            threshold_profile,
+            task_id=task_id,
+            scenario=scenario,
+            new_signals=observed_signals,
+        )
+
+        model_versioning: Dict[str, Any] = {
+            "thresholdProfileVersion": persisted_threshold_profile.get("profileVersion"),
+            "thresholdProfileId": persisted_threshold_profile.get("profileId"),
+            "updatedAt": persisted_threshold_profile.get("updatedAt"),
+        }
+        try:
+            model_versioning["releaseStatus"] = release_status()
+        except Exception as release_ex:
+            model_versioning["releaseStatusError"] = str(release_ex)
 
         battle = {
             "winner": winner,
@@ -2424,6 +2713,14 @@ def _run_adversarial_task(task_id: str) -> None:
             "status": "completed",
             "generatedAt": _now_iso(),
             "battle": battle,
+            "adaptiveThresholdProfile": {
+                "version": persisted_threshold_profile.get("profileVersion"),
+                "profileId": persisted_threshold_profile.get("profileId"),
+                "sampleCount": persisted_threshold_profile.get("sampleCount"),
+                "quantiles": persisted_threshold_profile.get("quantiles"),
+                "thresholds": persisted_threshold_profile.get("thresholds"),
+            },
+            "modelVersioning": model_versioning,
             "keyChanges": key_changes,
             "optimizationSuggestions": suggestions,
             "trainingLogs": train_logs,

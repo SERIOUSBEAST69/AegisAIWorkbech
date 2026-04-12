@@ -121,10 +121,12 @@ import { LineChart, BarChart, PieChart } from 'echarts/charts';
 import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
 import request from '../api/request';
+import { isClientLiteMode } from '../utils/runtimeProfile';
 
 echarts.use([LineChart, BarChart, PieChart, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer]);
 
 const loading = ref(false);
+const clientLiteMode = isClientLiteMode();
 const healthLoading = ref(false);
 const healthRunning = ref(false);
 const healthReport = ref(null);
@@ -140,6 +142,7 @@ const aiUsageChartRef = ref(null);
 let riskTrendChart = null;
 let alertStatsChart = null;
 let aiUsageChart = null;
+let resizeFrame = 0;
 
 const hasRiskTrendData = computed(() => {
   const labels = riskTrend.value?.labels || [];
@@ -273,6 +276,7 @@ function renderRiskTrendChart() {
   const aiCallSeries = riskTrend.value.aiCallSeries || [];
 
   riskTrendChart.setOption({
+    animation: !clientLiteMode,
     tooltip: { trigger: 'axis' },
     legend: { data: ['风险事件', '审计留痕', 'AI调用'] },
     grid: { left: 20, right: 20, top: 40, bottom: 20, containLabel: true },
@@ -318,6 +322,7 @@ function renderAlertStatsChart() {
   ].filter(item => item.value > 0);
 
   alertStatsChart.setOption({
+    animation: !clientLiteMode,
     tooltip: { trigger: 'item' },
     legend: { bottom: 0, type: 'scroll' },
     series: [
@@ -339,6 +344,7 @@ function renderAiUsageChart() {
 
   const models = Array.isArray(aiUsage.value.models) ? aiUsage.value.models : [];
   aiUsageChart.setOption({
+    animation: !clientLiteMode,
     tooltip: { trigger: 'axis' },
     grid: { left: 20, right: 20, top: 30, bottom: 20, containLabel: true },
     xAxis: {
@@ -365,9 +371,15 @@ function renderCharts() {
 }
 
 function handleResize() {
-  riskTrendChart?.resize();
-  alertStatsChart?.resize();
-  aiUsageChart?.resize();
+  if (resizeFrame) {
+    window.cancelAnimationFrame(resizeFrame);
+  }
+  resizeFrame = window.requestAnimationFrame(() => {
+    resizeFrame = 0;
+    riskTrendChart?.resize();
+    alertStatsChart?.resize();
+    aiUsageChart?.resize();
+  });
 }
 
 async function loadAll() {
@@ -422,7 +434,13 @@ async function loadAll() {
       ElMessage.warning(`${failedModules.join('、')} 暂不可用，已展示可用模块`);
     }
 
-    await loadHealthLatest();
+    if (clientLiteMode) {
+      window.setTimeout(() => {
+        loadHealthLatest();
+      }, 900);
+    } else {
+      await loadHealthLatest();
+    }
   } catch (err) {
     disposeCharts();
     ElMessage.error(err?.message || '加载治理观测失败');
@@ -488,6 +506,10 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', handleResize);
+  if (resizeFrame) {
+    window.cancelAnimationFrame(resizeFrame);
+    resizeFrame = 0;
+  }
   disposeCharts();
 });
 </script>

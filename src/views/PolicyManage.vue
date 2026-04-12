@@ -647,7 +647,7 @@ function deriveEngineProfile(policy, ruleObj, policyType, scopeDetail) {
   if (normalizedName === 'AI对话审计策略') {
     return {
       businessName: 'AI对话审计策略',
-      relatedModules: ['AI对话', '审计日志', '员工AI行为监控'],
+      relatedModules: ['AI对话', '审计日志', 'AI使用合规监控'],
       effectiveScenario: '对员工AI对话行为持续留痕，支持按用户、时间、命中规则进行审计追溯。',
       impact: { path: '/audit-center', query: { operation: 'ai', permissionId: 'ai:prompt' } },
     };

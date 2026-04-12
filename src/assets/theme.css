@@ -120,6 +120,22 @@ body::-webkit-scrollbar-thumb:hover,
   background: linear-gradient(180deg, rgba(170, 211, 255, 0.88), rgba(120, 170, 255, 0.84));
 }
 
+html.client-lite *,
+body.client-lite * {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
+
+html.client-lite .card-glass:hover,
+body.client-lite .card-glass:hover,
+html.client-lite .floating-btn:hover,
+body.client-lite .floating-btn:hover {
+  transform: none !important;
+  box-shadow: none !important;
+}
+
 /* 统一禁止除攻防模拟外的二级滚动容器 */
 .app-main :is(
   .table-wrap,

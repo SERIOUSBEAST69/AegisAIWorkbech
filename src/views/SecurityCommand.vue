@@ -132,10 +132,12 @@ import {
 } from '../api/securityCockpit';
 import { useUserStore } from '../store/user';
 import { canBlockThreatEvent, canIgnoreThreatEvent } from '../utils/roleBoundary';
+import { isClientLiteMode } from '../utils/runtimeProfile';
 
 echarts.use([LineChart, BarChart, GraphChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer]);
 
 const userStore = useUserStore();
+const clientLiteMode = isClientLiteMode();
 const canBlock = computed(() => canBlockThreatEvent(userStore.userInfo));
 const canIgnore = computed(() => canIgnoreThreatEvent(userStore.userInfo));
 
@@ -165,6 +167,7 @@ let streamWatchdogTimer = null;
 let reconnectAttempt = 0;
 let lastStreamSignalAt = 0;
 let streamCursor = 0;
+let resizeFrame = 0;
 
 async function reloadAll() {
   loading.value = true;
@@ -211,6 +214,7 @@ function renderHeatmap() {
   const events = heatmap.value.map(item => Number(item.eventCount || 0));
   heatmapChart.setOption({
     backgroundColor: 'transparent',
+    animation: !clientLiteMode,
     tooltip: {
       trigger: 'axis',
       formatter: params => {
@@ -265,6 +269,7 @@ function renderTrend() {
   }
   trendChart.setOption({
     backgroundColor: 'transparent',
+    animation: !clientLiteMode,
     tooltip: { trigger: 'axis' },
     legend: { data: ['已阻断', '待处置', '已忽略'], top: 0, textStyle: { color: '#b6cbea' } },
     grid: { left: 40, right: 8, top: 40, bottom: 40 },
@@ -326,6 +331,7 @@ function renderTopology() {
   }));
 
   topologyChart.setOption({
+    animation: !clientLiteMode,
     tooltip: {
       trigger: 'item',
       formatter: params => {
@@ -336,12 +342,12 @@ function renderTopology() {
         return `${role}<br/>${params?.data?.name || '-'}<br/>关联告警: ${Number(params?.data?.value || 0)}`;
       },
     },
-    animationDurationUpdate: 700,
+    animationDurationUpdate: clientLiteMode ? 0 : 700,
     series: [{
       type: 'graph',
       layout: 'force',
-      roam: true,
-      draggable: true,
+      roam: !clientLiteMode,
+      draggable: !clientLiteMode,
       force: { repulsion: 220, edgeLength: [48, 110] },
       label: { show: true, color: '#dbeafe', fontSize: 11 },
       edgeSymbol: ['none', 'arrow'],
@@ -375,6 +381,10 @@ async function openTopologyDetail(sourceIp, target) {
 }
 
 function startStream() {
+  if (clientLiteMode) {
+    streamConnected.value = false;
+    return;
+  }
   stopStream();
   try {
     streamHandle = openCockpitAlertStream({
@@ -530,9 +540,15 @@ async function ignore(id) {
 }
 
 function onResize() {
-  heatmapChart?.resize();
-  trendChart?.resize();
-  topologyChart?.resize();
+  if (resizeFrame) {
+    window.cancelAnimationFrame(resizeFrame);
+  }
+  resizeFrame = window.requestAnimationFrame(() => {
+    resizeFrame = 0;
+    heatmapChart?.resize();
+    trendChart?.resize();
+    topologyChart?.resize();
+  });
 }
 
 function disposeCharts() {
@@ -546,10 +562,12 @@ function disposeCharts() {
 
 onMounted(async () => {
   await reloadAll();
-  startStream();
+  if (!clientLiteMode) {
+    startStream();
+  }
   pollTimer = window.setInterval(() => {
     reloadAll();
-  }, 5 * 60 * 1000);
+  }, clientLiteMode ? 8 * 60 * 1000 : 5 * 60 * 1000);
   window.addEventListener('resize', onResize, { passive: true });
 });
 
@@ -558,6 +576,10 @@ onBeforeUnmount(() => {
   if (pollTimer) {
     window.clearInterval(pollTimer);
     pollTimer = null;
+  }
+  if (resizeFrame) {
+    window.cancelAnimationFrame(resizeFrame);
+    resizeFrame = 0;
   }
   window.removeEventListener('resize', onResize);
   disposeCharts();

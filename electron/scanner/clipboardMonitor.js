@@ -37,6 +37,7 @@ const FILE_SENSITIVE_KEYWORDS = [
 
 const DEFAULT_CONFIG = {
   monitorEnabled: true,
+  pollIntervalMs: 2500,
   predictEnabled: true,
   predictEndpoint: 'http://localhost:5000/predict',
   dedupeSeconds: 60,
@@ -56,6 +57,73 @@ const DEFAULT_CONFIG = {
   },
   exfilWindowRules: DEFAULT_EXFIL_WINDOW_RULES,
 };
+
+const PENDING_PRIVACY_EVENT_FILE = path.join(os.homedir(), '.aegis-pending-privacy-events.secure.json');
+const MAX_PENDING_PRIVACY_EVENTS = 120;
+
+function deriveQueueKey({ clientToken, clientId }) {
+  const material = [
+    String(clientToken || '').trim(),
+    String(clientId || '').trim(),
+    os.hostname(),
+    os.userInfo().username,
+    'aegis-privacy-queue-v1',
+  ].join('|');
+  return crypto.createHash('sha256').update(material).digest();
+}
+
+function encryptQueuePayload(plainJson, key) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const encrypted = Buffer.concat([cipher.update(String(plainJson || ''), 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return {
+    v: 1,
+    alg: 'aes-256-gcm',
+    iv: iv.toString('base64'),
+    tag: tag.toString('base64'),
+    data: encrypted.toString('base64'),
+  };
+}
+
+function decryptQueuePayload(wrapper, key) {
+  if (!wrapper || typeof wrapper !== 'object') {
+    return '[]';
+  }
+  const iv = Buffer.from(String(wrapper.iv || ''), 'base64');
+  const tag = Buffer.from(String(wrapper.tag || ''), 'base64');
+  const data = Buffer.from(String(wrapper.data || ''), 'base64');
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+  decipher.setAuthTag(tag);
+  const plain = Buffer.concat([decipher.update(data), decipher.final()]);
+  return plain.toString('utf8');
+}
+
+function loadPendingEvents(context = {}) {
+  try {
+    if (!fs.existsSync(PENDING_PRIVACY_EVENT_FILE)) {
+      return [];
+    }
+    const raw = fs.readFileSync(PENDING_PRIVACY_EVENT_FILE, 'utf8');
+    const wrapper = JSON.parse(raw);
+    const decrypted = decryptQueuePayload(wrapper, deriveQueueKey(context));
+    const parsed = JSON.parse(decrypted);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function savePendingEvents(items, context = {}) {
+  try {
+    const sanitized = Array.isArray(items) ? items.slice(-MAX_PENDING_PRIVACY_EVENTS) : [];
+    const plain = JSON.stringify(sanitized);
+    const wrapper = encryptQueuePayload(plain, deriveQueueKey(context));
+    fs.writeFileSync(PENDING_PRIVACY_EVENT_FILE, JSON.stringify(wrapper, null, 2), 'utf8');
+  } catch {
+    // ignore
+  }
+}
 
 function queryActiveWindowByPowerShell() {
   const script = [
@@ -245,30 +313,43 @@ async function callPredict(config, text) {
 }
 
 class ClipboardPrivacyMonitor {
-  constructor({ getBackendUrl, getAuthState, getClientToken, getCompanyId }) {
+  constructor({ getBackendUrl, getAuthState, getClientToken, getCompanyId, getClientId, allowLocalAlert }) {
     this.getBackendUrl = getBackendUrl;
     this.getAuthState = getAuthState;
     this.getClientToken = getClientToken;
     this.getCompanyId = getCompanyId;
+    this.getClientId = getClientId;
+    this.allowLocalAlert = allowLocalAlert;
     this.lastClipboard = '';
     this.lastClipboardFileSignature = '';
     this.lastWarnByHash = new Map();
     this.pendingSensitiveCopies = [];
     this.lastRiskAlertByKey = new Map();
     this.timer = null;
+    this.tickRunning = false;
     this.config = { ...DEFAULT_CONFIG };
     this.configVersion = Number(DEFAULT_CONFIG.configVersion || 1);
     this.configChecksum = String(DEFAULT_CONFIG.configChecksum || '');
     this.lastConfigFetchAt = 0;
     this.auditFilePath = buildAuditFilePath();
+    this.reportingInFlight = false;
   }
 
   async start() {
     if (this.timer) return;
     await this.refreshConfig(true);
+    const pollInterval = Math.max(1200, Number(this.config.pollIntervalMs || DEFAULT_CONFIG.pollIntervalMs));
     this.timer = setInterval(() => {
-      this.tick().catch(() => {});
-    }, 900);
+      if (this.tickRunning) {
+        return;
+      }
+      this.tickRunning = true;
+      this.tick()
+        .catch(() => {})
+        .finally(() => {
+          this.tickRunning = false;
+        });
+    }, pollInterval);
   }
 
   stop() {
@@ -729,6 +810,9 @@ class ClipboardPrivacyMonitor {
   }
 
   showForcedRiskDialog({ kind, exfilTarget, detectedTypes, rawContent }) {
+    if (typeof this.allowLocalAlert === 'function' && !this.allowLocalAlert()) {
+      return;
+    }
     const labels = (detectedTypes || []).slice(0, 6).join(', ') || '敏感字段';
     const preview = maskContent(rawContent || '').slice(0, 80);
     const processName = exfilTarget?.processName || 'unknown';
@@ -768,9 +852,23 @@ class ClipboardPrivacyMonitor {
     if (!backendUrl) {
       return;
     }
+    const clientToken = typeof this.getClientToken === 'function' ? this.getClientToken() : '';
+    const clientId = typeof this.getClientId === 'function' ? this.getClientId() : '';
+    const queueContext = { clientToken, clientId };
+    const replayKey = crypto.createHash('sha256').update([
+      String(payload.userId || ''),
+      String(payload.eventType || ''),
+      String(payload.timestamp || ''),
+      String(payload.hostname || ''),
+      String(payload.windowTitle || ''),
+    ].join('|')).digest('hex');
+    const outbound = {
+      ...payload,
+      content: maskContent(payload.content),
+      replayKey,
+    };
     try {
       const headers = { 'Content-Type': 'application/json' };
-      const clientToken = typeof this.getClientToken === 'function' ? this.getClientToken() : '';
       const companyId = typeof this.getCompanyId === 'function' ? this.getCompanyId() : null;
       if (clientToken) {
         headers['X-Client-Token'] = String(clientToken);
@@ -778,14 +876,43 @@ class ClipboardPrivacyMonitor {
       if (Number.isFinite(Number(companyId)) && Number(companyId) > 0) {
         headers['X-Company-Id'] = String(companyId);
       }
+      headers['X-Client-Replay-Key'] = replayKey;
+
+      if (!this.reportingInFlight) {
+        this.reportingInFlight = true;
+        try {
+          const pending = loadPendingEvents(queueContext);
+          const remain = [];
+          for (const item of pending) {
+            const replayHeaders = { ...headers };
+            if (item?.replayKey) {
+              replayHeaders['X-Client-Replay-Key'] = String(item.replayKey);
+            }
+            try {
+              await axios.post(`${backendUrl}/api/privacy/events`, item, {
+                timeout: 4000,
+                headers: replayHeaders,
+              });
+            } catch {
+              remain.push(item);
+            }
+          }
+          savePendingEvents(remain, queueContext);
+        } finally {
+          this.reportingInFlight = false;
+        }
+      }
+
       await axios.post(`${backendUrl}/api/privacy/events`, {
-        ...payload,
-        content: maskContent(payload.content),
+        ...outbound,
       }, {
         timeout: 4000,
         headers,
       });
     } catch {
+      const pending = loadPendingEvents(queueContext);
+      pending.push(outbound);
+      savePendingEvents(pending, queueContext);
       // Ignore to keep tray process resilient.
     }
   }

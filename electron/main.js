@@ -20,6 +20,13 @@ const { v4: uuidv4 } = require('uuid');
 const scanner = require('./scanner/index');
 const { createClipboardMonitor } = require('./scanner/clipboardMonitor');
 
+// Some Windows devices render a black window with GPU acceleration enabled.
+// Prefer stability for distributed installers.
+if (process.platform === 'win32') {
+  app.disableHardwareAcceleration();
+  app.commandLine.appendSwitch('disable-gpu');
+}
+
 // ── 配置 ────────────────────────────────────────────────────────────────────
 
 /** 服务端地址，优先读取环境变量或本地配置文件 */
@@ -37,7 +44,9 @@ function loadConfig() {
     scanIntervalMinutes: 30,
     autoStart: true,
     minimizeToTray: true,
+    enableClipboardMonitor: app.isPackaged ? false : true,
     requireLoginBeforeScan: true,
+    requirePolicySync: true,
   };
   try {
     if (fs.existsSync(CONFIG_PATH)) {
@@ -147,6 +156,21 @@ function buildOfflineHtml(workbenchUrl, reason) {
 </html>`;
 }
 
+function withClientLiteFlag(rawUrl) {
+  const input = String(rawUrl || '').trim();
+  if (!input) return input;
+  if (!app.isPackaged) return input;
+  try {
+    const u = new URL(input);
+    u.searchParams.set('clientLite', '1');
+    return u.toString();
+  } catch {
+    const hasQuery = input.includes('?');
+    const separator = hasQuery ? '&' : '?';
+    return `${input}${separator}clientLite=1`;
+  }
+}
+
 function saveConfig(cfg) {
   try {
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2));
@@ -155,6 +179,7 @@ function saveConfig(cfg) {
 
 /** 客户端唯一 ID，持久化在 userData 目录 */
 const CLIENT_ID_PATH = path.join(app.getPath('userData'), 'client-id.txt');
+const POLICY_SYNC_INTERVAL_MS = 60 * 1000;
 
 function getOrCreateClientId() {
   try {
@@ -176,14 +201,54 @@ const CLIENT_ID  = getOrCreateClientId();
 let lastScanResult = null;
 let scanJob      = null;
 let clipboardMonitor = null;
+let policySyncJob = null;
 let authState    = {
   authenticated: false,
   user: null,
   updatedAt: null,
 };
+let clientPolicyState = {
+  synced: false,
+  fetchedAt: 0,
+  expiresAt: 0,
+  policy: null,
+  lastError: null,
+};
+
+function policyIsFresh() {
+  return clientPolicyState.synced && clientPolicyState.expiresAt > Date.now();
+}
+
+function resolvePolicyUsername() {
+  const authUsername = String(authState?.user?.username || '').trim();
+  if (authUsername) {
+    return authUsername;
+  }
+  return String(os.userInfo().username || '').trim();
+}
+
+function policyCapability(name, fallback = true) {
+  const caps = clientPolicyState?.policy?.capabilities;
+  if (!caps || typeof caps !== 'object') {
+    return fallback;
+  }
+  if (!(name in caps)) {
+    return fallback;
+  }
+  return Boolean(caps[name]);
+}
 
 function canRunScan() {
-  return !config.requireLoginBeforeScan || authState.authenticated;
+  if (config.requirePolicySync !== false && !policyIsFresh()) {
+    return false;
+  }
+  if (config.requireLoginBeforeScan && !authState.authenticated) {
+    return false;
+  }
+  if (!policyCapability('allowShadowScan', true)) {
+    return false;
+  }
+  return true;
 }
 
 function resolveReportCompanyId() {
@@ -200,6 +265,99 @@ function resolveReportCompanyId() {
 
 function resolveClientIngressToken() {
   return String(config.clientIngressToken || process.env.AEGIS_CLIENT_TOKEN || '').trim();
+}
+
+function resolveBackendApiBase() {
+  const raw = String(config.backendUrl || DEFAULT_API_URL || '').trim();
+  if (!raw) return DEFAULT_API_URL;
+  return raw.endsWith('/') ? raw.slice(0, -1) : raw;
+}
+
+async function syncClientPolicy(force = false) {
+  const token = resolveClientIngressToken();
+  if (!token) {
+    clientPolicyState = {
+      ...clientPolicyState,
+      synced: false,
+      lastError: 'missing-client-token',
+    };
+    return null;
+  }
+  const now = Date.now();
+  if (!force && clientPolicyState.fetchedAt > 0 && now - clientPolicyState.fetchedAt < POLICY_SYNC_INTERVAL_MS) {
+    return clientPolicyState.policy;
+  }
+
+  const endpoint = `${resolveBackendApiBase()}/api/client/policy/snapshot`;
+  try {
+    const resp = await fetch(endpoint, {
+      method: 'GET',
+      headers: {
+        'X-Client-Token': token,
+        'X-Company-Id': String(resolveReportCompanyId()),
+        'X-Client-Id': CLIENT_ID,
+        'X-Client-Username': resolvePolicyUsername(),
+      },
+    });
+    const payload = await resp.json().catch(() => ({}));
+    const data = payload?.data || payload || {};
+    if (!resp.ok || Number(payload?.code || 20000) !== 20000) {
+      throw new Error(payload?.msg || payload?.message || `HTTP ${resp.status}`);
+    }
+
+    const ttlSeconds = Math.max(30, Number(data.ttlSeconds || 180));
+    clientPolicyState = {
+      synced: true,
+      fetchedAt: now,
+      expiresAt: now + ttlSeconds * 1000,
+      policy: data,
+      lastError: null,
+    };
+
+    config.requireLoginBeforeScan = data.requireLoginBeforeScan !== false;
+    config.requirePolicySync = data.policySyncRequired !== false;
+    const allowClipboardMonitor = policyCapability('allowClipboardMonitor', true);
+    if (allowClipboardMonitor !== Boolean(config.enableClipboardMonitor)) {
+      config.enableClipboardMonitor = allowClipboardMonitor;
+      saveConfig(config);
+      if (clipboardMonitor && !allowClipboardMonitor) {
+        clipboardMonitor.stop();
+        clipboardMonitor = null;
+      } else if (!clipboardMonitor && allowClipboardMonitor) {
+        clipboardMonitor = createClipboardMonitor({
+          getBackendUrl: () => config.backendUrl || config.serverUrl,
+          getAuthState: () => authState,
+          getClientToken: () => resolveClientIngressToken(),
+          getCompanyId: () => resolveReportCompanyId(),
+          getClientId: () => CLIENT_ID,
+          allowLocalAlert: () => policyCapability('allowLocalAlertDialog', true),
+        });
+        clipboardMonitor.start().catch(() => {});
+      }
+    }
+
+    updateTrayMenu();
+    return data;
+  } catch (err) {
+    clientPolicyState = {
+      ...clientPolicyState,
+      synced: false,
+      fetchedAt: now,
+      expiresAt: 0,
+      lastError: err?.message || 'policy-sync-failed',
+    };
+    return null;
+  }
+}
+
+function startPolicySync() {
+  if (policySyncJob) {
+    clearInterval(policySyncJob);
+    policySyncJob = null;
+  }
+  policySyncJob = setInterval(() => {
+    syncClientPolicy(false).catch(() => {});
+  }, POLICY_SYNC_INTERVAL_MS);
 }
 
 // ── 主窗口 ──────────────────────────────────────────────────────────────────
@@ -228,7 +386,9 @@ function createWindow() {
   };
 
   // 加载工作台（安装版默认连接 3000；失败时一定回退到可见的离线提示页）
-  const workbenchUrl = process.env.AEGIS_DEV_URL || config.serverUrl || DEFAULT_SERVER_URL;
+  const workbenchUrl = withClientLiteFlag(process.env.AEGIS_DEV_URL || config.serverUrl || DEFAULT_SERVER_URL);
+  let mainLoadDone = false;
+  let loadWatchdog = null;
   const loadOfflineFallback = (reason) => {
     const html = buildOfflineHtml(workbenchUrl, reason);
     const dataUrl = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
@@ -240,6 +400,11 @@ function createWindow() {
   };
 
   mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    mainLoadDone = true;
+    if (loadWatchdog) {
+      clearTimeout(loadWatchdog);
+      loadWatchdog = null;
+    }
     if (!isMainFrame) return;
     if (!validatedURL || !validatedURL.startsWith('data:text/html')) {
       loadOfflineFallback(`${errorDescription || 'load-failed'} (${errorCode})`);
@@ -247,12 +412,29 @@ function createWindow() {
   });
 
   mainWindow.webContents.on('did-finish-load', () => {
+    mainLoadDone = true;
+    if (loadWatchdog) {
+      clearTimeout(loadWatchdog);
+      loadWatchdog = null;
+    }
     ensureWindowVisible();
   });
 
   mainWindow.loadURL(workbenchUrl).catch((err) => {
+    mainLoadDone = true;
+    if (loadWatchdog) {
+      clearTimeout(loadWatchdog);
+      loadWatchdog = null;
+    }
     loadOfflineFallback(err?.message || 'load-url-failed');
   });
+
+  // 兜底：网络挂起但未触发 fail-load 时，超时切到离线提示，避免长期卡黑屏/白屏。
+  loadWatchdog = setTimeout(() => {
+    if (!mainLoadDone) {
+      loadOfflineFallback('load-timeout(12s)');
+    }
+  }, 12000);
 
   mainWindow.once('ready-to-show', () => {
     ensureWindowVisible();
@@ -305,6 +487,7 @@ function updateTrayMenu() {
   const contextMenu = Menu.buildFromTemplate([
     { label: 'Aegis 守护客户端', enabled: false },
     { label: `客户端 ID：${CLIENT_ID.slice(0, 8)}…`, enabled: false },
+    { label: clientPolicyState.synced ? '策略状态：已同步' : '策略状态：待同步', enabled: false },
     { type: 'separator' },
     { label: lastScan, enabled: false },
     ...(shadowCount ? [{ label: shadowCount, enabled: false }] : []),
@@ -452,13 +635,16 @@ async function showServerSettings() {
 
 async function runScan() {
   if (!canRunScan()) {
+    const reason = !policyIsFresh()
+      ? '策略尚未同步，请先登录并连接云端策略。'
+      : '请先登录后再开始检测。';
     return {
       time: new Date().toISOString(),
       shadowAiCount: 0,
       riskLevel: 'none',
       services: [],
       skipped: true,
-      reason: '请先登录后再开始检测。',
+      reason,
     };
   }
 
@@ -492,8 +678,17 @@ async function runScan() {
         }).show();
       }
     }
+    return result;
   } catch (err) {
     console.error('[Aegis] 扫描失败：', err.message);
+    return {
+      time: new Date().toISOString(),
+      shadowAiCount: 0,
+      riskLevel: 'none',
+      services: [],
+      failed: true,
+      reason: err?.message || '扫描失败',
+    };
   }
 }
 
@@ -528,15 +723,20 @@ ipcMain.handle('get-client-info', () => ({
   requireLoginBeforeScan: config.requireLoginBeforeScan,
   companyId: resolveReportCompanyId(),
   hasClientIngressToken: !!resolveClientIngressToken(),
+  policyState: {
+    synced: clientPolicyState.synced,
+    fetchedAt: clientPolicyState.fetchedAt,
+    expiresAt: clientPolicyState.expiresAt,
+    lastError: clientPolicyState.lastError,
+    roleCode: clientPolicyState.policy?.roleCode || '',
+    configVersion: clientPolicyState.policy?.configVersion || 0,
+  },
   authState,
   lastScanResult,
 }));
 
 ipcMain.handle('run-scan', async () => {
   const result = await runScan();
-  if (result && !result.skipped) {
-    return lastScanResult;
-  }
   return result;
 });
 
@@ -549,6 +749,7 @@ ipcMain.handle('set-auth-state', async (event, state) => {
   if (canRunScan()) {
     setTimeout(() => runScan().catch(console.error), 500);
   }
+  syncClientPolicy(true).catch(() => {});
   return authState;
 });
 
@@ -565,6 +766,7 @@ ipcMain.handle('get-config', () => config);
 ipcMain.handle('save-config', (event, newConfig) => {
   const prevServerUrl = config.serverUrl;
   config = { ...config, ...newConfig };
+  config.requireLoginBeforeScan = Boolean(config.requireLoginBeforeScan);
   saveConfig(config);
   startScheduledScan();
   // Reload the workbench if server URL changed
@@ -572,8 +774,24 @@ ipcMain.handle('save-config', (event, newConfig) => {
     mainWindow.loadURL(newConfig.serverUrl).catch(console.error);
   }
   if (clipboardMonitor) {
-    clipboardMonitor.refreshConfig(true).catch(() => {});
+    if (config.enableClipboardMonitor === false) {
+      clipboardMonitor.stop();
+      clipboardMonitor = null;
+    } else {
+      clipboardMonitor.refreshConfig(true).catch(() => {});
+    }
+  } else if (config.enableClipboardMonitor !== false) {
+    clipboardMonitor = createClipboardMonitor({
+      getBackendUrl: () => config.backendUrl || config.serverUrl,
+      getAuthState: () => authState,
+      getClientToken: () => resolveClientIngressToken(),
+      getCompanyId: () => resolveReportCompanyId(),
+      getClientId: () => CLIENT_ID,
+      allowLocalAlert: () => policyCapability('allowLocalAlertDialog', true),
+    });
+    clipboardMonitor.start().catch(() => {});
   }
+  syncClientPolicy(true).catch(() => {});
   updateTrayMenu();
   return config;
 });
@@ -591,13 +809,24 @@ app.whenReady().then(async () => {
 
   createTray();
   startScheduledScan();
-  clipboardMonitor = createClipboardMonitor({
-    getBackendUrl: () => config.backendUrl || config.serverUrl,
-    getAuthState: () => authState,
-    getClientToken: () => resolveClientIngressToken(),
-    getCompanyId: () => resolveReportCompanyId(),
-  });
-  clipboardMonitor.start().catch(() => {});
+  startPolicySync();
+  await syncClientPolicy(true);
+  if (config.enableClipboardMonitor !== false) {
+    clipboardMonitor = createClipboardMonitor({
+      getBackendUrl: () => config.backendUrl || config.serverUrl,
+      getAuthState: () => authState,
+      getClientToken: () => resolveClientIngressToken(),
+      getCompanyId: () => resolveReportCompanyId(),
+      getClientId: () => CLIENT_ID,
+      allowLocalAlert: () => policyCapability('allowLocalAlertDialog', true),
+    });
+    // Delay privacy monitor startup to keep app launch responsive on low-end machines.
+    setTimeout(() => {
+      if (clipboardMonitor) {
+        clipboardMonitor.start().catch(() => {});
+      }
+    }, 8000);
+  }
 });
 
 app.on('window-all-closed', () => {
@@ -618,6 +847,10 @@ app.on('activate', () => {
 
 app.on('before-quit', () => {
   app.isQuitting = true;
+  if (policySyncJob) {
+    clearInterval(policySyncJob);
+    policySyncJob = null;
+  }
   if (clipboardMonitor) {
     clipboardMonitor.stop();
   }

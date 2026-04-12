@@ -34,6 +34,9 @@
         <el-button @click="resetQuery">重置</el-button>
       </el-form-item>
     </el-form>
+    <div class="dedupe-hint">
+      原始 {{ rawLogCount }} 条，合并后 {{ logs.length }} 条，折叠 {{ nearDuplicateCollapsedCount }} 条（近似窗口 {{ NEAR_DUP_WINDOW_SECONDS }} 秒）
+    </div>
     <el-table :data="pagedLogs" style="width: 100%; margin-top:12px" v-loading="loading">
       <el-table-column prop="id" label="ID" width="250">
         <template #default="scope">
@@ -87,6 +90,7 @@ import { useRoute } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import request from '../api/request';
 import { hasPermission } from '../utils/permission';
+import { getUserDirectory } from '../utils/userDirectoryCache';
 
 const route = useRoute();
 const logs = ref([]);
@@ -94,6 +98,10 @@ const userDirectory = ref(new Map());
 const loading = ref(false);
 const query = ref(buildQueryFromRoute(route.query));
 const canExport = hasPermission('audit:export');
+const NEAR_DUP_WINDOW_SECONDS = 90;
+const NEAR_DUP_WINDOW_MS = NEAR_DUP_WINDOW_SECONDS * 1000;
+const rawLogCount = ref(0);
+const nearDuplicateCollapsedCount = ref(0);
 const pagination = ref({ current: 1, pageSize: 10, total: 0 });
 const pagedLogs = computed(() => {
   const start = (pagination.value.current - 1) * pagination.value.pageSize;
@@ -124,12 +132,16 @@ async function fetchLogs() {
     await ensureUserDirectory();
     // 后端使用 GET /api/audit-log/search，ES CriteriaQuery 按 userId/operation/时间段检索
     const res = await request.get('/audit-log/search', { params: buildParams() });
+    rawLogCount.value = Array.isArray(res) ? res.length : 0;
     logs.value = normalizeAuditLogs(Array.isArray(res) ? res : []);
+    nearDuplicateCollapsedCount.value = Math.max(0, rawLogCount.value - logs.value.length);
     pagination.value.total = logs.value.length;
     pagination.value.current = 1;
   } catch (err) {
     ElMessage.error(err?.message || '查询失败');
     logs.value = [];
+    rawLogCount.value = 0;
+    nearDuplicateCollapsedCount.value = 0;
     pagination.value.total = 0;
   } finally {
     loading.value = false;
@@ -141,14 +153,7 @@ async function ensureUserDirectory() {
     return;
   }
   try {
-    const users = await request.get('/user/list');
-    const map = new Map();
-    (Array.isArray(users) ? users : []).forEach(item => {
-      if (item?.id != null) {
-        map.set(String(item.id), item);
-      }
-    });
-    userDirectory.value = map;
+    userDirectory.value = await getUserDirectory();
   } catch {
     userDirectory.value = new Map();
   }
@@ -189,32 +194,62 @@ function normalizeRiskLevel(value, operation, result) {
 }
 
 function normalizeAuditLogs(rows) {
-  const seen = new Set();
   const normalized = [];
+  const nearestBySignature = new Map();
+  const signatureText = (value) => String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
+  const toMs = (value) => {
+    const text = String(value == null ? '' : value).trim();
+    if (!text || text === '-') return NaN;
+    const ms = new Date(text.replace(' ', 'T')).getTime();
+    return Number.isNaN(ms) ? NaN : ms;
+  };
+
   for (const item of rows) {
     const operation = normalizeOperation(item?.operation);
     const result = normalizeResult(item?.result);
     const riskLevel = normalizeRiskLevel(item?.riskLevel, operation, result);
+    const operationTime = item?.operationTime || item?.createTime || item?.updateTime || '-';
     const normalizedItem = {
       ...item,
       operation,
       result,
       riskLevel,
-      operationTime: item?.operationTime || item?.createTime || item?.updateTime || '-',
+      operationTime,
       ip: item?.ip || item?.clientIp || '-',
       inputOverview: String(item?.inputOverview || item?.requestSummary || item?.input || item?.detail || '-'),
+      mergedCount: 0,
     };
+
     const signature = [
-      normalizedItem.userId,
-      normalizedItem.operation,
-      normalizedItem.result,
-      normalizedItem.operationTime,
-      normalizedItem.assetId,
-      normalizedItem.inputOverview,
+      signatureText(normalizedItem.userId),
+      signatureText(normalizedItem.operation).toLowerCase(),
+      signatureText(normalizedItem.result),
+      signatureText(normalizedItem.assetId),
+      signatureText(normalizedItem.inputOverview),
     ].join('|');
-    if (seen.has(signature)) continue;
-    seen.add(signature);
+
+    const currentMs = toMs(operationTime);
+    const previous = nearestBySignature.get(signature);
+    let merged = false;
+    if (previous) {
+      const bothTimed = Number.isFinite(previous.ts) && Number.isFinite(currentMs);
+      const sameBucketNoTime = !bothTimed && signatureText(previous.operationTime) === signatureText(operationTime);
+      const nearTimed = bothTimed && Math.abs(previous.ts - currentMs) <= NEAR_DUP_WINDOW_MS;
+      if (nearTimed || sameBucketNoTime) {
+        const representative = normalized[previous.index];
+        if (representative) {
+          representative.mergedCount = Number(representative.mergedCount || 0) + 1;
+        }
+        if (Number.isFinite(currentMs) && (!Number.isFinite(previous.ts) || currentMs > previous.ts)) {
+          nearestBySignature.set(signature, { index: previous.index, ts: currentMs, operationTime });
+        }
+        merged = true;
+      }
+    }
+
+    if (merged) continue;
     normalized.push(normalizedItem);
+    nearestBySignature.set(signature, { index: normalized.length - 1, ts: currentMs, operationTime });
   }
   return normalized;
 }
@@ -318,5 +353,10 @@ fetchLogs();
 
 <style scoped>
 .card-header { font-weight: 600; margin-bottom: 16px; }
+.dedupe-hint {
+  margin: 6px 0 4px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
 </style>
 

@@ -155,6 +155,7 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import request from '../api/request';
 import { getSession } from '../utils/auth';
 import { canReviewGovernanceChange, canSubmitGovernanceChange } from '../utils/roleBoundary';
+import { getUserDirectory } from '../utils/userDirectoryCache';
 
 const requests = ref([]);
 const userDirectory = ref(new Map());
@@ -214,7 +215,8 @@ async function fetchRequests() {
   loading.value = true;
   try {
     await ensureUserDirectory();
-    const res = await request.get('/governance-change/page', {
+    const endpoint = canReview.value ? '/governance-change/todo-page' : '/governance-change/page';
+    const res = await request.get(endpoint, {
       params: {
         ...query.value,
         page: pagination.value.current,
@@ -329,17 +331,14 @@ async function ensureUserDirectory() {
     return;
   }
   try {
-    const users = await request.get('/user/list');
-    const map = new Map();
-    (Array.isArray(users) ? users : []).forEach(item => {
-      if (item?.id != null) {
-        map.set(String(item.id), item);
-      }
-    });
-    userDirectory.value = map;
+    userDirectory.value = await getUserDirectory();
   } catch {
     userDirectory.value = new Map();
   }
+}
+
+function escapeRegExp(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function userById(id) {
@@ -380,7 +379,8 @@ function traceValue(raw, key) {
       // Fall back to legacy TRACE text parsing.
     }
   }
-  const match = text.match(new RegExp(`${key}=([^\] ]+)`));
+  const safeKey = escapeRegExp(key);
+  const match = text.match(new RegExp(`${safeKey}=([^\s\]]+)`));
   return match?.[1] || '';
 }
 

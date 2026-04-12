@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.trustai.entity.AdversarialRecord;
 import com.trustai.entity.AuditLog;
+import com.trustai.entity.GovernanceChangeRequest;
 import com.trustai.entity.GovernanceEvent;
 import com.trustai.entity.User;
 import com.trustai.exception.BizException;
@@ -14,6 +15,7 @@ import com.trustai.service.AuditLogService;
 import com.trustai.service.CompanyScopeService;
 import com.trustai.service.CurrentUserService;
 import com.trustai.service.EventHubService;
+import com.trustai.service.GovernanceChangeRequestService;
 import com.trustai.service.GovernanceEventService;
 import com.trustai.service.UserService;
 import com.trustai.utils.R;
@@ -50,6 +52,7 @@ public class AlertCenterController {
     private final UserService userService;
     private final AiGatewayService aiGatewayService;
     private final EventHubService eventHubService;
+    private final GovernanceChangeRequestService governanceChangeRequestService;
     private final AuditLogService auditLogService;
     private final ObjectMapper objectMapper;
 
@@ -60,6 +63,7 @@ public class AlertCenterController {
                                  UserService userService,
                                  AiGatewayService aiGatewayService,
                                  EventHubService eventHubService,
+                                 GovernanceChangeRequestService governanceChangeRequestService,
                                  AuditLogService auditLogService,
                                  ObjectMapper objectMapper) {
         this.governanceEventService = governanceEventService;
@@ -69,6 +73,7 @@ public class AlertCenterController {
         this.userService = userService;
         this.aiGatewayService = aiGatewayService;
         this.eventHubService = eventHubService;
+        this.governanceChangeRequestService = governanceChangeRequestService;
         this.auditLogService = auditLogService;
         this.objectMapper = objectMapper;
     }
@@ -420,12 +425,134 @@ public class AlertCenterController {
             }
         }
 
+        Map<String, Object> governanceChangeDraft = autoCreateBlacklistGovernanceDraft(event, operator, nextStatus, req.getNote());
+
         saveAudit(operator, event, nextStatus, req.getTriggerSimulation(), validation);
 
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("event", event);
         data.put("validation", validation);
+        data.put("governanceChangeDraft", governanceChangeDraft);
         return R.ok(data);
+    }
+
+    private Map<String, Object> autoCreateBlacklistGovernanceDraft(GovernanceEvent event,
+                                                                   User operator,
+                                                                   String nextStatus,
+                                                                   String disposeNote) {
+        if (event == null || operator == null || !"blocked".equalsIgnoreCase(nextStatus)) {
+            return Map.of("created", false, "reason", "status_not_blocked");
+        }
+
+        Long companyId = event.getCompanyId();
+        if (companyId == null || companyId <= 0) {
+            return Map.of("created", false, "reason", "company_missing");
+        }
+
+        long pendingExists = governanceChangeRequestService.count(new QueryWrapper<GovernanceChangeRequest>()
+            .eq("company_id", companyId)
+            .eq("module", "POLICY")
+            .eq("action", "UPDATE")
+            .eq("status", "pending")
+            .eq("target_id", event.getId()));
+        if (pendingExists > 0) {
+            return Map.of("created", false, "reason", "pending_draft_exists", "governanceEventId", event.getId());
+        }
+
+        Map<String, Object> payload = parsePayload(event.getPayloadJson());
+        Map<String, Object> blacklistCandidate = new LinkedHashMap<>();
+        blacklistCandidate.put("sourceModule", event.getSourceModule());
+        blacklistCandidate.put("eventType", event.getEventType());
+        blacklistCandidate.put("attackType", event.getAttackType());
+        blacklistCandidate.put("processName", firstText(
+            payload.get("processName"),
+            payload.get("process_name"),
+            payload.get("employeeProcess"),
+            payload.get("app")
+        ));
+        blacklistCandidate.put("targetDomain", firstText(
+            payload.get("dstDomain"),
+            payload.get("targetDomain"),
+            payload.get("domain")
+        ));
+        blacklistCandidate.put("targetIp", firstText(
+            payload.get("dstIp"),
+            payload.get("targetIp"),
+            payload.get("ip")
+        ));
+        blacklistCandidate.put("serviceName", firstText(
+            payload.get("serviceName"),
+            payload.get("service"),
+            payload.get("aiService")
+        ));
+        blacklistCandidate.put("userId", event.getUserId());
+        blacklistCandidate.put("username", event.getUsername());
+        blacklistCandidate.put("riskLevel", event.getSeverity());
+        blacklistCandidate.put("riskScore", payload.get("riskScore"));
+
+        Map<String, Object> draftPayload = new LinkedHashMap<>();
+        draftPayload.put("title", "自动生成黑名单治理草案");
+        draftPayload.put("reason", "告警处置状态为 blocked，系统自动生成治理变更草案");
+        draftPayload.put("governanceEventId", event.getId());
+        draftPayload.put("sourceEventId", event.getSourceEventId());
+        draftPayload.put("sourceModule", event.getSourceModule());
+        draftPayload.put("blacklistCandidate", blacklistCandidate);
+        draftPayload.put("disposeNote", disposeNote == null ? "" : disposeNote);
+        draftPayload.put("simulation", Boolean.TRUE.equals(payload.get("simulation")));
+        draftPayload.put("triggerAt", new Date());
+
+        GovernanceChangeRequest draft = new GovernanceChangeRequest();
+        draft.setCompanyId(companyId);
+        draft.setModule("POLICY");
+        draft.setAction("UPDATE");
+        draft.setTargetId(event.getId());
+        draft.setPayloadJson(writeJson(draftPayload));
+        draft.setStatus("pending");
+        draft.setRiskLevel("HIGH");
+        draft.setRequesterId(operator.getId());
+        draft.setRequesterRoleCode(resolveRoleCode(operator));
+        draft.setCreateTime(new Date());
+        draft.setUpdateTime(new Date());
+        governanceChangeRequestService.save(draft);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("created", true);
+        result.put("requestId", draft.getId());
+        result.put("module", draft.getModule());
+        result.put("action", draft.getAction());
+        result.put("status", draft.getStatus());
+        result.put("governanceEventId", event.getId());
+        result.put("blacklistCandidate", blacklistCandidate);
+        return result;
+    }
+
+    private String resolveRoleCode(User user) {
+        if (user == null) {
+            return "UNKNOWN";
+        }
+        if (currentUserService.hasRole("ADMIN")) {
+            return "ADMIN";
+        }
+        if (currentUserService.hasRole("SECOPS")) {
+            return "SECOPS";
+        }
+        if (currentUserService.hasRole("ADMIN_REVIEWER")) {
+            return "ADMIN_REVIEWER";
+        }
+        return "UNKNOWN";
+    }
+
+    private String firstText(Object... values) {
+        for (Object value : values) {
+            if (value == null) {
+                continue;
+            }
+            String text = String.valueOf(value).trim();
+            if (!text.isBlank()) {
+                return text;
+            }
+        }
+        return "";
     }
 
     private void enforceSecopsDuty(User operator, String targetStatus) {

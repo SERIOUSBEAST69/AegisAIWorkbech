@@ -1,7 +1,8 @@
 <template>
   <div class="login-stage" ref="pageEl">
     <!-- Login Dynamic Background: Fast, moving, interactive -->
-    <LiquidChrome 
+    <LiquidChrome
+      v-if="!clientLiteMode"
       :baseColor="[0.01, 0.02, 0.04]" 
       :speed="0.4" 
       :amplitude="0.6" 
@@ -298,17 +299,31 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import gsap from 'gsap';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { UserFilled } from '@element-plus/icons-vue';
 import { authApi } from '../api/auth';
 import { useUserStore } from '../store/user';
 import LiquidChrome from '../components/LiquidChrome.vue';
 import { canAccessPath, resolveDefaultLandingPath } from '../utils/persona';
+import { isClientLiteMode } from '../utils/runtimeProfile';
 
 const router = useRouter();
 const route = useRoute();
 const userStore = useUserStore();
+const clientLiteMode = isClientLiteMode();
+let gsapLib = null;
+
+async function ensureGsap() {
+  if (clientLiteMode) return null;
+  if (gsapLib) return gsapLib;
+  const mod = await import('gsap');
+  gsapLib = mod?.default || mod;
+  return gsapLib;
+}
+
+function getGsap() {
+  return gsapLib;
+}
 
 const pageEl = ref(null);
 const panelEl = ref(null);
@@ -568,6 +583,15 @@ function setActiveStepEl(el) {
 function syncStepHeight(immediate = false) {
   if (!stepViewportEl.value || !activeStepEl.value) return;
   const nextHeight = activeStepEl.value.offsetHeight;
+  if (clientLiteMode) {
+    stepViewportEl.value.style.height = `${nextHeight}px`;
+    return;
+  }
+  const gsap = getGsap();
+  if (!gsap) {
+    stepViewportEl.value.style.height = `${nextHeight}px`;
+    return;
+  }
   gsap.to(stepViewportEl.value, {
     height: nextHeight,
     duration: immediate ? 0 : 0.46,
@@ -576,6 +600,19 @@ function syncStepHeight(immediate = false) {
 }
 
 function onStepBeforeEnter(el) {
+  if (clientLiteMode) {
+    el.style.opacity = '1';
+    el.style.transform = 'none';
+    el.style.filter = 'none';
+    return;
+  }
+  const gsap = getGsap();
+  if (!gsap) {
+    el.style.opacity = '1';
+    el.style.transform = 'none';
+    el.style.filter = 'none';
+    return;
+  }
   gsap.set(el, {
     opacity: 0,
     x: stepDirection.value >= 0 ? 88 : -88,
@@ -584,6 +621,21 @@ function onStepBeforeEnter(el) {
 }
 
 function onStepEnter(el, done) {
+  if (clientLiteMode) {
+    el.style.opacity = '1';
+    el.style.transform = 'none';
+    el.style.filter = 'none';
+    done();
+    return;
+  }
+  const gsap = getGsap();
+  if (!gsap) {
+    el.style.opacity = '1';
+    el.style.transform = 'none';
+    el.style.filter = 'none';
+    done();
+    return;
+  }
   gsap.to(el, {
     opacity: 1,
     x: 0,
@@ -595,6 +647,15 @@ function onStepEnter(el, done) {
 }
 
 function onStepLeave(el, done) {
+  if (clientLiteMode) {
+    done();
+    return;
+  }
+  const gsap = getGsap();
+  if (!gsap) {
+    done();
+    return;
+  }
   gsap.to(el, {
     opacity: 0,
     x: stepDirection.value >= 0 ? -46 : 46,
@@ -921,6 +982,26 @@ function syncPortalPose(immediate = false) {
 
   const pose = getPortalPose(isPortalLifted.value);
 
+  if (clientLiteMode) {
+    heroTitleEl.value.style.opacity = '1';
+    heroTitleEl.value.style.filter = 'none';
+    heroTitleEl.value.style.transform = `translate3d(0, ${pose.heroY}px, 0)`;
+
+    panelEl.value.style.opacity = '1';
+    panelEl.value.style.filter = 'none';
+    panelEl.value.style.transform = `translate3d(0, ${pose.panelY}px, 0)`;
+
+    beamEl.value.style.opacity = String(pose.beamOpacity);
+    beamEl.value.style.filter = 'blur(20px)';
+    beamEl.value.style.transform = `scaleX(${pose.beamScaleX})`;
+    return;
+  }
+
+  const gsap = getGsap();
+  if (!gsap) {
+    return;
+  }
+
   if (immediate) {
     gsap.set(heroTitleEl.value, {
       y: pose.heroY,
@@ -975,10 +1056,22 @@ function onForgot() {
 }
 
 function shakePanel() {
+  if (clientLiteMode || !panelEl.value) {
+    return;
+  }
+  const gsap = getGsap();
+  if (!gsap) return;
   gsap.fromTo(panelEl.value, { x: -8 }, { x: 0, duration: 0.34, ease: 'power3.out' });
 }
 
 function playCinematicSuccess() {
+  if (clientLiteMode || !beamEl.value || !heroTitleEl.value || !panelEl.value) {
+    return Promise.resolve();
+  }
+  const gsap = getGsap();
+  if (!gsap) {
+    return Promise.resolve();
+  }
   return new Promise((resolve) => {
     gsap.timeline({ onComplete: resolve })
       .to(beamEl.value, {
@@ -1081,6 +1174,7 @@ function handleViewportChange() {
 }
 
 onMounted(async () => {
+  await ensureGsap();
   refreshCaptcha();
 
   const cached = localStorage.getItem('login_cache');
@@ -1093,7 +1187,7 @@ onMounted(async () => {
     }
   }
 
-  try {
+  const loadRegistrationOptions = async () => {
     const companyIdFromQuery = Number(route.query.companyId || 0);
     const inviteCodeFromQuery = String(route.query.inviteCode || '').trim();
     if (inviteCodeFromQuery) {
@@ -1117,14 +1211,60 @@ onMounted(async () => {
     }
     registerForm.roleCode = '';
     registerForm.roleId = null;
-  } catch {
+  };
+
+  const resetRegistrationOptions = () => {
     registrationOptions.identities = [...DEFAULT_IDENTITIES];
     registrationOptions.organizations = [...DEFAULT_ORGANIZATIONS];
     registerForm.roleCode = '';
     registerForm.roleId = null;
+  };
+
+  if (clientLiteMode) {
+    setTimeout(() => {
+      loadRegistrationOptions().catch(() => {
+        resetRegistrationOptions();
+      });
+    }, 900);
+  } else {
+    try {
+      await loadRegistrationOptions();
+    } catch {
+      resetRegistrationOptions();
+    }
   }
 
   const initialPose = getPortalPose(false);
+
+  if (clientLiteMode) {
+    heroTitleEl.value.style.opacity = '1';
+    heroTitleEl.value.style.filter = 'none';
+    heroTitleEl.value.style.transform = `translate3d(0, ${initialPose.heroY}px, 0)`;
+
+    panelEl.value.style.opacity = '1';
+    panelEl.value.style.filter = 'none';
+    panelEl.value.style.transform = `translate3d(0, ${initialPose.panelY}px, 0)`;
+
+    beamEl.value.style.opacity = String(initialPose.beamOpacity);
+    beamEl.value.style.filter = 'blur(20px)';
+    beamEl.value.style.transform = `scaleX(${initialPose.beamScaleX})`;
+
+    await nextTick();
+    syncStepHeight(true);
+
+    window.addEventListener('resize', handleViewportChange, { passive: true });
+    window.addEventListener('orientationchange', handleViewportChange);
+    return;
+  }
+
+  const gsap = getGsap();
+  if (!gsap) {
+    await nextTick();
+    syncStepHeight(true);
+    window.addEventListener('resize', handleViewportChange, { passive: true });
+    window.addEventListener('orientationchange', handleViewportChange);
+    return;
+  }
 
   gsap.set(heroTitleEl.value, {
     opacity: 0,

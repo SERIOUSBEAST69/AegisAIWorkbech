@@ -177,11 +177,11 @@ const tabs = [
 ];
 
 const searchableItems = [
-  { id: 2, type: '页面', title: '威胁监测中心', description: '实时监测和阻拦安全威胁', icon: Monitor, path: '/threat-monitor', category: 'pages' },
+  { id: 2, type: '页面', title: 'AI攻击实时防御', description: '实时监测并处置AI攻击威胁', icon: Monitor, path: '/threat-monitor', category: 'pages' },
   { id: 4, type: '功能', title: '影子AI发现', description: '发现组织内未经批准的AI工具', icon: Aim, path: '/shadow-ai', category: 'functions' },
   { id: 5, type: '页面', title: '审计日志', description: '查看所有操作的审计记录', icon: Histogram, path: '/audit-log', category: 'pages' },
   { id: 6, type: '页面', title: '审批中心待办', description: '集中处理审批与治理请求', icon: DocumentChecked, path: '/approval-center', category: 'pages' },
-  { id: 8, type: '功能', title: '员工AI行为监控', description: '监控和分析员工使用AI的行为', icon: ChatLineRound, path: '/ai/anomaly', category: 'functions' },
+  { id: 8, type: '功能', title: 'AI使用合规监控', description: '监控与分析员工AI使用合规状态', icon: ChatLineRound, path: '/ai/anomaly', category: 'functions' },
   { id: 9, type: '页面', title: '用户管理', description: '管理组织用户账号', icon: UserFilled, path: '/user-manage', category: 'pages' },
   { id: 10, type: '页面', title: '角色管理', description: '配置用户角色和权限边界', icon: Lock, path: '/role-manage', category: 'pages' },
   { id: 12, type: '页面', title: '系统设置', description: '配置系统参数和选项', icon: Tools, path: '/settings', category: 'pages' }

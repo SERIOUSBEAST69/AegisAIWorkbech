@@ -3,6 +3,7 @@ package com.trustai.controller;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.trustai.entity.ClientReport;
 import com.trustai.entity.ClientScanQueue;
+import com.trustai.entity.Role;
 import com.trustai.entity.SecurityEvent;
 import com.trustai.entity.User;
 import com.trustai.service.ClientIngressAuthService;
@@ -10,6 +11,7 @@ import com.trustai.service.ClientReportService;
 import com.trustai.service.ClientScanQueueService;
 import com.trustai.service.CurrentUserService;
 import com.trustai.service.EventHubService;
+import com.trustai.service.RoleService;
 import com.trustai.service.SecurityEventService;
 import com.trustai.service.UserService;
 import com.trustai.utils.R;
@@ -47,6 +49,7 @@ public class ClientReportController {
     private final UserService userService;
     private final ClientIngressAuthService clientIngressAuthService;
     private final SecurityEventService securityEventService;
+    private final RoleService roleService;
 
     // ── 客户端注册（幂等） ──────────────────────────────────────────────────────
 
@@ -95,6 +98,47 @@ public class ClientReportController {
         return R.ok(result);
     }
 
+    @GetMapping("/policy/snapshot")
+    public R<Map<String, Object>> policySnapshot(@RequestHeader(value = "X-Client-Token", required = false) String clientToken,
+                                                 @RequestHeader(value = "X-Company-Id", required = false) Long headerCompanyId,
+                                                 @RequestHeader(value = "X-Client-Username", required = false) String clientUsername,
+                                                 @RequestHeader(value = "X-Client-Id", required = false) String clientId) {
+        if (!clientIngressAuthService.isAuthorized(clientToken)) {
+            return R.error(40100, "客户端令牌无效");
+        }
+        User boundUser = resolveBoundUser(clientUsername, headerCompanyId);
+        if (boundUser == null || boundUser.getCompanyId() == null) {
+            return R.error(40000, "无法绑定合法账号与企业");
+        }
+
+        String roleCode = resolveRoleCode(boundUser);
+        boolean privileged = hasPrivilegedRole(roleCode);
+
+        Map<String, Object> capabilities = new LinkedHashMap<>();
+        capabilities.put("allowShadowScan", true);
+        capabilities.put("allowClipboardMonitor", true);
+        capabilities.put("allowLocalAlertDialog", privileged);
+        capabilities.put("allowManualScan", privileged);
+        capabilities.put("allowAutoScan", true);
+
+        Map<String, Object> policy = new LinkedHashMap<>();
+        policy.put("clientId", clientId == null ? "" : clientId.trim());
+        policy.put("companyId", boundUser.getCompanyId());
+        policy.put("username", boundUser.getUsername());
+        policy.put("roleCode", roleCode);
+        policy.put("requireLoginBeforeScan", true);
+        policy.put("forbidClientSimulation", true);
+        policy.put("policySyncRequired", true);
+        policy.put("ttlSeconds", 180);
+        policy.put("configVersion", 2);
+        policy.put("capabilities", capabilities);
+
+        String policyChecksum = buildPolicyChecksum(policy);
+        policy.put("configChecksum", policyChecksum);
+        policy.put("issuedAt", LocalDateTime.now().toString());
+        return R.ok(policy);
+    }
+
     // ── 上报扫描结果 ────────────────────────────────────────────────────────────
 
     /**
@@ -135,6 +179,23 @@ public class ClientReportController {
         }
         report.setCreateTime(LocalDateTime.now());
         report.setUpdateTime(LocalDateTime.now());
+
+        long duplicate = clientReportService.count(
+            new QueryWrapper<ClientReport>()
+                .eq("company_id", report.getCompanyId())
+                .eq("client_id", report.getClientId())
+                .eq("hostname", report.getHostname())
+                .eq("os_username", report.getOsUsername())
+                .eq(report.getScanTime() != null, "scan_time", report.getScanTime())
+        );
+        if (duplicate > 0) {
+            Map<String, Object> dedupe = new LinkedHashMap<>();
+            dedupe.put("accepted", true);
+            dedupe.put("deduplicated", true);
+            dedupe.put("deviceFingerprint", buildDeviceFingerprint(report.getClientId(), report.getHostname(), report.getOsUsername()));
+            dedupe.put("riskLevel", report.getRiskLevel());
+            return R.ok(dedupe);
+        }
 
     // 计算综合风险等级（优先考虑服务的风险级别，其次考虑数量）
         report.setRiskLevel(calcRiskLevel(report.getShadowAiCount(), report.getDiscoveredServices()));
@@ -403,6 +464,48 @@ public class ClientReportController {
                 .last("LIMIT 1")
         );
         return latest == null ? null : latest.getStatus();
+    }
+
+    private String normalizeRoleCode(String roleCode) {
+        return roleCode == null ? "" : roleCode.trim().toUpperCase();
+    }
+
+    private String resolveRoleCode(User user) {
+        if (user == null) {
+            return "";
+        }
+        if (user.getRoleCodes() != null && !user.getRoleCodes().isEmpty()) {
+            return normalizeRoleCode(user.getRoleCodes().get(0));
+        }
+        if (user.getRoleId() != null) {
+            Role role = roleService.getById(user.getRoleId());
+            if (role != null) {
+                return normalizeRoleCode(role.getCode());
+            }
+        }
+        return "";
+    }
+
+    private boolean hasPrivilegedRole(String roleCode) {
+        return "ADMIN".equals(roleCode)
+            || "SECOPS".equals(roleCode)
+            || "DATA_ADMIN".equals(roleCode)
+            || "ADMIN_REVIEWER".equals(roleCode);
+    }
+
+    private String buildPolicyChecksum(Map<String, Object> policy) {
+        try {
+            String raw = String.valueOf(policy);
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(raw.getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder();
+            for (byte b : hash) {
+                hex.append(String.format("%02x", b));
+            }
+            return hex.substring(0, 32);
+        } catch (Exception ex) {
+            return Integer.toHexString(String.valueOf(policy).hashCode());
+        }
     }
 
     private String resolveClientIp(HttpServletRequest req) {

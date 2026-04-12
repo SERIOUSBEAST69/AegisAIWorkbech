@@ -15,6 +15,7 @@ const os   = require('os');
 const path = require('path');
 const fs = require('fs');
 const axios = require('axios');
+const crypto = require('crypto');
 
 const { scanBrowserHistory }   = require('./browserHistoryScanner');
 const { scanNetworkConnections } = require('./networkScanner');
@@ -22,8 +23,46 @@ const { scanRunningProcesses } = require('./processScanner');
 const { AI_SERVICES } = require('./aiServiceList');
 
 const DEFAULT_AI_WHITELIST = ['阿里通义系列', '百度文心系列'];
-const PENDING_REPORT_FILE = path.join(os.homedir(), '.aegis-pending-reports.json');
+const PENDING_REPORT_FILE = path.join(os.homedir(), '.aegis-pending-reports.secure.json');
 const MAX_PENDING_REPORTS = 50;
+
+function deriveQueueKey({ clientToken, clientId }) {
+  const material = [
+    String(clientToken || '').trim(),
+    String(clientId || '').trim(),
+    os.hostname(),
+    os.userInfo().username,
+    'aegis-offline-queue-v1',
+  ].join('|');
+  return crypto.createHash('sha256').update(material).digest();
+}
+
+function encryptQueuePayload(plainJson, key) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const encrypted = Buffer.concat([cipher.update(String(plainJson || ''), 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return {
+    v: 1,
+    alg: 'aes-256-gcm',
+    iv: iv.toString('base64'),
+    tag: tag.toString('base64'),
+    data: encrypted.toString('base64'),
+  };
+}
+
+function decryptQueuePayload(wrapper, key) {
+  if (!wrapper || typeof wrapper !== 'object') {
+    return '[]';
+  }
+  const iv = Buffer.from(String(wrapper.iv || ''), 'base64');
+  const tag = Buffer.from(String(wrapper.tag || ''), 'base64');
+  const data = Buffer.from(String(wrapper.data || ''), 'base64');
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+  decipher.setAuthTag(tag);
+  const plain = Buffer.concat([decipher.update(data), decipher.final()]);
+  return plain.toString('utf8');
+}
 
 function normalizeBoundUsername(authenticatedUsername) {
   const authName = String(authenticatedUsername || '').trim();
@@ -33,30 +72,36 @@ function normalizeBoundUsername(authenticatedUsername) {
   return os.userInfo().username;
 }
 
-function loadPendingReports() {
+function loadPendingReports(context = {}) {
   try {
     if (!fs.existsSync(PENDING_REPORT_FILE)) {
       return [];
     }
     const raw = fs.readFileSync(PENDING_REPORT_FILE, 'utf-8');
-    const parsed = JSON.parse(raw);
+    const wrapper = JSON.parse(raw);
+    const key = deriveQueueKey(context);
+    const decrypted = decryptQueuePayload(wrapper, key);
+    const parsed = JSON.parse(decrypted);
     return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
   }
 }
 
-function savePendingReports(reports) {
+function savePendingReports(reports, context = {}) {
   try {
     const sanitized = Array.isArray(reports) ? reports.slice(-MAX_PENDING_REPORTS) : [];
-    fs.writeFileSync(PENDING_REPORT_FILE, JSON.stringify(sanitized, null, 2), 'utf-8');
+    const key = deriveQueueKey(context);
+    const plain = JSON.stringify(sanitized);
+    const wrapper = encryptQueuePayload(plain, key);
+    fs.writeFileSync(PENDING_REPORT_FILE, JSON.stringify(wrapper, null, 2), 'utf-8');
   } catch {
     // Non-blocking local persistence best effort.
   }
 }
 
-async function flushPendingReports(apiBase, headers) {
-  const pending = loadPendingReports();
+async function flushPendingReports(apiBase, headers, context = {}) {
+  const pending = loadPendingReports(context);
   if (!pending.length) {
     return;
   }
@@ -64,15 +109,19 @@ async function flushPendingReports(apiBase, headers) {
   const remaining = [];
   for (const report of pending) {
     try {
+      const replayHeaders = { ...headers };
+      if (report?.replayKey) {
+        replayHeaders['X-Client-Replay-Key'] = String(report.replayKey);
+      }
       await axios.post(`${apiBase}/api/client/report`, report, {
         timeout: 10000,
-        headers,
+        headers: replayHeaders,
       });
     } catch {
       remaining.push(report);
     }
   }
-  savePendingReports(remaining);
+  savePendingReports(remaining, context);
 }
 
 async function registerClient(apiBase, headers, report) {
@@ -182,6 +231,8 @@ async function fetchPolicyConfig(apiBase, headers) {
  * }>}
  */
 async function scan({ clientId, backendUrl, serverUrl, clientToken, companyId, authenticatedUsername }) {
+    const queueContext = { clientToken, clientId };
+
   // backendUrl 优先；兼容旧调用方式中传入 serverUrl 的情况
   const apiBase = backendUrl || serverUrl;
   const startTime = Date.now();
@@ -242,12 +293,20 @@ async function scan({ clientId, backendUrl, serverUrl, clientToken, companyId, a
       shadowAiCount: shadowServices.length,
       riskLevel,
       scanTime,
+      replayKey: crypto.createHash('sha256').update([
+        clientId,
+        os.hostname(),
+        boundUsername,
+        scanTime,
+        String(shadowServices.length),
+      ].join('|')).digest('hex'),
     };
 
     try {
       const reportHeaders = { ...headers, 'Content-Type': 'application/json' };
       await registerClient(apiBase, reportHeaders, report);
-      await flushPendingReports(apiBase, reportHeaders);
+      await flushPendingReports(apiBase, reportHeaders, queueContext);
+      reportHeaders['X-Client-Replay-Key'] = String(report.replayKey || '');
       await axios.post(`${apiBase}/api/client/report`, report, {
         timeout: 10000,
         headers: reportHeaders,
@@ -256,9 +315,9 @@ async function scan({ clientId, backendUrl, serverUrl, clientToken, companyId, a
     } catch (err) {
       // 上报失败不影响本次扫描结果
       console.warn('[Scanner] 上报失败（将在下次重试）：', err.message);
-      const pending = loadPendingReports();
+      const pending = loadPendingReports(queueContext);
       pending.push(report);
-      savePendingReports(pending);
+      savePendingReports(pending, queueContext);
     }
   }
 

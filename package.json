@@ -42,7 +42,9 @@
       "output": "dist"
     },
     "files": [
-      "dist/**/*",
+      "dist/index.html",
+      "dist/assets/**/*",
+      "dist/favicon.svg",
       "electron/**/*",
       "package.json"
     ],

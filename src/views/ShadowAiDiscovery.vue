@@ -29,6 +29,14 @@
           <el-icon><Monitor /></el-icon>
           {{ localScanning ? '扫描中' : '扫描本机' }}
         </el-button>
+        <el-button
+          v-if="canRunLocalScan"
+          type="warning"
+          plain
+          :loading="simulationTriggering"
+          :disabled="simulationTriggering || localScanning || loading"
+          @click="triggerShadowSimulation"
+        >模拟影子AI事件</el-button>
         <el-button type="primary" :loading="loading" :disabled="localScanning" @click="refresh">
           <el-icon><Refresh /></el-icon>
           刷新扫描结果
@@ -467,6 +475,7 @@ import {
   Download, Search, Loading,
 } from '@element-plus/icons-vue';
 import { shadowAiApi } from '../api/shadowAi';
+import { clientSimulationApi } from '../api/clientSimulation';
 import request from '../api/request';
 import { useUserStore } from '../store/user';
 import AiRiskRating from './AiRiskRating.vue';
@@ -501,6 +510,7 @@ const downloading = ref(null);
 // 云端扫描队列
 const scanQueue   = ref([]);
 const queueLoading = ref(false);
+const simulationTriggering = ref(false);
 const roleCode = computed(() => String(userStore.userInfo?.roleCode || '').toUpperCase());
 const isEmployeeView = computed(() => roleCode.value === 'EMPLOYEE');
 const isAdminUser = computed(() => roleCode.value === 'ADMIN');
@@ -746,6 +756,34 @@ async function refresh() {
     } catch (e) {
       console.warn('[ShadowAI] Unable to load local client info:', e.message);
     }
+  }
+}
+
+async function triggerShadowSimulation() {
+  if (!canRunLocalScan.value) {
+    ElMessage.warning('当前角色不可触发模拟');
+    return;
+  }
+  simulationTriggering.value = true;
+  try {
+    const eventTypes = [
+      'OUT_OF_ALLOWLIST_AI_ACCESS',
+      'MIDJOURNEY_USAGE_DETECTED',
+      'LOCAL_OLLAMA_RUNTIME_DETECTED',
+      'DEEPL_TRANSLATION_DOC_FLOW',
+    ];
+    const eventType = eventTypes[Math.floor(Math.random() * eventTypes.length)];
+    const result = await clientSimulationApi.triggerShadowAi({
+      eventType,
+      username: userStore.userInfo?.username,
+      companyId: userStore.userInfo?.companyId,
+    });
+    ElMessage.success(`模拟已触发：${eventType}（事件#${result?.simulationEventId || '-'}）`);
+    await refresh();
+  } catch (err) {
+    ElMessage.error('模拟触发失败：' + (err?.message || '未知错误'));
+  } finally {
+    simulationTriggering.value = false;
   }
 }
 

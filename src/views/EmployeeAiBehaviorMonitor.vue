@@ -3,8 +3,8 @@
     <div class="page-header scene-block card-glass">
       <div>
         <div class="page-eyebrow">EMPLOYEE AI GOVERNANCE</div>
-        <h1>员工 AI 监控</h1>
-        <p>已将隐私盾告警并入异常行为检测视图，并过滤掉角色为空的数据。</p>
+        <h1>AI使用合规监控</h1>
+        <p>聚焦员工AI使用合规态势，融合异常行为、隐私告警与模拟演练联动视图。</p>
       </div>
       <div class="header-actions">
         <el-button @click="refreshAll" :loading="anomalyLoading">刷新</el-button>
@@ -37,6 +37,26 @@
         <div class="stat-value">{{ modelReady ? '就绪' : '未就绪' }}</div>
       </div>
     </div>
+
+    <section class="simulation-lab">
+      <div class="sim-head">
+        <div>
+          <h3>员工AI异常行为监控模拟</h3>
+          <p>3D办公室平面图实时映射风险工位，异常触发后红色光柱与流动链路上报安全指挥中心。</p>
+        </div>
+        <div class="sim-actions">
+          <el-button type="danger" plain @click="triggerComplianceSimulation">模拟异常告警</el-button>
+          <el-tag type="danger" effect="dark" v-if="activeSimulationMeta">
+            当前告警：{{ activeSimulationMeta.employeeLabel }} / {{ activeSimulationMeta.seatId }}
+          </el-tag>
+        </div>
+      </div>
+      <ComplianceOfficeSimulator
+        :risk-map="officeSeatRiskMap"
+        :active-event="activeSimulationEvent"
+        @animation-complete="handleSimulationAnimationComplete"
+      />
+    </section>
 
     <div class="panel">
       <div class="panel-head">
@@ -99,8 +119,11 @@ import { ElMessage } from 'element-plus';
 import request from '../api/request';
 import { alertCenterApi } from '../api/alertCenter';
 import { privacyApi } from '../api/privacy';
+import { clientSimulationApi } from '../api/clientSimulation';
 import { useUserStore } from '../store/user';
 import { hasAnyRole, isExecutive as isExecutiveRole } from '../utils/roleBoundary';
+import { getUserDirectory } from '../utils/userDirectoryCache';
+import ComplianceOfficeSimulator from '../components/ComplianceOfficeSimulator.vue';
 
 const userStore = useUserStore();
 const isExecutive = computed(() => isExecutiveRole(userStore.userInfo));
@@ -117,6 +140,10 @@ const anomalyQuery = ref({ page: 1, pageSize: 10 });
 const anomalyTotalRecords = ref(0);
 const modelReady = ref(false);
 const privacySummary = ref({ total: 0, today: 0, extensionCount: 0, clipboardCount: 0, summaryOnly: false });
+const activeSimulationEvent = ref(null);
+const activeSimulationMeta = ref(null);
+
+const OFFICE_SEAT_TOTAL = 24;
 
 const governanceSnapshot = ref({
   anomaly: 0,
@@ -152,6 +179,87 @@ const pagedEvents = computed(() => {
   return anomalyEvents.value.slice(start, start + size);
 });
 
+const officeSeatRiskMap = computed(() => {
+  const riskBySeat = {};
+  for (let i = 0; i < OFFICE_SEAT_TOTAL; i += 1) {
+    riskBySeat[`seat-${i + 1}`] = 'low';
+  }
+  for (const item of anomalyEvents.value) {
+    const seatId = seatIdOfEvent(item);
+    const nextLevel = normalizeRiskLevel(item);
+    const current = riskBySeat[seatId] || 'low';
+    if (riskWeight(nextLevel) >= riskWeight(current)) {
+      riskBySeat[seatId] = nextLevel;
+    }
+  }
+  return riskBySeat;
+});
+
+function hashCode(value) {
+  const text = String(value || 'seed');
+  let hash = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    hash = (hash * 31 + text.charCodeAt(i)) % 7919;
+  }
+  return Math.abs(hash);
+}
+
+function seatIdOfEvent(item) {
+  const key = String(item?.employee_id || item?.employeeId || item?.userId || item?.username || item?.event_id || 'employee');
+  const idx = hashCode(key) % OFFICE_SEAT_TOTAL;
+  return `seat-${idx + 1}`;
+}
+
+function riskWeight(level) {
+  if (level === 'critical') return 4;
+  if (level === 'high') return 3;
+  if (level === 'medium') return 2;
+  return 1;
+}
+
+function normalizeRiskLevel(item) {
+  const level = String(item?.risk_level || item?.severity || '').toLowerCase();
+  if (level.includes('critical') || level.includes('严重')) return 'critical';
+  if (level.includes('high') || level.includes('高')) return 'high';
+  if (level.includes('medium') || level.includes('中')) return 'medium';
+  return item?.is_anomaly ? 'high' : 'low';
+}
+
+async function triggerComplianceSimulation() {
+  const scenarios = ['CLIPBOARD_EXFIL', 'WINDOW_SWITCH_BURST', 'BULK_ACCESS_WITH_AI_ACTIVE'];
+  const pickedScenario = scenarios[Math.floor(Math.random() * scenarios.length)];
+  try {
+    const data = await clientSimulationApi.triggerEmployeeAnomaly({
+      scenarioType: pickedScenario,
+      username: userStore.userInfo?.username,
+      companyId: userStore.userInfo?.companyId,
+    });
+    ElMessage.success(`异常模拟已触发：${pickedScenario}（事件#${data?.simulationEventId || '-'}）`);
+    await refreshAll();
+  } catch (err) {
+    ElMessage.error('异常模拟触发失败：' + (err?.message || '未知错误'));
+  }
+
+  const pool = anomalyEvents.value.length ? anomalyEvents.value : [{ event_id: `synthetic-${Date.now()}`, employee_id: 'demo-employee', is_anomaly: true, risk_level: 'critical' }];
+  const sample = pool[Math.floor(Math.random() * pool.length)];
+  const seatId = seatIdOfEvent(sample);
+  const employeeLabel = anomalyAccountName(sample);
+  const severity = normalizeRiskLevel(sample);
+  const simId = Date.now();
+
+  activeSimulationMeta.value = { seatId, employeeLabel, severity };
+  activeSimulationEvent.value = {
+    simId,
+    seatId,
+    severity,
+    employeeKey: sample?.employee_id || sample?.userId || sample?.username || String(simId),
+  };
+}
+
+function handleSimulationAnimationComplete() {
+  activeSimulationEvent.value = null;
+}
+
 function formatDate(value) {
   if (!value) return '-';
   const date = new Date(String(value).replace(' ', 'T'));
@@ -173,13 +281,7 @@ function sanitizeText(value) {
 async function ensureUserDirectory() {
   if (userDirectory.value.size > 0) return;
   try {
-    const users = await request.get('/user/list');
-    const map = new Map();
-    (Array.isArray(users) ? users : []).forEach((item) => {
-      if (item?.id != null) map.set(String(item.id), item);
-      if (item?.username) map.set(`username:${String(item.username).toLowerCase()}`, item);
-    });
-    userDirectory.value = map;
+    userDirectory.value = await getUserDirectory();
   } catch {
     userDirectory.value = new Map();
   }
@@ -207,7 +309,10 @@ function anomalyAccountId(ev) {
 
 function anomalyRole(ev) {
   const user = anomalyUser(ev);
-  if (!user) return '-';
+  if (!user) {
+    const fallback = String(ev?.roleCode || ev?.role || '').trim();
+    return fallback || '-';
+  }
   const primaryRoleCode = Array.isArray(user.roleCodes) && user.roleCodes.length > 0
     ? String(user.roleCodes[0] || '').trim()
     : '';
@@ -217,6 +322,11 @@ function anomalyRole(ev) {
 }
 
 function hasBoundRole(ev) {
+  // If user directory cannot be fetched (insufficient permission / transient network),
+  // do not hide anomaly rows, otherwise the board appears as all-zero.
+  if (userDirectory.value.size === 0) {
+    return true;
+  }
   const user = anomalyUser(ev);
   if (!user) return false;
   const roleCodes = Array.isArray(user.roleCodes)
@@ -492,6 +602,43 @@ onMounted(async () => {
   margin-bottom: 14px;
 }
 
+.simulation-lab {
+  border: 1px solid rgba(131, 163, 255, 0.28);
+  border-radius: 14px;
+  padding: 14px;
+  margin-bottom: 14px;
+  background:
+    radial-gradient(circle at 14% 20%, rgba(46, 118, 255, 0.12), transparent 34%),
+    radial-gradient(circle at 82% 84%, rgba(255, 70, 108, 0.16), transparent 33%),
+    linear-gradient(135deg, rgba(9, 18, 34, 0.72), rgba(12, 24, 46, 0.52));
+}
+
+.sim-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+
+.sim-head h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.sim-head p {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.sim-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .panel-head {
   display: flex;
   justify-content: space-between;
@@ -575,6 +722,12 @@ onMounted(async () => {
   }
   .page-header {
     flex-direction: column;
+  }
+  .sim-head {
+    flex-direction: column;
+  }
+  .sim-actions {
+    justify-content: flex-start;
   }
   .stats-grid {
     grid-template-columns: 1fr;
