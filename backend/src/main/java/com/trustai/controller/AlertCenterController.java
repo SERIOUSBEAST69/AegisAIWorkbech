@@ -20,6 +20,8 @@ import com.trustai.service.GovernanceEventService;
 import com.trustai.service.UserService;
 import com.trustai.utils.R;
 import java.util.Date;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -116,13 +118,17 @@ public class AlertCenterController {
         int safePage = Math.max(1, page);
         int safePageSize = Math.max(1, Math.min(100, pageSize));
         Page<GovernanceEvent> result = governanceEventService.page(new Page<>(safePage, safePageSize), qw);
+        List<GovernanceEvent> normalizedRecords = result.getRecords().stream()
+            .map(this::normalizeEventDisplay)
+            .toList();
+        List<GovernanceEvent> mixedRecords = mixByUsername(normalizedRecords);
 
         Map<String, Object> stats = statsCore(current);
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("total", result.getTotal());
         data.put("pages", result.getPages());
         data.put("current", result.getCurrent());
-        data.put("list", result.getRecords());
+        data.put("list", mixedRecords);
         data.put("stats", stats);
         return R.ok(data);
     }
@@ -265,12 +271,33 @@ public class AlertCenterController {
                                           @RequestParam(defaultValue = "20") int limit) {
         enforceExecutiveDuty("related");
         GovernanceEvent event = getScopedEvent(id);
+        int safeLimit = Math.max(1, Math.min(200, limit));
         QueryWrapper<GovernanceEvent> qw = companyScopeService.withCompany(new QueryWrapper<GovernanceEvent>())
             .eq("user_id", event.getUserId())
             .ne("id", event.getId())
+            .and(w -> w
+                .eq(StringUtils.hasText(event.getSourceModule()), "source_module", event.getSourceModule())
+                .or(StringUtils.hasText(event.getEventType()))
+                .eq(StringUtils.hasText(event.getEventType()), "event_type", event.getEventType())
+                .or(StringUtils.hasText(event.getAttackType()))
+                .eq(StringUtils.hasText(event.getAttackType()), "attack_type", event.getAttackType())
+            )
             .orderByDesc("event_time")
-            .last("limit " + Math.max(1, Math.min(200, limit)));
-        List<GovernanceEvent> related = governanceEventService.list(qw);
+            .last("limit " + safeLimit);
+        List<GovernanceEvent> related = governanceEventService.list(qw).stream()
+            .map(this::normalizeEventDisplay)
+            .toList();
+
+        if (related.isEmpty()) {
+            QueryWrapper<GovernanceEvent> fallback = companyScopeService.withCompany(new QueryWrapper<GovernanceEvent>())
+                .eq("user_id", event.getUserId())
+                .ne("id", event.getId())
+                .orderByDesc("event_time")
+                .last("limit " + safeLimit);
+            related = governanceEventService.list(fallback).stream()
+                .map(this::normalizeEventDisplay)
+                .toList();
+        }
 
         Map<String, Long> typeCount = new LinkedHashMap<>();
         for (GovernanceEvent item : related) {
@@ -387,8 +414,12 @@ public class AlertCenterController {
             }
         }
 
+        boolean falsePositiveMarked = "ignored".equalsIgnoreCase(nextStatus);
+        boolean shouldTriggerSimulation = Boolean.TRUE.equals(req.getTriggerSimulation())
+            || (falsePositiveMarked && req.getTriggerSimulation() == null);
+
         Map<String, Object> validation = Map.of();
-        if (Boolean.TRUE.equals(req.getTriggerSimulation())) {
+        if (shouldTriggerSimulation) {
             try {
                 AiGatewayController.BattleReq battleReq = new AiGatewayController.BattleReq();
                 battleReq.setScenario(mapScenario(event));
@@ -425,15 +456,191 @@ public class AlertCenterController {
             }
         }
 
+        Map<String, Object> validationReport = buildValidationReport(event, nextStatus, shouldTriggerSimulation, validation, req.getNote());
+
         Map<String, Object> governanceChangeDraft = autoCreateBlacklistGovernanceDraft(event, operator, nextStatus, req.getNote());
 
-        saveAudit(operator, event, nextStatus, req.getTriggerSimulation(), validation);
+        saveAudit(operator, event, nextStatus, shouldTriggerSimulation, validationReport);
 
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("event", event);
-        data.put("validation", validation);
+        data.put("validation", validationReport);
+        data.put("validationRaw", validation);
         data.put("governanceChangeDraft", governanceChangeDraft);
         return R.ok(data);
+    }
+
+    private Map<String, Object> buildValidationReport(GovernanceEvent event,
+                                                      String nextStatus,
+                                                      boolean verificationTriggered,
+                                                      Map<String, Object> validation,
+                                                      String disposeNote) {
+        Map<String, Object> safeValidation = validation == null ? Map.of() : validation;
+        Map<String, Object> battle = asMap(safeValidation.get("battle"));
+
+        double breachRate = firstMetric(safeValidation, battle, "breachRate", "breach_rate", "compromiseRate", "attackSuccessRate");
+        double blockRate = firstMetric(safeValidation, battle, "blockRate", "block_rate", "defenseSuccessRate", "successRate");
+        if (blockRate < 0 && breachRate >= 0) {
+            blockRate = Math.max(0.0, Math.min(1.0, 1.0 - breachRate));
+        }
+
+        boolean falsePositiveMarked = "ignored".equalsIgnoreCase(nextStatus);
+        boolean engineAvailable = !verificationTriggered || !Boolean.FALSE.equals(safeValidation.get("available"));
+        boolean defenseEffective = verificationTriggered
+            ? (engineAvailable && (breachRate < 0 || breachRate <= 0.20) && (blockRate < 0 || blockRate >= 0.80))
+            : falsePositiveMarked;
+
+        String verdict;
+        if (!verificationTriggered) {
+            verdict = falsePositiveMarked ? "manual_false_positive_pending_verification" : "status_updated_without_verification";
+        } else if (!engineAvailable) {
+            verdict = "verification_engine_unavailable";
+        } else if (defenseEffective) {
+            verdict = "false_positive_confirmed";
+        } else {
+            verdict = "policy_gap_detected";
+        }
+
+        List<String> recommendations = new ArrayList<>();
+        recommendations.addAll(extractSuggestions(safeValidation.get("optimizationSuggestions")));
+        recommendations.addAll(extractSuggestions(safeValidation.get("suggestions")));
+        if (recommendations.isEmpty()) {
+            recommendations.addAll(defaultHardeningSuggestions(event, defenseEffective));
+        }
+
+        String analysis = String.valueOf(safeValidation.getOrDefault(
+            "effectivenessAnalysis",
+            safeValidation.getOrDefault("analysis", "")
+        )).trim();
+        if (analysis.isBlank()) {
+            analysis = buildDefaultAnalysis(defenseEffective, verificationTriggered, engineAvailable, breachRate, blockRate, disposeNote);
+        }
+
+        Map<String, Object> report = new LinkedHashMap<>();
+        report.put("falsePositiveMarked", falsePositiveMarked);
+        report.put("verificationTriggered", verificationTriggered);
+        report.put("engineAvailable", engineAvailable);
+        report.put("verificationVerdict", verdict);
+        report.put("defenseEffective", defenseEffective);
+        report.put("canCloseAlert", falsePositiveMarked && (!verificationTriggered || defenseEffective));
+        report.put("nextAction", defenseEffective
+            ? "可确认误报并关闭告警；如需长期稳定建议补齐白名单。"
+            : "建议先修复策略再关闭告警（白名单、阈值、规则优先级需调整）。");
+        report.put("effectivenessAnalysis", analysis);
+        report.put("optimizationSuggestions", recommendations);
+        if (!battle.isEmpty()) {
+            report.put("battle", battle);
+        }
+        if (breachRate >= 0) {
+            report.put("breachRate", breachRate);
+        }
+        if (blockRate >= 0) {
+            report.put("blockRate", blockRate);
+        }
+        return report;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> asMap(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            return (Map<String, Object>) map;
+        }
+        return Map.of();
+    }
+
+    private double firstMetric(Map<String, Object> root, Map<String, Object> battle, String... keys) {
+        for (String key : keys) {
+            double fromRoot = toDouble(root.get(key));
+            if (fromRoot >= 0) {
+                return fromRoot;
+            }
+            double fromBattle = toDouble(battle.get(key));
+            if (fromBattle >= 0) {
+                return fromBattle;
+            }
+        }
+        return -1;
+    }
+
+    private double toDouble(Object value) {
+        if (value == null) {
+            return -1;
+        }
+        if (value instanceof Number number) {
+            return number.doubleValue();
+        }
+        String text = String.valueOf(value).trim();
+        if (text.isBlank()) {
+            return -1;
+        }
+        try {
+            return Double.parseDouble(text);
+        } catch (Exception ex) {
+            return -1;
+        }
+    }
+
+    private List<String> extractSuggestions(Object value) {
+        if (!(value instanceof List<?> list)) {
+            return List.of();
+        }
+        List<String> result = new ArrayList<>();
+        for (Object item : list) {
+            String text = String.valueOf(item == null ? "" : item).trim();
+            if (!text.isBlank() && !result.contains(text)) {
+                result.add(text);
+            }
+        }
+        return result;
+    }
+
+    private List<String> defaultHardeningSuggestions(GovernanceEvent event, boolean defenseEffective) {
+        List<String> tips = new ArrayList<>();
+        String eventType = String.valueOf(event == null ? "" : event.getEventType()).toUpperCase(Locale.ROOT);
+        if ("SHADOW_AI_ALERT".equals(eventType)) {
+            tips.add("将业务必需的AI域名/工具加入白名单并绑定审批责任人。");
+            tips.add("为同类影子AI流量设置行为阈值，区分业务使用与异常扩散。");
+        } else if ("ANOMALY_ALERT".equals(eventType)) {
+            tips.add("收紧异常行为阈值并增加角色/时段维度基线。");
+            tips.add("补充高风险行为特征，降低重复误报。");
+        } else {
+            tips.add("按处置结果校准策略阈值并补充白名单/黑名单规则。");
+        }
+        if (!defenseEffective) {
+            tips.add("优先执行策略加固后再关闭告警，避免同类攻击绕过。");
+        }
+        return tips;
+    }
+
+    private String buildDefaultAnalysis(boolean defenseEffective,
+                                        boolean verificationTriggered,
+                                        boolean engineAvailable,
+                                        double breachRate,
+                                        double blockRate,
+                                        String disposeNote) {
+        StringBuilder text = new StringBuilder();
+        if (!verificationTriggered) {
+            text.append("未触发攻防验证，当前仅完成处置状态更新。");
+        } else if (!engineAvailable) {
+            text.append("攻防验证未成功执行，请稍后重试并复核策略有效性。");
+        } else if (defenseEffective) {
+            text.append("攻防验证显示当前防御策略有效，可作为误报闭环依据。");
+        } else {
+            text.append("攻防验证发现策略存在漏洞，需先加固后再关闭告警。");
+        }
+        if (breachRate >= 0 || blockRate >= 0) {
+            text.append(" 指标：");
+            if (breachRate >= 0) {
+                text.append("突破率=").append(String.format(Locale.ROOT, "%.2f", breachRate)).append("; ");
+            }
+            if (blockRate >= 0) {
+                text.append("拦截率=").append(String.format(Locale.ROOT, "%.2f", blockRate)).append("; ");
+            }
+        }
+        if (StringUtils.hasText(disposeNote)) {
+            text.append(" 处置备注：").append(disposeNote.trim());
+        }
+        return text.toString().trim();
     }
 
     private Map<String, Object> autoCreateBlacklistGovernanceDraft(GovernanceEvent event,
@@ -660,6 +867,81 @@ public class AlertCenterController {
 
     private String normalize(String value) {
         return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private GovernanceEvent normalizeEventDisplay(GovernanceEvent source) {
+        if (source == null) {
+            return null;
+        }
+        source.setTitle(cleanGarbledText(source.getTitle(), "SLOW_QUERY_ALERT"));
+        source.setDescription(cleanGarbledText(source.getDescription(), "DETAIL_PENDING"));
+        source.setAttackType(normalizeAttackTypeText(source.getAttackType()));
+        return source;
+    }
+
+    private String cleanGarbledText(String value, String fallback) {
+        String text = value == null ? "" : value.trim();
+        if (text.isBlank()) {
+            return fallback;
+        }
+        if (text.matches("^\\?{2,}$")) {
+            return fallback;
+        }
+        return text.replaceAll("\\?{2,}", fallback);
+    }
+
+    private String normalizeAttackTypeText(String attackType) {
+        if (!StringUtils.hasText(attackType)) {
+            return "GENERIC_ATTACK";
+        }
+        String raw = attackType.trim().toUpperCase(Locale.ROOT);
+        return switch (raw) {
+            case "QUERY_REGRESSION" -> "QUERY_REGRESSION";
+            case "PROMPT_INJECTION" -> "PROMPT_INJECTION";
+            case "POLICY_BYPASS" -> "POLICY_BYPASS";
+            case "ABNORMAL_ACCESS" -> "ABNORMAL_ACCESS";
+            case "PRIVACY_POLICY_HIT" -> "PRIVACY_POLICY_HIT";
+            case "DECISION_DRIFT" -> "DECISION_DRIFT";
+            case "SHADOW_DEPLOYMENT" -> "SHADOW_DEPLOYMENT";
+            case "RESILIENCE_CHAOS" -> "RESILIENCE_CHAOS";
+            case "DATA_EXFIL_PLAIN" -> "DATA_EXFIL_PLAIN";
+            case "DATA_EXFIL_STEG" -> "DATA_EXFIL_STEG";
+            case "DATA_EXFILTRATION" -> "DATA_EXFILTRATION";
+            case "SENSITIVE_DATA_EXFILTRATION" -> "SENSITIVE_DATA_EXFILTRATION";
+            default -> raw;
+        };
+    }
+
+    private List<GovernanceEvent> mixByUsername(List<GovernanceEvent> records) {
+        List<GovernanceEvent> source = records == null ? List.of() : records;
+        if (source.size() <= 2) {
+            return source;
+        }
+
+        Map<String, List<GovernanceEvent>> buckets = new LinkedHashMap<>();
+        for (GovernanceEvent item : source) {
+            String key = item == null || !StringUtils.hasText(item.getUsername())
+                ? "unknown"
+                : item.getUsername().trim().toLowerCase(Locale.ROOT);
+            buckets.computeIfAbsent(key, k -> new ArrayList<>()).add(item);
+        }
+
+        List<String> keys = new ArrayList<>(buckets.keySet());
+        Collections.shuffle(keys);
+        List<GovernanceEvent> mixed = new ArrayList<>(source.size());
+
+        boolean progressed = true;
+        while (mixed.size() < source.size() && progressed) {
+            progressed = false;
+            for (String key : keys) {
+                List<GovernanceEvent> bucket = buckets.get(key);
+                if (bucket != null && !bucket.isEmpty()) {
+                    mixed.add(bucket.remove(0));
+                    progressed = true;
+                }
+            }
+        }
+        return mixed;
     }
 
     @SuppressWarnings("unchecked")

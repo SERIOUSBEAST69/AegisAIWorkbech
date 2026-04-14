@@ -20,6 +20,9 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Date;
+import java.util.HashMap;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -129,11 +132,13 @@ public class SecurityEventController {
         int safePage = Math.max(1, page);
         int safePageSize = Math.max(1, Math.min(100, pageSize));
         Page<SecurityEvent> result = securityEventService.page(new Page<>(safePage, safePageSize), qw);
+        List<SecurityEvent> mixedRecords = mixByEmployee(result.getRecords());
+        alignHostByEmployee(mixedRecords);
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("total", result.getTotal());
         data.put("pages", result.getPages());
         data.put("current", result.getCurrent());
-        data.put("list", result.getRecords());
+        data.put("list", mixedRecords);
         return R.ok(data);
     }
 
@@ -230,6 +235,7 @@ public class SecurityEventController {
         }
         event.setCompanyId(companyId);
         event.setEmployeeId(reporter.getUsername());
+        event.setHostname(normalizeHostname(event.getHostname(), reporter.getUsername()));
         if (event.getEventTime() == null) {
             event.setEventTime(new Date());
         }
@@ -380,5 +386,68 @@ public class SecurityEventController {
         } catch (Exception ignored) {
             // keep business flow stable
         }
+    }
+
+    private void alignHostByEmployee(List<SecurityEvent> records) {
+        if (records == null || records.isEmpty()) {
+            return;
+        }
+        Map<String, String> canonical = new HashMap<>();
+        for (SecurityEvent item : records) {
+            if (item == null) {
+                continue;
+            }
+            String employee = item.getEmployeeId() == null ? "" : item.getEmployeeId().trim().toLowerCase();
+            if (employee.isBlank()) {
+                continue;
+            }
+            String host = normalizeHostname(item.getHostname(), employee);
+            String chosen = canonical.computeIfAbsent(employee, k -> host);
+            item.setHostname(chosen);
+        }
+    }
+
+    private List<SecurityEvent> mixByEmployee(List<SecurityEvent> records) {
+        List<SecurityEvent> source = records == null ? List.of() : records;
+        if (source.size() <= 2) {
+            return source;
+        }
+        Map<String, List<SecurityEvent>> buckets = new LinkedHashMap<>();
+        for (SecurityEvent item : source) {
+            String key = item == null || item.getEmployeeId() == null ? "unknown" : item.getEmployeeId().trim().toLowerCase();
+            buckets.computeIfAbsent(key, k -> new ArrayList<>()).add(item);
+        }
+        List<String> keys = new ArrayList<>(buckets.keySet());
+        Collections.shuffle(keys);
+
+        List<SecurityEvent> mixed = new ArrayList<>(source.size());
+        boolean progressed = true;
+        while (mixed.size() < source.size() && progressed) {
+            progressed = false;
+            for (String key : keys) {
+                List<SecurityEvent> bucket = buckets.get(key);
+                if (bucket != null && !bucket.isEmpty()) {
+                    mixed.add(bucket.remove(0));
+                    progressed = true;
+                }
+            }
+        }
+        return mixed;
+    }
+
+    private String normalizeHostname(String rawHost, String employee) {
+        String host = rawHost == null ? "" : rawHost.trim();
+        String emp = employee == null ? "" : employee.trim().toLowerCase();
+        if (host.isBlank()) {
+            return emp.isBlank() ? "unknown-host" : emp + "-host";
+        }
+        if (emp.isBlank()) {
+            return host;
+        }
+        String normalizedHost = host.toLowerCase();
+        if (normalizedHost.contains("node-") || normalizedHost.contains("shared") || normalizedHost.contains("cluster")) {
+            return emp + "-host";
+        }
+        return host;
     }
 }

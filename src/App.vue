@@ -18,7 +18,7 @@
     v-if="!isLogin && userStore.initialized"
   >
     <header class="app-header card-glass">
-      <div class="brand" @click="go('/')">
+      <div class="brand" @click="handleBrandClick">
         <div class="logo">
           <span class="brand-mark" aria-hidden="true">
             <img src="./assets/logo.svg" alt="Aegis Logo" class="brand-mark-svg" style="width: 100%; height: 100%; object-fit: contain;" />
@@ -186,6 +186,15 @@ const go = (path) => router.push(path);
 const isElectronClient = detectElectronClient();
 const clientLiteMode = isClientLiteMode();
 let gsapLib = null;
+
+function handleBrandClick() {
+  if (route.path === '/') {
+    return;
+  }
+  sessionStorage.setItem('aegis.home.reveal.pending', '1');
+  sessionStorage.setItem('aegis.home.reveal.force', '1');
+  router.push('/');
+}
 
 async function ensureGsap() {
   if (gsapLib) return gsapLib;
@@ -393,6 +402,11 @@ watch(
   () => [isLogin.value, userStore.initialized, route.fullPath],
   async ([login, initialized]) => {
     if (clientLiteMode || login || !initialized || introConsumed.value) {
+      return;
+    }
+    if (route.path === '/' && sessionStorage.getItem('aegis.home.reveal.pending') === '1') {
+      showWorkbenchIntro.value = false;
+      removeTransitionArtifacts();
       return;
     }
     if (sessionStorage.getItem('aegis.transition.origin') !== 'login') {

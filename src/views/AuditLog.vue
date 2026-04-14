@@ -44,11 +44,15 @@
         </template>
       </el-table-column>
       <el-table-column prop="userId" label="用户ID" width="90" />
-      <el-table-column label="账号" width="120">
-        <template #default="scope">{{ userNameById(scope.row.userId) }}</template>
+      <el-table-column label="操作者类型" width="110">
+        <template #default="scope">
+          <el-tag :type="scope.row.actorType === 'system' ? 'warning' : 'info'">
+            {{ scope.row.actorType === 'system' ? '系统任务' : '普通用户' }}
+          </el-tag>
+        </template>
       </el-table-column>
-      <el-table-column label="账号 / 角色" width="220" show-overflow-tooltip>
-        <template #default="scope">{{ accountRoleById(scope.row.userId) }}</template>
+      <el-table-column label="账号 / 角色" width="240" show-overflow-tooltip>
+        <template #default="scope">{{ actorDisplayByRow(scope.row) }}</template>
       </el-table-column>
       <el-table-column label="公司" width="100">
         <template #default="scope">{{ userCompanyById(scope.row.userId) }}</template>
@@ -259,6 +263,17 @@ function userById(id) {
   return userDirectory.value.get(String(id)) || null;
 }
 
+function actorDisplayByRow(row) {
+  if (row?.actorType === 'system') {
+    return '系统任务 / 系统';
+  }
+  const user = userById(row?.userId);
+  if (!user) return '-';
+  const username = user.username || '-';
+  const role = user.roleCode || '-';
+  return `${username} / ${role}`;
+}
+
 function userNameById(id) {
   return userById(id)?.username || '-';
 }
@@ -308,7 +323,7 @@ function exportCsv() {
     ElMessage.warning('当前无可导出的日志');
     return;
   }
-  const headers = ['id', 'userId', 'assetId', 'operation', 'operationTime', 'result', 'riskLevel', 'inputOverview'];
+  const headers = ['id', 'userId', 'actorType', 'assetId', 'operation', 'operationTime', 'result', 'riskLevel', 'inputOverview'];
   const lines = [headers.join(',')];
   for (const item of logs.value) {
     const row = headers.map(key => {

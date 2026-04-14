@@ -15,11 +15,13 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.util.StringUtils;
 import java.util.Date;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
 import java.util.Set;
 import java.util.HashSet;
+import java.util.Locale;
 import java.util.stream.Collectors;
 
 @RestController
@@ -37,10 +39,73 @@ public class RiskEventController {
         currentUserService.requireAnyPermission("risk:event:view", "risk:event:handle");
         QueryWrapper<RiskEvent> qw = new QueryWrapper<>();
         companyScopeService.withCompany(qw);
-        if (type != null && !type.isEmpty()) qw.like("type", type);
+        String typeFilter = normalizeEventType(type);
+        if (StringUtils.hasText(typeFilter)) {
+            qw.like("type", typeFilter);
+        }
         qw.orderByDesc("update_time");
         List<RiskEvent> scoped = riskEventService.list(qw);
+        scoped = cleanupInvalidRiskData(scoped);
         return R.ok(filterWalkthroughRows(scoped));
+    }
+
+    private List<RiskEvent> cleanupInvalidRiskData(List<RiskEvent> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return List.of();
+        }
+        List<Long> deleteIds = new ArrayList<>();
+        List<RiskEvent> updates = new ArrayList<>();
+        List<RiskEvent> kept = new ArrayList<>();
+
+        for (RiskEvent item : rows) {
+            if (item == null) {
+                continue;
+            }
+            String rawType = String.valueOf(item.getType() == null ? "" : item.getType()).trim();
+            String processLog = String.valueOf(item.getProcessLog() == null ? "" : item.getProcessLog());
+            if (!StringUtils.hasText(rawType)
+                || "UNKNOWN".equalsIgnoreCase(rawType)
+                || "NULL".equalsIgnoreCase(rawType)
+                || "N/A".equalsIgnoreCase(rawType)
+                || isWalkthrough(rawType)
+                || containsWalkthrough(processLog)) {
+                if (item.getId() != null) {
+                    deleteIds.add(item.getId());
+                }
+                continue;
+            }
+
+            String normalizedType = normalizeEventType(rawType);
+            String normalizedLevel = normalizeLevel(item.getLevel(), "MEDIUM");
+            String normalizedStatus = normalizeStatus(item.getStatus(), "OPEN");
+
+            boolean changed = false;
+            if (StringUtils.hasText(normalizedType) && !normalizedType.equalsIgnoreCase(rawType)) {
+                item.setType(normalizedType);
+                changed = true;
+            }
+            if (!normalizedLevel.equalsIgnoreCase(String.valueOf(item.getLevel() == null ? "" : item.getLevel()))) {
+                item.setLevel(normalizedLevel);
+                changed = true;
+            }
+            if (!normalizedStatus.equalsIgnoreCase(String.valueOf(item.getStatus() == null ? "" : item.getStatus()))) {
+                item.setStatus(normalizedStatus);
+                changed = true;
+            }
+            if (changed) {
+                item.setUpdateTime(new Date());
+                updates.add(item);
+            }
+            kept.add(item);
+        }
+
+        if (!deleteIds.isEmpty()) {
+            riskEventService.removeByIds(deleteIds);
+        }
+        if (!updates.isEmpty()) {
+            riskEventService.updateBatchById(updates);
+        }
+        return kept;
     }
 
     private List<RiskEvent> filterWalkthroughRows(List<RiskEvent> rows) {
@@ -162,6 +227,26 @@ public class RiskEventController {
             return "IGNORED";
         }
         return StringUtils.hasText(fallback) ? fallback : "OPEN";
+    }
+
+    private String normalizeEventType(String incoming) {
+        String raw = String.valueOf(incoming == null ? "" : incoming).trim();
+        if (!StringUtils.hasText(raw)) {
+            return "";
+        }
+        String upper = raw.toUpperCase(Locale.ROOT);
+        if (Set.of("PRIVACY_ALERT", "ANOMALY_ALERT", "SHADOW_AI_ALERT", "SECURITY_ALERT", "SENSITIVE_OPERATION", "DATA_EXPORT", "BEHAVIOR_ANOMALY", "PRIVILEGE_ABUSE", "ACCOUNT_COMPROMISE").contains(upper)) {
+            return upper;
+        }
+        if (raw.contains("隐私")) return "PRIVACY_ALERT";
+        if (raw.contains("影子AI") || raw.contains("影子模型") || upper.contains("SHADOW")) return "SHADOW_AI_ALERT";
+        if (raw.contains("异常") || upper.contains("ANOMALY")) return "ANOMALY_ALERT";
+        if (raw.contains("安全") || raw.contains("威胁") || upper.contains("SECURITY")) return "SECURITY_ALERT";
+        if (raw.contains("敏感操作")) return "SENSITIVE_OPERATION";
+        if (raw.contains("导出")) return "DATA_EXPORT";
+        if (raw.contains("权限")) return "PRIVILEGE_ABUSE";
+        if (raw.contains("账号")) return "ACCOUNT_COMPROMISE";
+        return upper;
     }
 
     @PostMapping("/delete")

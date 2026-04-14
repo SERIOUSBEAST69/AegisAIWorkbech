@@ -72,6 +72,9 @@ function shouldSuppressUnauthorizedRedirect(requestPath, message) {
   if (path.includes('/governance-change/')) {
     return true;
   }
+  if (path.includes('/client/simulation/')) {
+    return true;
+  }
   if (text.includes('二次密码') || text.includes('password')) {
     return true;
   }

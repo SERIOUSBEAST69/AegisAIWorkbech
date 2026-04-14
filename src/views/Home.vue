@@ -2,65 +2,142 @@
   <div
     class="workbench-home"
     :class="[
-      { 'immersive-war-room': adversarialPanelOpen, 'reduce-motion': prefersReducedMotion },
+      {
+        'immersive-war-room': adversarialPanelOpen,
+        'reduce-motion': prefersReducedMotion,
+        'home-cinematic-pending': cinematicRevealPending,
+        'home-cinematic-running': cinematicRevealRunning,
+        'home-cinematic-overlay-active': revealOverlayVisible,
+      },
       `motion-tier-${motionTier}`
     ]"
     ref="stageRef"
   >
-    <section class="hero-scene card-glass scene-block" ref="heroRef">
-      <div class="hero-stage">
-        <div class="hero-copy">
-          <div class="eyebrow">{{ personaExperience.kicker }}</div>
-          <div class="hero-headline-wrap">
-            <div class="hero-title-rings" aria-hidden="true">
-              <MagicRings
-                color="#4f8dff"
-                color-two="#63d6ff"
-                :ring-count="8"
-                :speed="1.12"
-                :attenuation="9.2"
-                :line-thickness="2.4"
-                :base-radius="0.04"
-                :radius-step="0.075"
-                :scale-rate="0.88"
-                :opacity="0.96"
-                :blur="0"
-                :noise-amount="0.06"
-                :rotation="0"
-                :ring-gap="1.22"
-                :fade-in="0.02"
-                :fade-out="0.92"
-                :follow-mouse="false"
-                :mouse-influence="0.2"
-                :hover-scale="1.08"
-                :parallax="0.03"
-                :click-burst="false"
-              />
+    <Transition name="home-reveal-fade">
+      <div v-if="revealOverlayVisible" ref="revealOverlayRef" class="home-reveal-overlay">
+        <div ref="revealBackdropRef" class="home-preloader-backdrop">
+          <div class="home-pb-row">
+            <div class="home-pb-col"></div>
+            <div class="home-pb-col"></div>
+            <div class="home-pb-col"></div>
+            <div class="home-pb-col"></div>
+            <div class="home-pb-col"></div>
+          </div>
+          <div class="home-pb-row">
+            <div class="home-pb-col"></div>
+            <div class="home-pb-col"></div>
+            <div class="home-pb-col"></div>
+            <div class="home-pb-col"></div>
+            <div class="home-pb-col"></div>
+          </div>
+          <div class="home-pb-row home-pb-row-meta">
+            <div class="home-pb-col"><p>Identity Verified</p></div>
+            <div class="home-pb-col"><p>// governance lattice synced</p></div>
+            <div class="home-pb-col"><p>Threat map online</p></div>
+            <div class="home-pb-col"><p>模型与风险谱系已就绪</p></div>
+            <div class="home-pb-col"><p>Aegis Workbench</p></div>
+          </div>
+        </div>
+
+        <div ref="revealPreloaderRef" class="home-preloader-panel">
+          <div class="home-p-row home-p-row-top">
+            <p><span class="home-preloader-line">Initiating</span></p>
+            <p><span class="home-preloader-line">Access Sequence</span></p>
+          </div>
+          <div class="home-p-row home-p-row-bottom">
+            <p><span class="home-preloader-line">Phase 01</span></p>
+            <p><span class="home-preloader-line">Signal Scan · 07 Layers</span></p>
+            <p><span class="home-preloader-line">Policy Graph Locked</span></p>
+            <p><span class="home-preloader-line">Ready To Enter</span></p>
+          </div>
+
+          <div class="home-reveal-core" ref="revealCoreRef">
+            <button
+              type="button"
+              class="home-reveal-logo-btn"
+              ref="revealLogoBtnRef"
+              @click="skipHomeReveal"
+              :aria-label="revealAwaitingClick ? '点击进入工作台' : '工作台引导进行中'"
+            >
+              <img :src="defenderLogoUrl" alt="Aegis" class="home-reveal-logo" />
+            </button>
+            <div class="home-pbc-svg-strokes">
+              <svg viewBox="0 0 320 320" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle
+                  ref="revealTrackRef"
+                  class="home-stroke-track"
+                  cx="160"
+                  cy="160"
+                  r="155"
+                  stroke-width="2"
+                />
+                <circle
+                  ref="revealProgressRef"
+                  class="home-stroke-progress"
+                  cx="160"
+                  cy="160"
+                  r="155"
+                  stroke-width="2"
+                />
+              </svg>
             </div>
-            <h1 class="hero-headline workbench-title-core" data-workbench-title-anchor="home">
-              <span class="hero-title-primary">{{ heroHeadline.primary }}</span>
-              <span v-if="heroHeadline.suffix" class="hero-title-suffix">{{ heroHeadline.suffix }}</span>
-            </h1>
-          </div>
-          <p>{{ heroSubheadline }}</p>
-          <div class="scene-tags">
-            <span v-for="tag in overview.sceneTags" :key="tag" class="scene-tag">{{ tag }}</span>
-          </div>
-          <div class="operator-ribbon">
-            <div class="operator-label">当前指挥席位</div>
-            <div class="operator-name">{{ overview.operator.displayName }}</div>
-            <div class="operator-meta">{{ overview.operator.roleName }} · {{ overview.operator.department }}</div>
           </div>
         </div>
       </div>
-      <div class="hero-quick-row">
-        <span>公司ID {{ traceContext.companyId ?? '-' }}</span>
-        <span>账号 {{ traceContext.companyUserCount ?? 0 }} 人</span>
-        <span>生成 {{ traceContext.generatedAt || '-' }}</span>
+    </Transition>
+
+    <section class="hero-scene card-glass scene-block magazine-masthead" ref="heroRef">
+      <div class="hero-stage">
+        <div class="hero-copy">
+          <div class="eyebrow">{{ personaExperience.kicker }}</div>
+          <h1 class="hero-headline workbench-title-core" data-workbench-title-anchor="home">
+            <span class="hero-title-line hero-title-line-aegis">
+              <span
+                v-for="(char, idx) in mastheadAegisChars"
+                :key="`masthead-aegis-char-${idx}`"
+                class="hero-char-mask hero-char-primary"
+                :class="{ 'hero-char-first-aegis': idx === mastheadAegisChars.length - 1 }"
+              >
+                <span class="hero-char">{{ char }}</span>
+                <span v-if="idx === mastheadAegisChars.length - 1" class="hero-planet-core" aria-hidden="true"></span>
+              </span>
+            </span>
+            <span class="hero-title-line hero-title-line-workbench">
+              <span class="hero-bench-orbit-net" aria-hidden="true"></span>
+              <span v-for="(char, idx) in mastheadWorkbenchChars" :key="`masthead-workbench-char-${idx}`" class="hero-char-mask hero-char-primary">
+                <span class="hero-char">{{ char }}</span>
+              </span>
+            </span>
+          </h1>
+        </div>
+        <aside class="hero-side-meta">
+          <section class="hero-side-pane">
+            <div class="hero-side-block">
+              <div class="hero-side-label">态势摘要</div>
+              <p class="hero-side-subline">{{ heroSubheadline }}</p>
+            </div>
+            <div class="hero-side-block">
+              <div class="hero-pillar-pills">
+                <span v-for="pill in heroPillarPills" :key="pill" class="hero-pillar-pill">{{ pill }}</span>
+              </div>
+            </div>
+          </section>
+          <section class="hero-side-pane">
+            <div class="hero-side-block hero-side-meta-lines">
+              <p>公司ID {{ traceContext.companyId ?? '-' }} · 账号 {{ traceContext.companyUserCount ?? 0 }} 人</p>
+              <p>生成 {{ traceContext.generatedAt || '-' }}</p>
+            </div>
+            <div class="operator-ribbon">
+              <div class="operator-label">当前指挥席位</div>
+              <div class="operator-name">{{ overview.operator.displayName }}</div>
+              <div class="operator-meta">{{ overview.operator.roleName }} · {{ overview.operator.department }}</div>
+            </div>
+          </section>
+        </aside>
       </div>
     </section>
 
-    <div class="stat-grid scene-block">
+    <div class="stat-grid scene-block reveal-phase phase-stats">
       <stat-card
         v-for="card in statCards"
         :key="card.key"
@@ -74,6 +151,7 @@
     </div>
 
     <HomeAiAnalysisHub
+      class="scene-block reveal-phase phase-ai"
       :hub="homeAiHubData"
       :loading="homeAiHubLoading"
       :motion-tier="motionTier"
@@ -84,7 +162,11 @@
       @detail="handleHubDetail"
     />
 
-    <section v-if="!compactHomeEnabled" class="trace-grid scene-block" :class="{ 'trace-grid-admin': isAdmin }">
+    <section
+      v-if="!compactHomeEnabled && !hideHomeTraceModules"
+      class="trace-grid scene-block reveal-phase phase-governance"
+      :class="{ 'trace-grid-admin': isAdmin }"
+    >
       <el-card class="trace-card card-glass">
         <div class="panel-head">
           <div>
@@ -150,7 +232,10 @@
       </el-card>
     </section>
 
-    <el-card v-if="!compactHomeEnabled" class="trace-modules-card card-glass scene-block">
+    <el-card
+      v-if="!compactHomeEnabled && !hideHomeTraceModules"
+      class="trace-modules-card card-glass scene-block reveal-phase phase-governance"
+    >
       <div class="panel-head">
         <div>
           <div class="card-header">模块追溯下钻</div>
@@ -172,7 +257,7 @@
       </div>
     </el-card>
 
-    <section class="pulse-grid scene-block">
+    <section class="pulse-grid scene-block reveal-phase phase-governance">
       <el-card class="pulse-card card-glass">
         <div class="panel-head">
           <div>
@@ -226,7 +311,9 @@
       </el-card>
     </section>
 
-    <el-card class="chart-card card-glass trend-card scene-block">
+    <el-card
+      class="chart-card card-glass trend-card scene-block reveal-phase phase-governance"
+    >
       <div class="panel-head">
         <div>
           <div class="card-header">治理脉冲趋势</div>
@@ -243,7 +330,9 @@
     </el-card>
 
 
-    <el-card class="chart-card card-glass risk-card scene-block">
+    <el-card
+      class="chart-card card-glass risk-card scene-block reveal-phase phase-governance"
+    >
       <div class="panel-head">
         <div>
           <div class="card-header">风险结构剖面</div>
@@ -264,7 +353,9 @@
       </div>
     </el-card>
 
-    <el-card class="module-entry-card card-glass scene-block">
+    <el-card
+      class="module-entry-card card-glass scene-block reveal-phase phase-governance"
+    >
       <div class="panel-head">
         <div>
           <div class="card-header">能力模块入口</div>
@@ -288,7 +379,11 @@
       </div>
     </el-card>
 
-    <el-card v-if="!compactHomeEnabled" class="ai-workbench-card card-glass scene-block" style="grid-column: 1 / -1">
+    <el-card
+      v-if="!compactHomeEnabled && !hideHomeTraceModules"
+      class="ai-workbench-card card-glass scene-block reveal-phase phase-governance"
+      style="grid-column: 1 / -1"
+    >
       <div class="panel-head">
         <div>
           <div class="card-header">AI 调用审计日志</div>
@@ -601,6 +696,7 @@
     </el-drawer>
 
     <el-dialog
+      v-if="!hideHomeTraceModules"
       v-model="traceDialogVisible"
       width="72%"
       :close-on-click-modal="false"
@@ -649,6 +745,7 @@
         </el-table-column>
       </el-table>
     </el-drawer>
+
   </div>
 </template>
 
@@ -660,7 +757,6 @@ import { dashboardApi } from '../api/dashboard';
 import request from '../api/request';
 import StatCard from '../components/StatCard.vue';
 import HomeAiAnalysisHub from '../components/home/HomeAiAnalysisHub.vue';
-import MagicRings from '../components/home/MagicRings.vue';
 import defenderLogoUrl from '../assets/logo.svg';
 import attackerAssetLattice from '../assets/adversarial/attacker-lattice.svg';
 import attackerAssetHelix from '../assets/adversarial/attacker-helix.svg';
@@ -671,6 +767,7 @@ import defenderAssetPrism from '../assets/adversarial/defender-prism.svg';
 import { useUserStore } from '../store/user';
 import { getPersonaExperience, personalizeWorkbench } from '../utils/persona';
 import { useRouter } from 'vue-router';
+import { useHomeCinematicReveal } from '../composables/useHomeCinematicReveal';
 
 function createEmptyOverview() {
   return {
@@ -787,6 +884,7 @@ const governanceSignalSeen = ref(new Set());
 const governanceSignalFlash = ref(new Set());
 const motionTier = ref('high');
 const prefersReducedMotion = ref(false);
+const routePathRef = computed(() => router.currentRoute.value.path);
 const isAdmin = computed(() => {
   const role = String(userStore.userInfo?.roleCode || userStore.userInfo?.role || '')
     .trim()
@@ -816,7 +914,8 @@ const adversarialLogsVisible = ref(false);
 const adversarialLogsLoading = ref(false);
 const adversarialReportLoading = ref(false);
 const hubScope = ref({ level: 'company', department: '', username: '' });
-const compactHomeEnabled = ref(true);
+const compactHomeEnabled = ref(false);
+const hideHomeTraceModules = ref(true);
 const homeAiHubRemote = ref(null);
 const homeAiHubLoading = ref(false);
 const homeAiHubCursor = ref(0);
@@ -830,14 +929,74 @@ const hubDetail = ref({
   description: '',
   records: [],
 });
+const {
+  cinematicRevealPending,
+  cinematicRevealRunning,
+  revealOverlayVisible,
+  revealMobileLite,
+  revealAwaitingClick,
+  revealOverlayRef,
+  revealBackdropRef,
+  revealPreloaderRef,
+  revealCoreRef,
+  revealLogoBtnRef,
+  revealTrackRef,
+  revealProgressRef,
+  skipHomeReveal,
+  playEntryScene,
+  initHomeRevealPending,
+  disposeHomeReveal,
+} = useHomeCinematicReveal({
+  stageRef,
+  heroRef,
+  motionTier,
+  prefersReducedMotion,
+  routePathRef,
+});
 let adversarialPlaybackTimer = null;
 let adversarialTaskPollTimer = null;
 let adversarialBeatTimers = [];
 let adversarialFinaleTimer = null;
 let homeLoadFrameId = null;
+let homeDeferredTaskTimers = [];
+let homeDeferredIdleIds = [];
 let homeAiHubStreamHandle = null;
 let homeAiHubReconnectTimer = null;
 let reducedMotionQuery = null;
+let prevRouteStageOverflowY = null;
+let prevAppMainOverflowY = null;
+
+function stabilizeHomeScrollContainers() {
+  const routeStage = document.querySelector('.route-stage');
+  if (routeStage) {
+    if (prevRouteStageOverflowY === null) {
+      prevRouteStageOverflowY = routeStage.style.overflowY || '';
+    }
+    routeStage.style.overflowY = 'visible';
+  }
+
+  const appMain = document.querySelector('.app-main');
+  if (appMain) {
+    if (prevAppMainOverflowY === null) {
+      prevAppMainOverflowY = appMain.style.overflowY || '';
+    }
+    appMain.style.overflowY = 'auto';
+  }
+}
+
+function restoreHomeScrollContainers() {
+  const routeStage = document.querySelector('.route-stage');
+  if (routeStage && prevRouteStageOverflowY !== null) {
+    routeStage.style.overflowY = prevRouteStageOverflowY;
+    prevRouteStageOverflowY = null;
+  }
+
+  const appMain = document.querySelector('.app-main');
+  if (appMain && prevAppMainOverflowY !== null) {
+    appMain.style.overflowY = prevAppMainOverflowY;
+    prevAppMainOverflowY = null;
+  }
+}
 
 function evaluateMotionProfile() {
   if (typeof window === 'undefined') {
@@ -1250,10 +1409,10 @@ function closeAdversarialPanel() {
 }
 
 async function launchAdversarialDrill() {
-  if (!adversarialPanelOpen.value) {
-    await toggleAdversarialPanel();
-  }
-  await runAdversarialBattle();
+  await router.push({
+    path: '/threat-monitor',
+    query: { tab: 'drill', from: 'home' },
+  });
 }
 
 async function runAdversarialBattle() {
@@ -1422,7 +1581,7 @@ async function applyAdversarialHardening() {
 async function refreshForecastNow() {
   forecastRefreshing.value = true;
   try {
-    const forecastData = await request.post('/risk/forecast/refresh');
+    const forecastData = await request.post('/dashboard/forecast/company-refresh');
     if (forecastData?.forecast?.length) {
       const series = forecastData.forecast.map(v => Math.round(v * 10) / 10);
       overview.value = {
@@ -1504,6 +1663,19 @@ const heroHeadline = computed(() => {
     primary: prefix,
     suffix: headline === prefix ? '' : headline
   };
+});
+function splitHeadlineChars(text) {
+  return Array.from(String(text || '')).map(char => (char === ' ' ? '\u00A0' : char));
+}
+const mastheadAegisChars = computed(() => splitHeadlineChars('Aegis'));
+const mastheadWorkbenchChars = computed(() => splitHeadlineChars('Workbench'));
+const heroPillarPills = computed(() => ['权限治理', '风险闭环', '模型治理']);
+const heroPrimaryChars = computed(() => splitHeadlineChars(heroHeadline.value.primary));
+const heroSuffixChars = computed(() => splitHeadlineChars(heroHeadline.value.suffix));
+const identityRoleLine = computed(() => {
+  const role = String(overview.value?.operator?.roleName || '-').trim();
+  const dept = String(overview.value?.operator?.department || '-').trim();
+  return `${role} / ${dept}`;
 });
 const heroSubheadline = computed(() => {
   const scopedCompanyId = traceContext.value?.companyId ?? '-';
@@ -2533,31 +2705,10 @@ async function renderRiskChart() {
 }
 
 
-function playEntryScene() {
-  if (!stageRef.value) return;
-  const blocks = Array.from(stageRef.value.querySelectorAll('.scene-block'));
-  const cinematicEntry = sessionStorage.getItem('aegis.transition.origin') === 'login';
-  sessionStorage.removeItem('aegis.transition.origin');
-  if (cinematicEntry || prefersReducedMotion.value || motionTier.value === 'low') {
-    gsap.set(blocks, { opacity: 1, y: 0 });
-    return;
-  }
-
-  const duration = motionTier.value === 'high' ? 0.28 : 0.2;
-  const stagger = motionTier.value === 'high' ? 0.045 : 0.03;
-  gsap.set(blocks, { opacity: 0, y: 8 });
-  gsap.to(heroRef.value, { opacity: 1, y: 0, duration, ease: 'power1.out' });
-  gsap.to(blocks.filter(block => block !== heroRef.value), {
-    opacity: 1,
-    y: 0,
-    duration: Math.max(0.14, duration - 0.08),
-    stagger,
-    ease: 'power1.out'
-  });
-}
-
 async function fetchData() {
   loading.value = true;
+  // Start entrance sequence immediately; do not block on API success.
+  playEntryScene();
   try {
     const bundle = await dashboardApi.getHomeBundle();
     const workbench = bundle?.workbench || {};
@@ -2575,21 +2726,19 @@ async function fetchData() {
         forecastSeries: series,
         forecastNextDay: Math.round(series[0] ?? personalized.trend.forecastNextDay),
       };
-      const method = String(forecastData.method || '').toLowerCase();
-      forecastDataSource.value = forecastData._dataSource || (method.includes('lstm') ? 'real_db' : 'degraded');
+      forecastDataSource.value = forecastData._dataSource || 'real_db';
       forecastExplain.value = {
         method: forecastData.method || '',
         historyPoints: Number(forecastData.historyPoints || (forecastData.inputHistory?.length || 0)),
         note: forecastData.note || '',
         fallback: Boolean(forecastData.fallback),
-        dataSource: forecastData._dataSource || (method.includes('lstm') ? 'real_db' : 'degraded'),
+        dataSource: forecastData._dataSource || 'real_db',
       };
     }
 
     overview.value = personalized;
     insights.value = insightData;
     trustPulse.value = pulseData;
-    playEntryScene();
     loading.value = false;
 
     schedulePrimaryChartRender();
@@ -2688,6 +2837,35 @@ function schedulePrimaryChartRender() {
   }, 180);
 }
 
+function scheduleHomeDeferredTask(task, delay = 0, idleTimeout = 1200) {
+  const runTask = () => {
+    if (typeof window.requestIdleCallback === 'function') {
+      const idleId = window.requestIdleCallback(() => {
+        task();
+      }, { timeout: idleTimeout });
+      homeDeferredIdleIds.push(idleId);
+      return;
+    }
+    task();
+  };
+  const timerId = window.setTimeout(runTask, Math.max(0, delay));
+  homeDeferredTaskTimers.push(timerId);
+}
+
+function resetHomeScrollPosition() {
+  if (typeof window !== 'undefined') {
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+  }
+  const routeStage = document.querySelector('.route-stage');
+  if (routeStage && typeof routeStage.scrollTop === 'number') {
+    routeStage.scrollTop = 0;
+  }
+  const appMain = document.querySelector('.app-main');
+  if (appMain && typeof appMain.scrollTop === 'number') {
+    appMain.scrollTop = 0;
+  }
+}
+
 
 watch(() => overview.value.trend, async () => {
   schedulePrimaryChartRender();
@@ -2695,6 +2873,12 @@ watch(() => overview.value.trend, async () => {
 
 onMounted(() => {
   evaluateMotionProfile();
+  initHomeRevealPending();
+  stabilizeHomeScrollContainers();
+  resetHomeScrollPosition();
+  window.setTimeout(() => {
+    resetHomeScrollPosition();
+  }, 40);
   if (typeof window.matchMedia === 'function') {
     reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
     const handler = () => evaluateMotionProfile();
@@ -2707,11 +2891,15 @@ onMounted(() => {
   }
   homeLoadFrameId = window.requestAnimationFrame(() => {
     fetchData();
-    refreshHomeAiHub();
-    startHomeAiHubStream();
-    fetchModelGovernance();
-    fetchAwardReadiness();
-    loadAiAuditLogs();
+    scheduleHomeDeferredTask(() => {
+      refreshHomeAiHub();
+      startHomeAiHubStream();
+    }, 240, 900);
+    scheduleHomeDeferredTask(() => {
+      fetchModelGovernance();
+      fetchAwardReadiness();
+      loadAiAuditLogs();
+    }, 820, 1800);
     homeLoadFrameId = null;
   });
   resizeHandler = () => {
@@ -2722,6 +2910,8 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  restoreHomeScrollContainers();
+  disposeHomeReveal();
   if (reducedMotionQuery && reducedMotionQuery.__aegisHandler) {
     const handler = reducedMotionQuery.__aegisHandler;
     if (typeof reducedMotionQuery.removeEventListener === 'function') {
@@ -2736,6 +2926,14 @@ onBeforeUnmount(() => {
     homeLoadFrameId = null;
   }
   if (primaryChartRenderTimer) clearTimeout(primaryChartRenderTimer);
+  if (homeDeferredTaskTimers.length > 0) {
+    homeDeferredTaskTimers.forEach(timerId => window.clearTimeout(timerId));
+    homeDeferredTaskTimers = [];
+  }
+  if (homeDeferredIdleIds.length > 0 && typeof window.cancelIdleCallback === 'function') {
+    homeDeferredIdleIds.forEach(id => window.cancelIdleCallback(id));
+    homeDeferredIdleIds = [];
+  }
   if (adversarialFinaleTimer) {
     window.clearTimeout(adversarialFinaleTimer);
     adversarialFinaleTimer = null;
@@ -2914,19 +3112,269 @@ onBeforeUnmount(() => {
 
 .workbench-home {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 20px;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  grid-auto-rows: minmax(120px, auto);
+  gap: 14px;
   position: relative;
-  min-height: 100%;
+  width: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
+  max-width: none;
+  margin: 0;
   background:
-    radial-gradient(circle at 8% 12%, rgba(77, 145, 255, 0.18), transparent 36%),
-    radial-gradient(circle at 86% 8%, rgba(70, 220, 202, 0.12), transparent 32%),
-    linear-gradient(180deg, #0a0f1f 0%, #0a1022 100%);
-  border-radius: 18px;
-  padding: 12px;
+    radial-gradient(circle at 18% 22%, rgba(109, 149, 255, 0.28), transparent 28%),
+    radial-gradient(circle at 80% 16%, rgba(217, 231, 255, 0.12), transparent 22%),
+    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(165deg, #03060b 0%, #06101d 45%, #0a1628 100%);
+  background-size: auto, auto, 72px 72px, 72px 72px, auto;
+  border: 1px solid rgba(169, 196, 255, 0.12);
+  border-radius: 0;
+  padding: 14px 24px 14px 14px;
   overflow-x: hidden;
   overflow-y: visible;
-  touch-action: pan-y;
+  touch-action: auto;
+}
+
+.home-cinematic-pending.home-cinematic-running.home-cinematic-overlay-active .reveal-phase {
+  opacity: 0;
+  transform: translateY(18px) scale(0.985);
+  filter: blur(8px);
+  pointer-events: none;
+}
+
+.home-cinematic-pending.home-cinematic-running.home-cinematic-overlay-active .hero-scene {
+  opacity: 0;
+  transform: translateY(14px);
+  filter: blur(8px);
+}
+
+.home-reveal-overlay {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100dvh;
+  z-index: 9999;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 20% 18%, rgba(109, 149, 255, 0.24), transparent 30%),
+    linear-gradient(165deg, #03060b 0%, #06101d 45%, #0a1628 100%);
+}
+
+.home-preloader-backdrop,
+.home-preloader-panel {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 100dvh;
+  will-change: clip-path;
+}
+
+.home-preloader-backdrop {
+  background:
+    radial-gradient(circle at 10% 16%, rgba(122, 170, 255, 0.16), transparent 35%),
+    radial-gradient(circle at 86% 12%, rgba(220, 232, 255, 0.14), transparent 30%),
+    #eef3f7;
+  color: #5f6e80;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  z-index: 0;
+  padding: 1.25rem;
+}
+
+.home-pb-row {
+  width: 100%;
+  min-height: 3.6rem;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.home-pb-col {
+  border: 1px dashed rgba(73, 119, 151, 0.34);
+  border-radius: 10px;
+  padding: 0.65rem 0.75rem;
+  display: flex;
+  align-items: flex-end;
+}
+
+.home-pb-row-meta .home-pb-col p {
+  margin: 0;
+  text-transform: uppercase;
+  font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.08em;
+}
+
+.home-preloader-panel {
+  background:
+    radial-gradient(circle at 16% 18%, rgba(109, 149, 255, 0.18), transparent 44%),
+    linear-gradient(160deg, #040913, #071021 38%, #0a1628 100%);
+  color: #f8fbff;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  z-index: 2;
+  padding: 1.25rem;
+}
+
+.home-p-row {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.8rem 1.2rem;
+}
+
+.home-p-row-top {
+  align-items: flex-start;
+}
+
+.home-p-row-bottom {
+  align-items: flex-end;
+}
+
+.home-p-row p {
+  margin: 0;
+  overflow: hidden;
+  text-transform: uppercase;
+  font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.08em;
+}
+
+.home-preloader-line {
+  display: inline-block;
+  transform: translateY(100%);
+  will-change: transform;
+}
+
+.home-reveal-core {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(76vw, 20rem);
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+}
+
+.home-pbc-svg-strokes,
+.home-pbc-svg-strokes svg,
+.home-reveal-logo-btn {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.home-pbc-svg-strokes {
+  width: 100%;
+  height: 100%;
+}
+
+.home-pbc-svg-strokes svg {
+  width: 100%;
+  height: 100%;
+  will-change: transform;
+}
+
+.home-stroke-track {
+  stroke: rgba(120, 171, 208, 0.42);
+}
+
+.home-stroke-progress {
+  stroke: rgba(233, 244, 255, 0.96);
+}
+
+.home-reveal-logo-btn {
+  width: clamp(112px, 17vw, 164px);
+  height: clamp(112px, 17vw, 164px);
+  border: none;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 32% 28%, rgba(232, 242, 255, 0.36), rgba(95, 135, 255, 0.26) 42%, rgba(9, 18, 36, 0.96) 100%);
+  box-shadow: 0 20px 44px rgba(4, 10, 24, 0.58), inset 0 0 0 1px rgba(190, 212, 255, 0.36);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  color: #f6f8fc;
+  z-index: 6;
+  pointer-events: auto;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+}
+
+.home-reveal-logo-btn::before {
+  content: '';
+  position: absolute;
+  inset: -10px;
+  border-radius: 50%;
+  border: 1px solid rgba(211, 233, 255, 0.34);
+  opacity: 0.34;
+  transform: scale(1);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.home-reveal-logo-btn:hover {
+  transform: translate(-50%, -50%) scale(1.045);
+  box-shadow: 0 24px 56px rgba(4, 10, 24, 0.7), inset 0 0 0 1px rgba(217, 233, 255, 0.54);
+  filter: brightness(1.06);
+}
+
+.home-reveal-logo-btn:hover::before {
+  opacity: 0.72;
+  transform: scale(1.08);
+}
+
+.home-reveal-logo-btn:active {
+  transform: translate(-50%, -50%) scale(0.97);
+}
+
+.home-reveal-logo-btn:focus-visible {
+  outline: 2px solid rgba(217, 234, 255, 0.86);
+  outline-offset: 6px;
+}
+
+.home-reveal-logo {
+  width: 50%;
+  height: 50%;
+  object-fit: contain;
+  filter: drop-shadow(0 8px 20px rgba(76, 137, 255, 0.42));
+}
+
+
+.home-reveal-fade-enter-active,
+.home-reveal-fade-leave-active {
+  transition: opacity 0.22s ease;
+}
+
+.home-reveal-fade-enter-from,
+.home-reveal-fade-leave-to {
+  opacity: 0;
+}
+
+.home-reveal-fade-leave-active {
+  pointer-events: none;
+}
+
+@media (max-width: 1000px) {
+  .home-pb-row .home-pb-col:nth-child(1),
+  .home-pb-row .home-pb-col:nth-child(2),
+  .home-pb-row .home-pb-col:nth-child(5) {
+    display: none;
+  }
+
+  .home-pb-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
 }
 
 .workbench-home.motion-tier-low * {
@@ -2945,10 +3393,9 @@ onBeforeUnmount(() => {
   position: absolute;
   inset: 0;
   background-image:
-    linear-gradient(rgba(137, 178, 255, 0.08) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(137, 178, 255, 0.08) 1px, transparent 1px);
-  background-size: 42px 42px;
-  opacity: 0.2;
+    radial-gradient(circle at center, rgba(152, 188, 255, 0.18) 0.7px, transparent 0.7px);
+  background-size: 4px 4px;
+  opacity: 0.04;
   animation: homeGridShift 12s linear infinite;
   pointer-events: none;
 }
@@ -2996,15 +3443,15 @@ onBeforeUnmount(() => {
 .trace-context-row span {
   padding: 6px 10px;
   border-radius: 10px;
-  border: 1px solid rgba(140, 172, 239, 0.2);
-  background: rgba(11, 19, 35, 0.42);
-  color: #dbe7ff;
+  border: 1px solid rgba(118, 210, 255, 0.24);
+  background: rgba(10, 28, 43, 0.46);
+  color: #d3efff;
   font-size: 12px;
 }
 
 .trace-note {
   margin-top: 10px;
-  color: #9fb1d6;
+  color: #98bdd6;
   font-size: 13px;
   line-height: 1.6;
 }
@@ -3021,8 +3468,8 @@ onBeforeUnmount(() => {
 
 .trace-module-item {
   text-align: left;
-  border: 1px solid rgba(140, 172, 239, 0.22);
-  background: rgba(11, 19, 35, 0.45);
+  border: 1px solid rgba(111, 208, 255, 0.24);
+  background: linear-gradient(145deg, rgba(8, 24, 39, 0.76), rgba(9, 18, 30, 0.72));
   border-radius: 12px;
   padding: 10px;
   color: #dbe7ff;
@@ -3030,7 +3477,7 @@ onBeforeUnmount(() => {
 }
 
 .trace-module-item:hover {
-  border-color: rgba(140, 172, 239, 0.5);
+  border-color: rgba(146, 228, 255, 0.52);
 }
 
 .trace-module-title {
@@ -3040,7 +3487,7 @@ onBeforeUnmount(() => {
 
 .trace-module-meta {
   margin-top: 4px;
-  color: #a7b9de;
+  color: #a2c7df;
   font-size: 12px;
 }
 
@@ -3161,17 +3608,296 @@ onBeforeUnmount(() => {
   grid-column: 1 / -1;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 28px;
-  padding: 34px;
+  gap: 14px;
+  min-height: clamp(260px, 39vh, 430px);
+  padding: clamp(12px, 1.5vw, 18px);
   position: relative;
   overflow: visible;
   background:
-    radial-gradient(circle at 12% 18%, rgba(116, 176, 255, 0.22), transparent 36%),
-    radial-gradient(circle at 82% 16%, rgba(88, 136, 255, 0.16), transparent 34%),
-    linear-gradient(138deg, rgba(7, 12, 25, 0.98), rgba(10, 20, 38, 0.94));
-  border: 1px solid rgba(132, 176, 255, 0.2);
-  box-shadow: inset 0 1px 0 rgba(197, 222, 255, 0.08), 0 24px 48px rgba(4, 10, 24, 0.44);
+    radial-gradient(circle at 12% 18%, rgba(116, 176, 255, 0.16), transparent 38%),
+    linear-gradient(160deg, rgba(9, 16, 30, 0.96), rgba(8, 14, 24, 0.94));
+  border: 1px solid rgba(169, 196, 255, 0.11);
+  box-shadow: none;
 }
+
+
+
+.magazine-masthead .hero-stage {
+  grid-template-columns: minmax(0, 1.36fr) minmax(380px, 0.64fr);
+  align-items: start;
+  gap: 16px;
+}
+
+.magazine-masthead .hero-copy {
+  align-items: flex-start;
+  text-align: left;
+}
+
+.magazine-masthead .hero-headline {
+  font-size: clamp(84px, 12.4vw, 206px);
+  font-weight: 600;
+  line-height: 0.8;
+  letter-spacing: 0.002em;
+  margin: 6px 0 0;
+  font-family: 'Sora', 'Space Grotesk', 'Segoe UI Variable Display', 'Bahnschrift', 'Microsoft YaHei UI', sans-serif;
+  color: #f6f7fb;
+  text-transform: uppercase;
+  text-shadow: 0 8px 18px rgba(6, 11, 24, 0.36);
+}
+
+.magazine-masthead .hero-title-primary {
+  gap: 0;
+}
+
+.hero-title-line {
+  display: flex;
+  width: 100%;
+  justify-content: flex-start;
+  position: relative;
+}
+
+.hero-title-line-aegis {
+  overflow: visible;
+}
+
+.hero-title-line-workbench {
+  margin-top: 4px;
+}
+
+.hero-char-first-aegis {
+  position: relative;
+  overflow: visible;
+  z-index: 5;
+}
+
+.hero-planet-core {
+  position: absolute;
+  top: 0.12em;
+  left: calc(100% + 0.06em);
+  width: 0.3em;
+  height: 0.3em;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 6;
+  background:
+    radial-gradient(circle at 28% 24%, rgba(237, 249, 255, 0.98), rgba(183, 221, 255, 0.9) 26%, rgba(107, 161, 225, 0.92) 62%, rgba(66, 117, 187, 0.9));
+  box-shadow:
+    0 0 0.07em rgba(209, 236, 255, 0.8),
+    0 0 0.22em rgba(76, 140, 220, 0.45);
+  transform: translateX(0.02em);
+}
+
+.hero-planet-core::before,
+.hero-planet-core::after {
+  content: '';
+  position: absolute;
+  pointer-events: none;
+}
+
+.hero-planet-core::before {
+  inset: -16% -42%;
+  border-radius: 50%;
+  border: 1px solid rgba(189, 225, 255, 0.72);
+  transform: rotate(-20deg);
+  opacity: 0.88;
+  animation: planet-ring-drift 9s linear infinite;
+}
+
+.hero-planet-core::after {
+  width: 0.08em;
+  height: 0.08em;
+  border-radius: 50%;
+  right: -0.03em;
+  top: 0.03em;
+  background: rgba(246, 252, 255, 0.92);
+  box-shadow: 0 0 0.06em rgba(194, 232, 255, 0.9);
+}
+
+.hero-title-line-workbench {
+  isolation: isolate;
+}
+
+.hero-bench-orbit-net {
+  position: absolute;
+  left: -0.08em;
+  right: -0.2em;
+  top: -0.15em;
+  bottom: -0.18em;
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0.78;
+  background:
+    radial-gradient(circle at 18% 54%, rgba(196, 231, 255, 0.9) 0, rgba(196, 231, 255, 0.9) 0.018em, transparent 0.028em),
+    radial-gradient(circle at 51% 28%, rgba(166, 214, 255, 0.82) 0, rgba(166, 214, 255, 0.82) 0.016em, transparent 0.026em),
+    radial-gradient(circle at 84% 62%, rgba(228, 244, 255, 0.86) 0, rgba(228, 244, 255, 0.86) 0.018em, transparent 0.03em);
+}
+
+.hero-bench-orbit-net::before,
+.hero-bench-orbit-net::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.hero-bench-orbit-net::before {
+  border: 1px solid rgba(128, 184, 242, 0.34);
+  transform: rotate(-8deg) scaleY(0.62);
+  animation: orbit-net-spin 14s linear infinite;
+}
+
+.hero-bench-orbit-net::after {
+  inset: 10% 4%;
+  border: 1px solid rgba(170, 214, 255, 0.28);
+  transform: rotate(8deg) scaleY(0.58);
+  animation: orbit-net-spin-reverse 20s linear infinite;
+}
+
+.hero-title-line-workbench .hero-char-mask {
+  position: relative;
+  z-index: 2;
+}
+
+@keyframes planet-ring-drift {
+  from {
+    transform: rotate(-20deg);
+  }
+  to {
+    transform: rotate(340deg);
+  }
+}
+
+@keyframes orbit-net-spin {
+  from {
+    transform: rotate(-8deg) scaleY(0.62);
+  }
+  to {
+    transform: rotate(352deg) scaleY(0.62);
+  }
+}
+
+@keyframes orbit-net-spin-reverse {
+  from {
+    transform: rotate(8deg) scaleY(0.58);
+  }
+  to {
+    transform: rotate(-352deg) scaleY(0.58);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-planet-core::before,
+  .hero-bench-orbit-net::before,
+  .hero-bench-orbit-net::after {
+    animation: none;
+  }
+}
+
+.hero-side-meta {
+  display: grid;
+  grid-template-rows: auto auto;
+  gap: 14px;
+  align-content: start;
+}
+
+.hero-side-pane {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 16px;
+  background: linear-gradient(150deg, rgba(14, 24, 42, 0.58), rgba(10, 18, 32, 0.38));
+  box-shadow: none;
+  padding: 16px 18px;
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+
+.hero-side-meta-lines {
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(154, 202, 255, 0.22);
+  background: rgba(8, 18, 31, 0.5);
+}
+
+.hero-side-subline {
+  margin: 0;
+  color: #d7e8fb;
+  font-size: 16px;
+  line-height: 1.78;
+}
+
+.hero-pillar-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.hero-pillar-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 0 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(142, 206, 255, 0.28);
+  background: linear-gradient(140deg, rgba(109, 149, 255, 0.2), rgba(70, 208, 255, 0.12));
+  color: #e6f2ff;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+.side-scene-tags {
+  margin-top: 10px;
+}
+
+.hero-side-block {
+  display: grid;
+  gap: 8px;
+}
+
+.hero-side-label {
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(208, 216, 232, 0.78);
+  font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+}
+
+.hero-side-value {
+  font-size: 16px;
+  color: #f7f9ff;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.hero-side-block p {
+  margin: 0;
+  font-size: 13px;
+  color: #c4d0e5;
+  font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  line-height: 1.6;
+}
+
+.hero-quick-row {
+  display: none;
+}
+
+.workbench-home :deep(.card-glass) {
+  background: linear-gradient(160deg, rgba(11, 18, 32, 0.84), rgba(8, 14, 24, 0.78));
+  border: 1px solid rgba(169, 196, 255, 0.1);
+  backdrop-filter: blur(5px);
+  box-shadow: none;
+}
+
+.workbench-home :deep(.card-glass:hover) {
+  transform: none;
+  box-shadow: none;
+}
+
+
 
 
 .hero-headline-wrap {
@@ -3200,7 +3926,7 @@ onBeforeUnmount(() => {
   content: '';
   position: absolute;
   inset: 0;
-  background-image: linear-gradient(rgba(148, 190, 255, 0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(122, 169, 255, 0.08) 1px, transparent 1px);
+  background-image: linear-gradient(rgba(144, 223, 255, 0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(104, 194, 255, 0.08) 1px, transparent 1px);
   background-size: 72px 72px;
   opacity: 0.22;
   mask-image: linear-gradient(180deg, rgba(0,0,0,0.88), transparent 100%);
@@ -3222,24 +3948,26 @@ onBeforeUnmount(() => {
 }
 
 .hero-copy {
-  text-align: center;
+  text-align: left;
   display: grid;
-  justify-items: center;
+  justify-items: start;
+  align-content: start;
+  min-height: 100%;
 }
 
 .hero-quick-row {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
-  justify-content: center;
+  justify-content: flex-start;
 }
 
 .hero-quick-row span {
   padding: 7px 12px;
   border-radius: 999px;
-  border: 1px solid rgba(140, 172, 239, 0.2);
-  background: rgba(11, 19, 35, 0.42);
-  color: #dbe7ff;
+  border: 1px solid rgba(121, 207, 255, 0.24);
+  background: rgba(8, 25, 40, 0.5);
+  color: #d4f2ff;
   font-size: 12px;
 }
 
@@ -3249,9 +3977,9 @@ onBeforeUnmount(() => {
   gap: 10px;
   padding: 8px 14px;
   border-radius: 999px;
-  border: 1px solid rgba(118, 164, 255, 0.24);
-  background: rgba(19, 29, 49, 0.72);
-  color: #d8e6ff;
+  border: 1px solid rgba(122, 214, 255, 0.3);
+  background: rgba(12, 35, 54, 0.76);
+  color: #d8f2ff;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.16em;
@@ -3268,60 +3996,97 @@ onBeforeUnmount(() => {
   letter-spacing: -0.04em;
   color: #d9eaff;
   display: inline-flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: center;
-  gap: 0.18em 0.34em;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 0;
 }
 
 .hero-title-primary {
-  display: inline-block;
+  display: inline-flex;
+  flex-wrap: nowrap;
+  gap: 0;
   color: #f6f8fe;
 }
 
 .hero-title-suffix {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.01em;
+}
+
+.hero-char {
   display: inline-block;
+  will-change: transform, opacity, filter;
+  transform: scaleY(1.04);
+  transform-origin: 50% 100%;
+  font-weight: 700;
+  letter-spacing: 0.002em;
+}
+
+.hero-char-mask {
+  display: inline-flex;
+  overflow: hidden;
+  line-height: 0.94;
+}
+
+.hero-char-mask.hero-char-first-aegis {
+  overflow: visible;
+}
+
+.hero-char-primary .hero-char {
+  color: #eaf2ff;
+  background: linear-gradient(180deg, #f4f8ff 0%, #d8e7ff 52%, #9fbeee 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  -webkit-text-stroke: 0.45px rgba(118, 157, 214, 0.34);
+  text-shadow:
+    0 8px 16px rgba(6, 16, 36, 0.4),
+    0 0 10px rgba(78, 132, 212, 0.16);
+  filter: drop-shadow(0 0 5px rgba(74, 132, 216, 0.14));
+  position: relative;
 }
 
 .hero-copy p {
   max-width: 720px;
   margin: 0;
-  color: #a9c0df;
+  color: #a8cfe4;
   font-size: 16px;
   line-height: 1.8;
 }
 
 .scene-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
+  background: rgba(122, 166, 255, 0.12);
+  border: 1px solid rgba(132, 182, 255, 0.22);
+  color: #dce9ff;
   margin-top: 22px;
 }
 
 .scene-tag {
   padding: 8px 12px;
   border-radius: 999px;
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.08);
-  color: #d7deee;
+  background: rgba(121, 212, 255, 0.12);
+  border: 1px solid rgba(129, 219, 255, 0.22);
+  color: #dcf4ff;
   font-size: 12px;
 }
 
 .operator-ribbon {
-  margin-top: 26px;
+  margin-top: 4px;
   padding: 18px 20px;
-  width: min(100%, 420px);
+  width: 100%;
   border-radius: 22px;
-  border: 1px solid rgba(255,255,255,0.08);
-  background: linear-gradient(135deg, rgba(255,255,255,0.07), rgba(255,255,255,0.03));
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
+  border: 1px solid rgba(126, 174, 255, 0.24);
+  background: linear-gradient(135deg, rgba(120, 166, 255, 0.16), rgba(199, 221, 255, 0.08));
+  box-shadow: inset 0 1px 0 rgba(212, 229, 255, 0.1);
   text-align: left;
 }
 
 .operator-label {
   font-size: 11px;
   letter-spacing: 0.14em;
-  color: #7c8aa3;
+  color: #8fb4cb;
   text-transform: uppercase;
 }
 
@@ -3334,7 +4099,7 @@ onBeforeUnmount(() => {
 
 .operator-meta {
   margin-top: 4px;
-  color: #95a0b5;
+  color: #9dc0d3;
 }
 
 .stat-grid {
@@ -3414,8 +4179,8 @@ onBeforeUnmount(() => {
 .pulse-dimension {
   padding: 14px 16px;
   border-radius: 18px;
-  border: 1px solid rgba(255,255,255,0.06);
-  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(122, 214, 255, 0.16);
+  background: rgba(98, 204, 255, 0.06);
 }
 
 .pulse-dimension-head {
@@ -3465,8 +4230,8 @@ onBeforeUnmount(() => {
 .pulse-signal-item {
   padding: 16px;
   border-radius: 18px;
-  border: 1px solid rgba(255,255,255,0.06);
-  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(122, 214, 255, 0.16);
+  background: rgba(98, 204, 255, 0.06);
 }
 
 .pulse-signal-item.pulse-signal-new {
@@ -3539,7 +4304,15 @@ onBeforeUnmount(() => {
 }
 
 .trend-card {
-  grid-column: span 2;
+  grid-column: 1 / -1;
+}
+
+.risk-card {
+  grid-column: 1 / span 6;
+}
+
+.module-entry-card {
+  grid-column: 7 / span 6;
 }
 
 .panel-head {
@@ -3552,16 +4325,16 @@ onBeforeUnmount(() => {
 
 .panel-subtitle {
   margin: 8px 0 0;
-  color: #8f9bb1;
+  color: #96bad0;
   line-height: 1.7;
 }
 
 .panel-badge {
   padding: 8px 12px;
   border-radius: 999px;
-  border: 1px solid rgba(255, 115, 115, 0.24);
-  background: rgba(255, 99, 99, 0.08);
-  color: #ffd3d3;
+  border: 1px solid rgba(255, 191, 115, 0.32);
+  background: rgba(255, 167, 71, 0.12);
+  color: #ffe2bf;
   font-size: 12px;
   font-weight: 700;
 }
@@ -3575,9 +4348,9 @@ onBeforeUnmount(() => {
 .mini-refresh-btn {
   padding: 8px 12px;
   border-radius: 999px;
-  border: 1px solid rgba(122, 188, 255, 0.32);
-  background: rgba(82, 157, 255, 0.12);
-  color: #d6e8ff;
+  border: 1px solid rgba(124, 214, 255, 0.36);
+  background: rgba(89, 199, 255, 0.14);
+  color: #d8f3ff;
   font-size: 12px;
   cursor: pointer;
 }
@@ -3617,8 +4390,8 @@ onBeforeUnmount(() => {
   gap: 14px;
   padding: 14px 16px;
   border-radius: 18px;
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.06);
+  background: rgba(97, 202, 255, 0.06);
+  border: 1px solid rgba(125, 216, 255, 0.16);
 }
 
 .risk-dot {
@@ -3673,23 +4446,23 @@ onBeforeUnmount(() => {
   width: 100%;
   padding: 16px 18px;
   text-align: left;
-  border: 1px solid rgba(255,255,255,0.08);
+  border: 1px solid rgba(129, 219, 255, 0.2);
   border-radius: 18px;
-  background: rgba(255,255,255,0.03);
+  background: linear-gradient(145deg, rgba(10, 28, 45, 0.72), rgba(8, 20, 32, 0.72));
   transition: border-color 0.15s ease, background 0.15s ease;
 }
 
 .module-entry-item:hover {
-  border-color: rgba(115, 164, 255, 0.28);
-  background: rgba(255,255,255,0.05);
+  border-color: rgba(144, 229, 255, 0.48);
+  background: linear-gradient(145deg, rgba(12, 35, 55, 0.82), rgba(9, 24, 40, 0.82));
 }
 
 .module-entry-tag {
   min-width: 48px;
   padding: 8px 10px;
   border-radius: 12px;
-  background: rgba(255,107,107,0.14);
-  color: #ffd6d6;
+  background: rgba(122, 166, 255, 0.18);
+  color: #e1ecff;
   font-size: 12px;
   font-weight: 700;
   text-align: center;
@@ -3701,7 +4474,7 @@ onBeforeUnmount(() => {
 }
 
 .module-entry-metric {
-  color: #e4ecfa;
+  color: #daf2ff;
   font-size: 13px;
   font-weight: 700;
 }
@@ -3711,10 +4484,19 @@ onBeforeUnmount(() => {
 }
 
 .module-entry-copy p {
-  color: #90a0b8;
+  color: #98bdd1;
 }
 
 @media (max-width: 1280px) {
+  .workbench-home {
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .magazine-masthead .hero-stage {
+    grid-template-columns: 1fr;
+  }
+
   .pulse-grid,
   .risk-layout,
 
@@ -3737,11 +4519,23 @@ onBeforeUnmount(() => {
   .trend-card {
     grid-column: span 1;
   }
+
+  .risk-card,
+  .module-entry-card {
+    grid-column: 1 / -1;
+  }
 }
 
 @media (max-width: 768px) {
   .workbench-home {
     grid-template-columns: 1fr;
+    width: 100%;
+    margin: 0;
+    padding: 10px;
+  }
+
+  .hero-scene {
+    min-height: calc(100dvh - 20px);
   }
 
   .hero-scene,
@@ -3761,6 +4555,7 @@ onBeforeUnmount(() => {
   .module-entry-metric {
     text-align: left;
   }
+
 }
 
 .workbench-home.motion-tier-low .hero-title-rings,

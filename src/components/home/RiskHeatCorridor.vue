@@ -194,14 +194,22 @@ function onPointerUp(event) {
   gap: 8px;
   align-content: start;
   text-align: left;
-  transform: rotateY(-8deg);
+  transform: rotateY(-7deg);
   transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
 }
 
+.gate-card:nth-child(even) {
+  transform: rotateY(7deg);
+}
+
 .gate-card:hover {
-  transform: rotateY(-6deg) translateY(-3px);
+  transform: rotateY(-5deg) translateY(-3px);
   border-color: rgba(162, 206, 255, 0.8);
   box-shadow: 0 10px 22px rgba(3, 10, 22, 0.4);
+}
+
+.gate-card:nth-child(even):hover {
+  transform: rotateY(5deg) translateY(-3px);
 }
 
 .gate-card.is-focused {
@@ -281,6 +289,10 @@ function onPointerUp(event) {
 
 .motion-tier-medium .gate-card {
   transform: rotateY(-5deg);
+}
+
+.motion-tier-medium .gate-card:nth-child(even) {
+  transform: rotateY(5deg);
 }
 
 .motion-tier-low .corridor-track,

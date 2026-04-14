@@ -24,6 +24,10 @@ export function revokeRequest(payload) {
   return request.post('/governance-change/revoke', payload);
 }
 
+export function deleteDraftRequest(id) {
+  return request.delete(`/governance-change/draft/${id}`);
+}
+
 export function submitGovernanceChange(payload) {
   return request.post('/governance-change/submit', payload);
 }

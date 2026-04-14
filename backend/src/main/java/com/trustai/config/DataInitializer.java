@@ -75,6 +75,7 @@ public class DataInitializer implements CommandLineRunner {
         for (UserSeed seed : BASELINE_USERS) {
             ensureUser(DEFAULT_COMPANY_ID, seed, roleMap.get(seed.roleCode()));
         }
+        ensureSystemAuditUser(DEFAULT_COMPANY_ID, roleMap.get("AUDIT"));
         seedEnterpriseDataAssets(DEFAULT_COMPANY_ID);
         seedTraceableObservabilityBaseline(DEFAULT_COMPANY_ID);
         seedShadowAiClientBaseline(DEFAULT_COMPANY_ID);
@@ -115,20 +116,30 @@ public class DataInitializer implements CommandLineRunner {
             companyId
         );
         int existingCount = existing == null ? 0 : existing;
-        int target = 20;
+        int target = 48;
         if (existingCount >= target) {
             return;
         }
 
-        Long approverId = querySingleLong(
-            "SELECT id FROM sys_user WHERE company_id = ? AND username = 'admin' ORDER BY id ASC LIMIT 1",
-            companyId
-        );
-        if (approverId == null) {
-            approverId = querySingleLong(
+        List<Long> approverIds = new ArrayList<>();
+        for (String approverName : List.of("admin", "admin_reviewer", "secops")) {
+            Long id = querySingleLong(
+                "SELECT id FROM sys_user WHERE company_id = ? AND username = ? ORDER BY id ASC LIMIT 1",
+                companyId,
+                approverName
+            );
+            if (id != null && !approverIds.contains(id)) {
+                approverIds.add(id);
+            }
+        }
+        if (approverIds.isEmpty()) {
+            Long fallbackApproverId = querySingleLong(
                 "SELECT id FROM sys_user WHERE company_id = ? ORDER BY id ASC LIMIT 1",
                 companyId
             );
+            if (fallbackApproverId != null) {
+                approverIds.add(fallbackApproverId);
+            }
         }
 
         List<Map<String, Object>> applicants = jdbcTemplate.queryForList(
@@ -178,7 +189,7 @@ public class DataInitializer implements CommandLineRunner {
                 880000L + i,
                 reason,
                 "待审批",
-                approverId,
+                approverIds.get((i - 1) % approverIds.size()),
                 "TGP" + todoNo,
                 "TGT" + todoNo
             );
@@ -730,9 +741,177 @@ public class DataInitializer implements CommandLineRunner {
     }
 
     private void seedGovernanceAdminDemoData(Long companyId, Map<String, Role> roleMap) {
+        seedGovernanceChangeRequestData(companyId);
         seedApprovalAndAuditData(companyId);
         seedRiskAndGovernanceData(companyId);
         seedSubjectRequestAndPolicyData(companyId);
+    }
+
+    private void seedGovernanceChangeRequestData(Long companyId) {
+        if (!tableExists("governance_change_request") || !tableExists("sys_user")) {
+            return;
+        }
+
+        Integer existing = jdbcTemplate.queryForObject(
+            "SELECT COUNT(1) FROM governance_change_request WHERE company_id = ?",
+            Integer.class,
+            companyId
+        );
+        int existingCount = existing == null ? 0 : existing;
+        int target = 96;
+        if (existingCount >= target) {
+            return;
+        }
+
+        List<User> users = excludeWalkthroughUsers(userService.lambdaQuery().eq(User::getCompanyId, companyId).list());
+        if (users.isEmpty()) {
+            return;
+        }
+
+        Map<String, User> userByName = new LinkedHashMap<>();
+        for (User user : users) {
+            userByName.put(String.valueOf(user.getUsername() == null ? "" : user.getUsername()).toLowerCase(Locale.ROOT), user);
+        }
+
+        User preferredReviewer = userByName.get("admin_reviewer");
+        if (preferredReviewer == null) {
+            preferredReviewer = userByName.get("admin");
+        }
+        final User finalPreferredReviewer = preferredReviewer;
+
+        List<User> reviewerPool = users.stream()
+            .filter(user -> user != null && user.getId() != null)
+            .filter(user -> reviewerPriority(user) <= 3)
+            .sorted(Comparator.comparingInt(this::reviewerPriority).thenComparing(user -> String.valueOf(user.getUsername())))
+            .toList();
+
+        List<User> requesters = users.stream()
+            .filter(user -> user != null && user.getId() != null)
+            .filter(user -> finalPreferredReviewer == null || !Objects.equals(user.getId(), finalPreferredReviewer.getId()))
+            .filter(user -> !"system".equalsIgnoreCase(String.valueOf(user.getUsername())))
+            .toList();
+        if (requesters.isEmpty()) {
+            return;
+        }
+
+        String[] statuses = new String[] {"draft", "pending", "approved", "rejected", "revoked"};
+        String[] modules = new String[] {"ROLE", "PERMISSION", "POLICY", "USER"};
+        String[] actions = new String[] {"ADD", "UPDATE", "DELETE", "UPDATE"};
+        Date now = new Date();
+
+        for (int i = existingCount; i < target; i++) {
+            User requester = requesters.get(i % requesters.size());
+            String status = statuses[i % statuses.length];
+            String module = modules[i % modules.length];
+            String action = actions[i % actions.length];
+
+            User approver = pickReviewerForRequester(preferredReviewer, requester, users);
+            if ("pending".equals(status) && !reviewerPool.isEmpty()) {
+                approver = pickReviewerForPending(reviewerPool, requester, i);
+            }
+            Long approverId = null;
+            String approverRoleCode = null;
+            String approveNote = null;
+            Date approvedAt = null;
+
+            if (!"draft".equals(status)) {
+                approverId = approver == null ? null : approver.getId();
+                approverRoleCode = approver == null ? null : resolveRoleCode(approver.getRoleId());
+            }
+            if ("approved".equals(status)) {
+                approveNote = "审批通过：风险可控，允许进入执行阶段";
+                approvedAt = new Date(now.getTime() - (long) (target - i) * 2200_000L);
+            } else if ("rejected".equals(status)) {
+                approveNote = "审批驳回：缺少必要论证与回滚方案";
+                approvedAt = new Date(now.getTime() - (long) (target - i) * 2400_000L);
+            } else if ("revoked".equals(status)) {
+                approveNote = "发起人撤回：需求变更，待补充材料后重提";
+                approvedAt = new Date(now.getTime() - (long) (target - i) * 2600_000L);
+            }
+
+            String title = "Governance Change Request #" + (i + 1);
+            String reason = "Adjust " + module + " configuration, ticket " + (8000 + i);
+            String impact = "Impacts governance workflow and permission boundaries; review required before activation.";
+            String payloadJson = "{" +
+                "\"title\":\"" + escapeJson(title) + "\"," +
+                "\"reason\":\"" + escapeJson(reason) + "\"," +
+                "\"impact\":\"" + escapeJson(impact) + "\"," +
+                "\"name\":\"" + escapeJson(module + "-ITEM-" + (8000 + i)) + "\"" +
+                "}";
+
+            Date createTime = new Date(now.getTime() - (long) (target - i) * 3600_000L);
+            Date updateTime = approvedAt != null ? approvedAt : new Date(createTime.getTime() + (long) (i % 120) * 60_000L);
+
+            jdbcTemplate.update(
+                "INSERT INTO governance_change_request(company_id, module, action, target_id, payload_json, status, risk_level, requester_id, requester_role_code, approver_id, approver_role_code, approve_note, approved_at, create_time, update_time) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                companyId,
+                module,
+                action,
+                8000L + i,
+                payloadJson,
+                status,
+                i % 4 == 0 ? "CRITICAL" : (i % 2 == 0 ? "HIGH" : "MEDIUM"),
+                requester.getId(),
+                resolveRoleCode(requester.getRoleId()),
+                approverId,
+                approverRoleCode,
+                approveNote,
+                approvedAt,
+                createTime,
+                updateTime
+            );
+        }
+    }
+
+    private User pickReviewerForRequester(User preferredReviewer, User requester, List<User> users) {
+        if (preferredReviewer != null && !Objects.equals(preferredReviewer.getId(), requester == null ? null : requester.getId())) {
+            return preferredReviewer;
+        }
+        return users.stream()
+            .filter(user -> user != null && user.getId() != null)
+            .filter(user -> requester == null || !Objects.equals(user.getId(), requester.getId()))
+            .sorted(Comparator.comparingInt(this::reviewerPriority))
+            .findFirst()
+            .orElse(null);
+    }
+
+    private User pickReviewerForPending(List<User> reviewerPool, User requester, int seed) {
+        if (reviewerPool == null || reviewerPool.isEmpty()) {
+            return null;
+        }
+        for (int offset = 0; offset < reviewerPool.size(); offset++) {
+            User candidate = reviewerPool.get((seed + offset) % reviewerPool.size());
+            if (candidate != null && !Objects.equals(candidate.getId(), requester == null ? null : requester.getId())) {
+                return candidate;
+            }
+        }
+        return reviewerPool.get(seed % reviewerPool.size());
+    }
+
+    private int reviewerPriority(User user) {
+        String roleCode = resolveRoleCode(user == null ? null : user.getRoleId());
+        if ("ADMIN_REVIEWER".equalsIgnoreCase(roleCode)) {
+            return 0;
+        }
+        if ("ADMIN".equalsIgnoreCase(roleCode)) {
+            return 1;
+        }
+        if ("SECOPS".equalsIgnoreCase(roleCode)) {
+            return 2;
+        }
+        if ("BUSINESS_OWNER".equalsIgnoreCase(roleCode)) {
+            return 3;
+        }
+        return 99;
+    }
+
+    private String escapeJson(String text) {
+        String value = text == null ? "" : text;
+        return value
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+            .replace("\n", "\\n")
+            .replace("\r", "\\r");
     }
 
     private void seedPermissionsAndRoleBindings(Long companyId, Map<String, Role> roleMap) {
@@ -2045,6 +2224,47 @@ public class DataInitializer implements CommandLineRunner {
         user.setApprovedBy(null);
         user.setApprovedAt(new Date());
         user.setStatus(1);
+        user.setUpdateTime(new Date());
+        if (isNew) {
+            userService.save(user);
+        } else {
+            user.setPassword(null);
+            userService.updateById(user);
+        }
+    }
+
+    private void ensureSystemAuditUser(Long companyId, Role role) {
+        List<User> existingUsers = userService.lambdaQuery().eq(User::getUsername, "system").list();
+        User user = pickUser(existingUsers);
+        boolean isNew = user == null;
+        if (isNew) {
+            user = new User();
+            user.setUsername("system");
+            user.setCreateTime(new Date());
+            user.setPassword(passwordEncoder.encode(DEFAULT_PASSWORD + "-system"));
+        }
+        if (user == null) {
+            return;
+        }
+
+        user.setRealName("系统任务");
+        user.setNickname("系统任务");
+        user.setRoleId(role == null ? null : role.getId());
+        user.setCompanyId(companyId);
+        user.setDeviceId("system-task");
+        user.setOrganizationType("system");
+        user.setDepartment("系统任务");
+        user.setJobTitle("系统后台任务");
+        user.setPhone(null);
+        user.setEmail("system@aegisai.com");
+        user.setLoginType("system");
+        user.setWechatOpenId(null);
+        user.setAccountType("system");
+        user.setAccountStatus("system");
+        user.setRejectReason(null);
+        user.setApprovedBy(null);
+        user.setApprovedAt(new Date());
+        user.setStatus(0);
         user.setUpdateTime(new Date());
         if (isNew) {
             userService.save(user);

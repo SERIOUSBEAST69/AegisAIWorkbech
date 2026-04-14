@@ -40,7 +40,9 @@
           <div class="cell nowrap">{{ scope.row.id }}</div>
         </template>
       </el-table-column>
-      <el-table-column prop="type" label="事件类型" min-width="170" show-overflow-tooltip />
+      <el-table-column label="事件类型" min-width="170" show-overflow-tooltip>
+        <template #default="scope">{{ eventTypeText(scope.row?.type) }}</template>
+      </el-table-column>
       <el-table-column label="风险等级" width="100">
         <template #default="scope">
           <el-tag :type="levelTagType(scope.row.level)">{{ levelText(scope.row.level) }}</el-tag>
@@ -114,7 +116,7 @@
     <el-drawer v-model="showDetail" title="合规风险记录详情" :size="isNarrowScreen ? '96%' : '48%'">
       <el-descriptions v-if="detailRow" :column="2" border>
         <el-descriptions-item label="事件ID">{{ detailRow.id }}</el-descriptions-item>
-        <el-descriptions-item label="事件类型">{{ detailRow.type || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="事件类型">{{ eventTypeText(detailRow.type) }}</el-descriptions-item>
         <el-descriptions-item label="风险等级">{{ levelText(detailRow.level) }}</el-descriptions-item>
         <el-descriptions-item label="状态">{{ statusText(detailRow) }}</el-descriptions-item>
         <el-descriptions-item label="事件时间">{{ formatTime(detailRow.createTime) }}</el-descriptions-item>
@@ -429,6 +431,42 @@ function normalizeLevel(value) {
   if (text === 'L3') return 'HIGH';
   if (text === 'L4') return 'CRITICAL';
   return 'MEDIUM';
+}
+
+const EVENT_TYPE_TEXT_MAP = {
+  PRIVACY_ALERT: '隐私告警',
+  ANOMALY_ALERT: '异常行为告警',
+  SHADOW_AI_ALERT: '影子AI告警',
+  SECURITY_ALERT: '安全威胁告警',
+  SENSITIVE_OPERATION: '敏感操作事件',
+  DATA_EXPORT: '数据导出事件',
+  BEHAVIOR_ANOMALY: '行为异常事件',
+  PRIVILEGE_ABUSE: '权限滥用事件',
+  ACCOUNT_COMPROMISE: '账号异常事件',
+};
+
+function normalizeEventType(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const upper = raw.toUpperCase();
+  if (EVENT_TYPE_TEXT_MAP[upper]) {
+    return upper;
+  }
+  if (/隐私/.test(raw)) return 'PRIVACY_ALERT';
+  if (/影子AI|影子模型|shadow/i.test(raw)) return 'SHADOW_AI_ALERT';
+  if (/异常|anomaly/i.test(raw)) return 'ANOMALY_ALERT';
+  if (/安全|威胁|security/i.test(raw)) return 'SECURITY_ALERT';
+  if (/敏感操作/.test(raw)) return 'SENSITIVE_OPERATION';
+  if (/导出/.test(raw)) return 'DATA_EXPORT';
+  if (/权限/.test(raw)) return 'PRIVILEGE_ABUSE';
+  if (/账号/.test(raw)) return 'ACCOUNT_COMPROMISE';
+  return upper;
+}
+
+function eventTypeText(value) {
+  const normalized = normalizeEventType(value);
+  if (!normalized) return '-';
+  return EVENT_TYPE_TEXT_MAP[normalized] || normalized;
 }
 
 function levelText(value) {

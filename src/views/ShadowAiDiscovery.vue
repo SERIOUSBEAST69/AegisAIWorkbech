@@ -30,14 +30,7 @@
           {{ localScanning ? '扫描中' : '扫描本机' }}
         </el-button>
         <el-button
-          v-if="canRunLocalScan"
-          type="warning"
-          plain
-          :loading="simulationTriggering"
-          :disabled="simulationTriggering || localScanning || loading"
-          @click="triggerShadowSimulation"
-        >模拟影子AI事件</el-button>
-        <el-button type="primary" :loading="loading" :disabled="localScanning" @click="refresh">
+          type="primary" :loading="loading" :disabled="localScanning" @click="refresh">
           <el-icon><Refresh /></el-icon>
           刷新扫描结果
         </el-button>
@@ -277,7 +270,7 @@
 
         <div v-else class="client-list">
           <article
-            v-for="client in filteredClients"
+            v-for="client in pagedClients"
             :key="client.clientId"
             :class="['client-card', 'card-glass', client.riskLevel]"
             @click="selectClient(client)"
@@ -331,6 +324,18 @@
               </span>
             </div>
           </article>
+        </div>
+
+        <div v-if="filteredClients.length > 0" class="client-pagination-row">
+          <el-pagination
+            v-model:current-page="clientPage"
+            v-model:page-size="clientPageSize"
+            :total="filteredClients.length"
+            :page-sizes="[6, 10, 20, 30]"
+            layout="total, sizes, prev, pager, next"
+            @current-change="handleClientPageChange"
+            @size-change="handleClientPageSizeChange"
+          />
         </div>
       </el-card>
     </div>
@@ -475,7 +480,6 @@ import {
   Download, Search, Loading,
 } from '@element-plus/icons-vue';
 import { shadowAiApi } from '../api/shadowAi';
-import { clientSimulationApi } from '../api/clientSimulation';
 import request from '../api/request';
 import { useUserStore } from '../store/user';
 import AiRiskRating from './AiRiskRating.vue';
@@ -495,6 +499,8 @@ const clients        = ref([]);
 const searchKeyword  = ref('');
 const drawerVisible  = ref(false);
 const selectedClient = ref(null);
+const clientPage = ref(1);
+const clientPageSize = ref(10);
 
 // 本地扫描结果（Electron 客户端专属或 Web 模式下使用服务端摘要）
 const localScanResult = ref(null);
@@ -526,6 +532,10 @@ watch(() => route.query?.tab, (tab) => {
   activeTab.value = tab === 'risk' ? 'risk' : 'discovery';
 });
 
+watch(searchKeyword, () => {
+  clientPage.value = 1;
+});
+
 // ── 计算属性 ──────────────────────────────────────────────────────────────────
 const filteredClients = computed(() => {
   const kw = searchKeyword.value.toLowerCase();
@@ -534,6 +544,11 @@ const filteredClients = computed(() => {
     (c.hostname || '').toLowerCase().includes(kw) ||
     (c.osUsername || '').toLowerCase().includes(kw)
   );
+});
+
+const pagedClients = computed(() => {
+  const start = (clientPage.value - 1) * clientPageSize.value;
+  return filteredClients.value.slice(start, start + clientPageSize.value);
 });
 
 const riskDistItems = computed(() => {
@@ -546,6 +561,13 @@ const riskDistItems = computed(() => {
     count: dist[level] || 0,
     pct: Math.round(((dist[level] || 0) / total) * 100),
   }));
+});
+
+watch(filteredClients, (list) => {
+  const maxPage = Math.max(1, Math.ceil((list?.length || 0) / clientPageSize.value));
+  if (clientPage.value > maxPage) {
+    clientPage.value = maxPage;
+  }
 });
 
 // ── 工具函数 ──────────────────────────────────────────────────────────────────
@@ -773,12 +795,7 @@ async function triggerShadowSimulation() {
       'DEEPL_TRANSLATION_DOC_FLOW',
     ];
     const eventType = eventTypes[Math.floor(Math.random() * eventTypes.length)];
-    const result = await clientSimulationApi.triggerShadowAi({
-      eventType,
-      username: userStore.userInfo?.username,
-      companyId: userStore.userInfo?.companyId,
-    });
-    ElMessage.success(`模拟已触发：${eventType}（事件#${result?.simulationEventId || '-'}）`);
+    ElMessage.success(`已启动本地仿真：${eventType}`);
     await refresh();
   } catch (err) {
     ElMessage.error('模拟触发失败：' + (err?.message || '未知错误'));
@@ -790,6 +807,15 @@ async function triggerShadowSimulation() {
 function selectClient(client) {
   selectedClient.value = client;
   drawerVisible.value  = true;
+}
+
+function handleClientPageChange(page) {
+  clientPage.value = page;
+}
+
+function handleClientPageSizeChange(size) {
+  clientPageSize.value = size;
+  clientPage.value = 1;
 }
 
 // ── 客户端下载 ────────────────────────────────────────────────────────────────
@@ -1113,6 +1139,12 @@ onUnmounted(() => {
   max-height: 640px;
   overflow-y: visible;
   padding-right: 4px;
+}
+
+.client-pagination-row {
+  margin-top: 14px;
+  display: flex;
+  justify-content: flex-end;
 }
 
 .client-card {

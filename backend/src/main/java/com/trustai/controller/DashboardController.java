@@ -19,6 +19,7 @@ import com.trustai.utils.R;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -216,10 +217,11 @@ public class DashboardController {
             previous7Start
         );
         Map<String, Object> bundle = new LinkedHashMap<>();
-        bundle.put("workbench", workbench(7).getData());
+        WorkbenchOverviewDTO workbench = workbench(14).getData();
+        bundle.put("workbench", workbench);
         bundle.put("insights", insights().getData());
         bundle.put("trustPulse", trustPulse().getData());
-        bundle.put("forecast", riskForecastScheduler.getLatest());
+        bundle.put("forecast", buildCompanyForecastPayload(workbench));
         Map<String, Object> traceContext = new LinkedHashMap<>();
         traceContext.put("companyId", companyId);
         traceContext.put("companyUserCount", companyUserIds.size());
@@ -244,6 +246,14 @@ public class DashboardController {
         bundle.put("traceContext", traceContext);
         bundle.put("traceModules", buildTraceModules(companyId, companyUserIds));
         return R.ok(bundle);
+    }
+
+    @PostMapping("/forecast/company-refresh")
+    public R<Map<String, Object>> refreshCompanyForecast() {
+        WorkbenchOverviewDTO workbench = workbench(14).getData();
+        Map<String, Object> payload = buildCompanyForecastPayload(workbench);
+        payload.put("refreshed", true);
+        return R.ok(payload);
     }
 
     @GetMapping("/trace/drilldown")
@@ -979,6 +989,56 @@ public class DashboardController {
             return 0L;
         }
         return Math.max(0L, series.get(series.size() - 1));
+        }
+
+        private Map<String, Object> buildCompanyForecastPayload(WorkbenchOverviewDTO workbench) {
+        WorkbenchOverviewDTO.Trend trend = workbench == null ? null : workbench.getTrend();
+        List<Long> riskSeries = trend == null || trend.getRiskSeries() == null ? List.of() : trend.getRiskSeries();
+        List<Double> history = riskSeries.stream().map(v -> v == null ? 0D : Math.max(0D, v.doubleValue())).collect(Collectors.toList());
+        List<Double> forecast = projectCompanyForecast(history, 7);
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("forecast", forecast);
+        payload.put("horizon", forecast.size());
+        payload.put("method", "company_trend_projection");
+        payload.put("historyPoints", history.size());
+        payload.put("fallback", false);
+        payload.put("_dataSource", "real_db");
+        payload.put("note", "基于当前公司治理风险序列（risk_event）进行趋势投影");
+        payload.put("companyScoped", true);
+        return payload;
+        }
+
+        private List<Double> projectCompanyForecast(List<Double> history, int horizon) {
+        if (history == null || history.isEmpty()) {
+            return new ArrayList<>(Arrays.asList(0D, 0D, 0D, 0D, 0D, 0D, 0D));
+        }
+        int window = Math.min(14, history.size());
+        List<Double> tail = history.subList(history.size() - window, history.size());
+        double first = tail.get(0);
+        double last = tail.get(tail.size() - 1);
+        double slope = tail.size() <= 1 ? 0D : (last - first) / (tail.size() - 1);
+        double avg = tail.stream().mapToDouble(Double::doubleValue).average().orElse(last);
+        double recentAvg = tail.subList(Math.max(0, tail.size() - Math.min(5, tail.size())), tail.size())
+            .stream().mapToDouble(Double::doubleValue).average().orElse(last);
+        double variance = tail.stream().mapToDouble(v -> {
+            double d = v - avg;
+            return d * d;
+        }).average().orElse(0D);
+        double std = Math.sqrt(Math.max(0D, variance));
+        double momentum = (recentAvg - avg) * 0.45;
+
+        if (Math.abs(slope) < 0.01 && std < 0.1) {
+            slope = Math.max(0.04, avg * 0.05);
+        }
+
+        List<Double> out = new ArrayList<>();
+        for (int i = 1; i <= horizon; i++) {
+            double seasonal = std > 0.01 ? Math.sin(i / 1.6D) * std * 0.35 : 0D;
+            double projected = last + slope * i + momentum + seasonal;
+            double damped = (projected * 0.72) + (avg * 0.28);
+            out.add(Math.max(0D, Math.round(damped * 100D) / 100D));
+        }
+        return out;
         }
 
         private String safeUserName(User user) {

@@ -30,6 +30,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import java.util.Date;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -38,6 +39,7 @@ import java.util.regex.Pattern;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -106,6 +108,7 @@ public class GovernanceChangeController {
         enforceGovernanceDuty(requester, "submit");
         sensitiveOperationGuardService.requireConfirmedOperator(requester, req.getConfirmPassword(), "governance_change_submit", req.getModule() + ":" + req.getAction());
         Long companyId = companyScopeService.requireCompanyId();
+        User approver = resolveDefaultApprover(requester, companyId);
         Long normalizedTargetId = normalizeTargetIdForSubmit(req, companyId);
         GovernanceChangeRequest request = new GovernanceChangeRequest();
         request.setCompanyId(companyId);
@@ -117,6 +120,10 @@ public class GovernanceChangeController {
         request.setRiskLevel(resolveRiskLevel(request.getModule(), request.getAction()));
         request.setRequesterId(requester.getId());
         request.setRequesterRoleCode(resolveRoleCode(requester));
+        if (approver != null) {
+            request.setApproverId(approver.getId());
+            request.setApproverRoleCode(resolveRoleCode(approver));
+        }
         request.setCreateTime(new Date());
         request.setUpdateTime(new Date());
         governanceChangeRequestService.save(request);
@@ -172,6 +179,9 @@ public class GovernanceChangeController {
                                        @RequestParam(required = false) String module) {
         Long companyId = companyScopeService.requireCompanyId();
         QueryWrapper<GovernanceChangeRequest> qw = new QueryWrapper<GovernanceChangeRequest>().eq("company_id", companyId);
+        if (isBusinessOwnerScopeUser()) {
+            qw.eq("module", "USER");
+        }
         if (StringUtils.hasText(status)) {
             qw.eq("status", normalize(status).toLowerCase(Locale.ROOT));
         }
@@ -201,12 +211,22 @@ public class GovernanceChangeController {
                                            @RequestParam(required = false) Long endTime) {
         Long companyId = companyScopeService.requireCompanyId();
         User reviewer = currentUserService.requireCurrentUser();
+        Long reviewerId = reviewer == null ? null : reviewer.getId();
+        if (reviewerId == null) {
+            Map<String, Object> empty = new LinkedHashMap<>();
+            empty.put("current", Math.max(1, page));
+            empty.put("pages", 0);
+            empty.put("total", 0);
+            empty.put("list", List.of());
+            return R.ok(empty);
+        }
         QueryWrapper<GovernanceChangeRequest> qw = new QueryWrapper<GovernanceChangeRequest>()
             .eq("company_id", companyId)
-            .ne(reviewer != null && reviewer.getId() != null, "requester_id", reviewer.getId());
-
-        String normalizedStatus = StringUtils.hasText(status) ? status.trim().toLowerCase(Locale.ROOT) : STATUS_PENDING;
-        qw.eq("status", normalizedStatus);
+            .eq("approver_id", reviewerId)
+            .eq("status", STATUS_PENDING);
+        if (isBusinessOwnerScopeUser()) {
+            qw.eq("module", "USER");
+        }
 
         if (StringUtils.hasText(module)) {
             qw.eq("module", normalize(module));
@@ -237,7 +257,7 @@ public class GovernanceChangeController {
         payload.put("current", result.getCurrent());
         payload.put("pages", result.getPages());
         payload.put("total", result.getTotal());
-        payload.put("list", result.getRecords().stream().map(this::toApprovalView).toList());
+        payload.put("list", result.getRecords().stream().map(record -> toApprovalView(record, reviewer, true)).toList());
         return R.ok(payload);
     }
 
@@ -255,6 +275,9 @@ public class GovernanceChangeController {
         QueryWrapper<GovernanceChangeRequest> qw = new QueryWrapper<GovernanceChangeRequest>()
             .eq("company_id", companyId)
             .eq("requester_id", requester.getId());
+        if (isBusinessOwnerScopeUser()) {
+            qw.eq("module", "USER");
+        }
 
         if (StringUtils.hasText(status)) {
             qw.eq("status", status.trim().toLowerCase(Locale.ROOT));
@@ -287,7 +310,7 @@ public class GovernanceChangeController {
         payload.put("current", result.getCurrent());
         payload.put("pages", result.getPages());
         payload.put("total", result.getTotal());
-        payload.put("list", result.getRecords().stream().map(this::toApprovalView).toList());
+        payload.put("list", result.getRecords().stream().map(record -> toApprovalView(record, requester, false)).toList());
         return R.ok(payload);
     }
 
@@ -297,7 +320,7 @@ public class GovernanceChangeController {
         GovernanceChangeRequest request = requireScopedRequest(id);
         User current = currentUserService.requireCurrentUser();
         ensureViewableByCurrentUser(request, current);
-        return R.ok(toApprovalView(request));
+        return R.ok(toApprovalView(request, current, false));
     }
 
     @GetMapping("/diff/{id}")
@@ -341,6 +364,22 @@ public class GovernanceChangeController {
         governanceChangeRequestService.updateById(request);
         writeAudit(requester, "governance_change_revoke", "requestId=" + request.getId());
         return R.ok(request);
+    }
+
+    @DeleteMapping("/draft/{id}")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_OPS') || @currentUserService.hasPermission('govern:change:create')")
+    public R<?> deleteDraft(@PathVariable Long id) {
+        User requester = currentUserService.requireCurrentUser();
+        GovernanceChangeRequest request = requireScopedRequest(id);
+        if (!java.util.Objects.equals(request.getRequesterId(), requester.getId())) {
+            throw new BizException(40300, "仅申请发起人可删除草稿");
+        }
+        if (!isDraftStatus(request.getStatus())) {
+            throw new BizException(40000, "仅草稿可删除");
+        }
+        governanceChangeRequestService.removeById(request.getId());
+        writeAudit(requester, "governance_change_draft_delete", "requestId=" + request.getId());
+        return R.okMsg("草稿已删除");
     }
 
     @PostMapping("/approve")
@@ -829,6 +868,9 @@ public class GovernanceChangeController {
         if (request == null || currentUser == null) {
             throw new BizException(40300, "无权限");
         }
+        if (isBusinessOwnerScopeUser() && !"USER".equalsIgnoreCase(String.valueOf(request.getModule()))) {
+            throw new BizException(40300, "仅可查看业务类申请");
+        }
         boolean canReview = currentUserService.hasPermission("govern:change:review")
             || currentUserService.hasAnyRole("ADMIN", "ADMIN_REVIEWER", "ADMIN_OPS", "SECOPS");
         if (canReview) {
@@ -840,7 +882,11 @@ public class GovernanceChangeController {
         throw new BizException(40300, "仅可查看本人发起的申请");
     }
 
-    private Map<String, Object> toApprovalView(GovernanceChangeRequest request) {
+    private boolean isBusinessOwnerScopeUser() {
+        return currentUserService.hasAnyRole("BUSINESS_OWNER", "BUSINESS_OWNER_APPROVER", "BUSINESS_OWNER_REVIEWER");
+    }
+
+    private Map<String, Object> toApprovalView(GovernanceChangeRequest request, User viewer, boolean todoView) {
         Map<String, Object> payload = parsePayloadMap(request == null ? null : request.getPayloadJson());
         Map<String, Object> view = new LinkedHashMap<>();
         view.put("id", request == null ? null : request.getId());
@@ -848,11 +894,16 @@ public class GovernanceChangeController {
         view.put("module", request == null ? null : request.getModule());
         view.put("action", request == null ? null : request.getAction());
         view.put("status", request == null ? null : request.getStatus());
+        view.put("statusLabel", request == null ? null : resolveStatusLabel(request.getStatus()));
         view.put("riskLevel", request == null ? null : request.getRiskLevel());
         view.put("requesterId", request == null ? null : request.getRequesterId());
+        view.put("requesterName", resolveUserDisplayName(request == null ? null : request.getRequesterId()));
         view.put("requesterRoleCode", request == null ? null : request.getRequesterRoleCode());
         view.put("approverId", request == null ? null : request.getApproverId());
+        view.put("approverName", resolveUserDisplayName(request == null ? null : request.getApproverId()));
         view.put("approverRoleCode", request == null ? null : request.getApproverRoleCode());
+        view.put("currentApproverId", resolveCurrentApproverId(request, viewer, todoView));
+        view.put("currentApproverName", resolveCurrentApproverName(request, viewer, todoView));
         view.put("approveNote", request == null ? null : request.getApproveNote());
         view.put("approvedAt", request == null ? null : request.getApprovedAt());
         view.put("createTime", request == null ? null : request.getCreateTime());
@@ -861,6 +912,7 @@ public class GovernanceChangeController {
         view.put("payloadJson", request == null ? null : request.getPayloadJson());
         view.put("title", resolveTitle(request, payload));
         view.put("requestType", resolveRequestType(request));
+        view.put("requestTypeLabel", resolveRequestTypeLabel(request));
         view.put("reason", stringValue(payload.get("reason")));
         view.put("impact", stringValue(payload.get("impact")));
         view.put("payload", payload);
@@ -876,20 +928,75 @@ public class GovernanceChangeController {
         return module + "_" + action;
     }
 
+    private String resolveRequestTypeLabel(GovernanceChangeRequest request) {
+        if (request == null) {
+            return "-";
+        }
+        String module = switch (String.valueOf(request.getModule() == null ? "" : request.getModule()).trim().toUpperCase(Locale.ROOT)) {
+            case "ROLE" -> "角色";
+            case "PERMISSION" -> "权限";
+            case "POLICY" -> "策略";
+            case "USER" -> "用户";
+            default -> StringUtils.hasText(request.getModule()) ? request.getModule().trim() : "未知";
+        };
+        String action = switch (String.valueOf(request.getAction() == null ? "" : request.getAction()).trim().toUpperCase(Locale.ROOT)) {
+            case "ADD" -> "新增";
+            case "UPDATE" -> "修改";
+            case "DELETE" -> "删除";
+            default -> StringUtils.hasText(request.getAction()) ? request.getAction().trim() : "未知";
+        };
+        return module + " / " + action;
+    }
+
+    private String resolveStatusLabel(String status) {
+        String original = String.valueOf(status == null ? "" : status).trim();
+        String normalized = original.toLowerCase(Locale.ROOT);
+        return switch (normalized) {
+            case STATUS_PENDING -> "待审批";
+            case STATUS_APPROVED -> "已通过";
+            case STATUS_REJECTED -> "已驳回";
+            case "revoked" -> "已撤回";
+            case "draft", "草稿" -> "草稿";
+            default -> StringUtils.hasText(original) ? original : "-";
+        };
+    }
+
     private String resolveTitle(GovernanceChangeRequest request, Map<String, Object> payload) {
-        if (payload != null && StringUtils.hasText(stringValue(payload.get("title")))) {
-            return stringValue(payload.get("title")).trim();
+        if (payload != null) {
+            String payloadTitle = sanitizeApprovalTitle(stringValue(payload.get("title")));
+            if (StringUtils.hasText(payloadTitle)) {
+                return payloadTitle;
+            }
         }
-        String name = payload == null ? "" : stringValue(payload.get("name"));
+        String name = sanitizeApprovalTitle(payload == null ? "" : stringValue(payload.get("name")));
         if (!StringUtils.hasText(name)) {
-            name = payload == null ? "" : stringValue(payload.get("code"));
+            name = sanitizeApprovalTitle(payload == null ? "" : stringValue(payload.get("code")));
         }
-        String module = request == null ? "变更" : stringValue(request.getModule());
-        String action = request == null ? "提交" : stringValue(request.getAction());
+        String module = request == null ? "GOVERNANCE" : sanitizeApprovalTitle(stringValue(request.getModule()));
+        String action = request == null ? "SUBMIT" : sanitizeApprovalTitle(stringValue(request.getAction()));
+        if (!StringUtils.hasText(module)) {
+            module = "GOVERNANCE";
+        }
+        if (!StringUtils.hasText(action)) {
+            action = "SUBMIT";
+        }
         if (StringUtils.hasText(name)) {
             return module + " " + action + " - " + name;
         }
-        return module + " " + action + " 申请";
+        String idText = request != null && request.getId() != null ? String.valueOf(request.getId()) : "NEW";
+        return "Governance " + module + " " + action + " Request #" + idText;
+    }
+
+    private String sanitizeApprovalTitle(String value) {
+        String text = String.valueOf(value == null ? "" : value).trim();
+        if (!StringUtils.hasText(text)) {
+            return "";
+        }
+        if (text.matches("^\\?{2,}$")) {
+            return "";
+        }
+        text = text.replaceAll("\\?{2,}", " ").trim();
+        return text;
     }
 
     private Map<String, Object> parsePayloadMap(String payloadJson) {
@@ -980,6 +1087,36 @@ public class GovernanceChangeController {
         return role == null ? "" : normalize(role.getCode());
     }
 
+    private User resolveDefaultApprover(User requester, Long companyId) {
+        List<User> users = userService.lambdaQuery().eq(User::getCompanyId, companyId).list();
+        if (users == null || users.isEmpty()) {
+            return null;
+        }
+        return users.stream()
+            .filter(item -> item != null && item.getId() != null)
+            .filter(item -> requester == null || !java.util.Objects.equals(item.getId(), requester.getId()))
+            .sorted((a, b) -> Integer.compare(reviewerPriority(a), reviewerPriority(b)))
+            .findFirst()
+            .orElse(null);
+    }
+
+    private int reviewerPriority(User user) {
+        String roleCode = resolveRoleCode(user);
+        if ("ADMIN_REVIEWER".equalsIgnoreCase(roleCode)) {
+            return 0;
+        }
+        if ("ADMIN".equalsIgnoreCase(roleCode)) {
+            return 1;
+        }
+        if ("SECOPS".equalsIgnoreCase(roleCode)) {
+            return 2;
+        }
+        if ("BUSINESS_OWNER".equalsIgnoreCase(roleCode)) {
+            return 3;
+        }
+        return 99;
+    }
+
     private void enforceGovernanceDuty(User user, String action) {
         if ("submit".equalsIgnoreCase(action)) {
             boolean canSubmit = currentUserService.hasAnyRole("ADMIN", "ADMIN_OPS")
@@ -1002,6 +1139,52 @@ public class GovernanceChangeController {
 
     private String normalize(String value) {
         return value == null ? "" : value.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private boolean isDraftStatus(String status) {
+        String normalized = String.valueOf(status == null ? "" : status).trim().toLowerCase(Locale.ROOT);
+        return "draft".equals(normalized) || "草稿".equals(normalized) || "2".equals(normalized);
+    }
+
+    private Long resolveCurrentApproverId(GovernanceChangeRequest request, User viewer, boolean todoView) {
+        if (request == null) {
+            return null;
+        }
+        if (todoView && viewer != null) {
+            return viewer.getId();
+        }
+        return request.getApproverId();
+    }
+
+    private String resolveCurrentApproverName(GovernanceChangeRequest request, User viewer, boolean todoView) {
+        if (request == null) {
+            return "-";
+        }
+        if (todoView && viewer != null) {
+            return resolveUserDisplayName(viewer.getId());
+        }
+        String approverName = resolveUserDisplayName(request.getApproverId());
+        return StringUtils.hasText(approverName) ? approverName : "-";
+    }
+
+    private String resolveUserDisplayName(Long userId) {
+        if (userId == null || userId <= 0L) {
+            return "-";
+        }
+        User user = userService.getById(userId);
+        if (user == null) {
+            return String.valueOf(userId);
+        }
+        if (StringUtils.hasText(user.getRealName())) {
+            return user.getRealName().trim();
+        }
+        if (StringUtils.hasText(user.getNickname())) {
+            return user.getNickname().trim();
+        }
+        if (StringUtils.hasText(user.getUsername())) {
+            return user.getUsername().trim();
+        }
+        return String.valueOf(userId);
     }
 
     private String stringValue(Object value) {

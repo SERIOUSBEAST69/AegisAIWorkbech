@@ -39,6 +39,9 @@ import java.util.stream.StreamSupport;
 public class AuditLogServiceImpl extends ServiceImpl<AuditLogMapper, AuditLog> implements AuditLogService {
 
 	private static final ObjectMapper MAPPER = new ObjectMapper();
+	private static final String SYSTEM_AUDIT_USERNAME = "system";
+	private static final String ACTOR_TYPE_SYSTEM = "system";
+	private static final String ACTOR_TYPE_USER = "user";
 	/** 单次搜索最大返回条数，防止全量扫描 */
 	private static final int MAX_RESULTS = 1000;
 
@@ -49,7 +52,7 @@ public class AuditLogServiceImpl extends ServiceImpl<AuditLogMapper, AuditLog> i
 
 	@Override
 	public boolean save(AuditLog entity) {
-		validateAuditActor(entity);
+		normalizeAuditActor(entity);
 		boolean db = super.save(entity);
 		appendAuditHashChain(entity);
 		sendAsync(entity);
@@ -58,16 +61,21 @@ public class AuditLogServiceImpl extends ServiceImpl<AuditLogMapper, AuditLog> i
 
 	@Override
 	public boolean saveAudit(AuditLog log) {
-		validateAuditActor(log);
+		normalizeAuditActor(log);
 		boolean db = super.save(log);
 		appendAuditHashChain(log);
 		sendAsync(log);
 		return db;
 	}
 
-	private void validateAuditActor(AuditLog entity) {
-		if (entity == null || entity.getUserId() == null || entity.getUserId() <= 0) {
-			throw new BizException(40000, "审计日志必须绑定已存在账号");
+	private void normalizeAuditActor(AuditLog entity) {
+		if (entity == null) {
+			throw new BizException(40000, "审计日志不能为空");
+		}
+		if (entity.getUserId() == null || entity.getUserId() <= 0) {
+			entity.setUserId(resolveSystemAuditUserId());
+			entity.setActorType(ACTOR_TYPE_SYSTEM);
+			return;
 		}
 		Integer exists = jdbcTemplate.queryForObject(
 			"SELECT COUNT(1) FROM sys_user WHERE id = ?",
@@ -77,6 +85,19 @@ public class AuditLogServiceImpl extends ServiceImpl<AuditLogMapper, AuditLog> i
 		if (exists == null || exists == 0) {
 			throw new BizException(40000, "审计日志 user_id 无效");
 		}
+		entity.setActorType(ACTOR_TYPE_USER);
+	}
+
+	private Long resolveSystemAuditUserId() {
+		Long systemUserId = jdbcTemplate.query(
+			"SELECT id FROM sys_user WHERE LOWER(username) = ? ORDER BY id ASC LIMIT 1",
+			ps -> ps.setString(1, SYSTEM_AUDIT_USERNAME),
+			rs -> rs.next() ? rs.getObject(1, Long.class) : null
+		);
+		if (systemUserId != null) {
+			return systemUserId;
+		}
+		throw new BizException(40000, "系统审计账号未初始化，请先执行数据初始化");
 	}
 
 	private void appendAuditHashChain(AuditLog logEntity) {
@@ -354,7 +375,20 @@ public class AuditLogServiceImpl extends ServiceImpl<AuditLogMapper, AuditLog> i
 		doc.setRiskLevel(entity.getRiskLevel());
 		doc.setHash(entity.getHash());
 		doc.setCreateTime(entity.getCreateTime());
+		doc.setActorType(resolveActorType(entity.getUserId()));
 		return doc;
+	}
+
+	private String resolveActorType(Long userId) {
+		if (userId == null) {
+			return ACTOR_TYPE_USER;
+		}
+		Long systemUserId = jdbcTemplate.query(
+			"SELECT id FROM sys_user WHERE LOWER(username) = ? ORDER BY id ASC LIMIT 1",
+			ps -> ps.setString(1, SYSTEM_AUDIT_USERNAME),
+			rs -> rs.next() ? rs.getObject(1, Long.class) : null
+		);
+		return systemUserId != null && systemUserId.equals(userId) ? ACTOR_TYPE_SYSTEM : ACTOR_TYPE_USER;
 	}
 
 	private boolean containsIgnoreCase(String source, String normalizedKeyword) {

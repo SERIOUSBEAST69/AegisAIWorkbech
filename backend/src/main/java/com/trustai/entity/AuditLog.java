@@ -1,6 +1,7 @@
 package com.trustai.entity;
 
 import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import java.util.Date;
@@ -24,4 +25,7 @@ public class AuditLog {
     private String riskLevel; // NORMAL/LOW/MEDIUM/HIGH
     private String hash;
     private Date createTime;
+
+    @TableField(exist = false)
+    private String actorType;
 }

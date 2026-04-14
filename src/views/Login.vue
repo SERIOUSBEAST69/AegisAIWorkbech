@@ -412,7 +412,6 @@ const DEMO_ROLE_LABELS = {
 const DEMO_LOGIN_ACCOUNTS = [
   { roleCode: 'ADMIN', username: 'admin', realName: '平台管理员', password: 'admin' },
   { roleCode: 'ADMIN_REVIEWER', username: 'admin_reviewer', realName: '治理复核员', password: 'admin' },
-  { roleCode: 'SECOPS', username: 'sec01', realName: '安全官-张三', password: 'secpass' },
   { roleCode: 'AUDIT', username: 'audit01', realName: '审计员-王五', password: 'auditpass' },
   { roleCode: 'SECOPS', username: 'secops', realName: '安全运维负责人', password: 'Passw0rd!' },
   { roleCode: 'BUSINESS_OWNER', username: 'bizowner', realName: '业务负责人', password: 'Passw0rd!' },
@@ -785,6 +784,16 @@ async function establishAndRoute(response) {
   const redirect = requestedRedirect && canAccessPath(requestedRedirect, user)
     ? requestedRedirect
     : fallbackRedirect;
+  const normalizedRedirectPath = String(redirect || '').split('?')[0].split('#')[0];
+  const isHomeLanding = normalizedRedirectPath === '/' || normalizedRedirectPath === '/home';
+
+  if (isHomeLanding) {
+    sessionStorage.setItem('aegis.home.reveal.pending', '1');
+    sessionStorage.setItem('aegis.home.reveal.force', '1');
+  } else {
+    sessionStorage.removeItem('aegis.home.reveal.pending');
+    sessionStorage.removeItem('aegis.home.reveal.force');
+  }
 
   // Use the modern View Transitions API if supported for silky smooth transition
   if (document.startViewTransition) {

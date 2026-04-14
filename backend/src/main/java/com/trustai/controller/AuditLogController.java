@@ -5,6 +5,8 @@ import com.trustai.exception.BizException;
 import com.trustai.service.AuditLogService;
 import com.trustai.service.CompanyScopeService;
 import com.trustai.service.CurrentUserService;
+import com.trustai.service.UserService;
+import com.trustai.entity.User;
 import com.trustai.utils.R;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -14,7 +16,6 @@ import org.springframework.web.bind.annotation.*;
 import java.util.Date;
 import java.util.List;
 import java.util.Set;
-import java.util.Locale;
 import java.util.stream.Collectors;
 import jakarta.validation.constraints.NotNull;
 
@@ -25,6 +26,7 @@ public class AuditLogController {
     @Autowired private AuditLogService auditLogService;
     @Autowired private CompanyScopeService companyScopeService;
     @Autowired private CurrentUserService currentUserService;
+    @Autowired private UserService userService;
 
     @GetMapping("/search")
     @PreAuthorize("@currentUserService.hasPermission('audit:log:view')")
@@ -33,64 +35,42 @@ public class AuditLogController {
                                             @RequestParam(required = false) String operation,
                                             @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss") Date from,
                                             @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss") Date to) {
-        String roleCode = String.valueOf(currentUserService.currentRoleCode() == null ? "" : currentUserService.currentRoleCode())
-            .trim().toUpperCase(Locale.ROOT);
-        Long currentUserId = currentUserService.requireCurrentUser().getId();
-        Long effectiveUserId = scopedUserId(roleCode, currentUserId, userId);
-
         Set<Long> scopedUserIds = companyScopeService.companyUserIds().stream().collect(Collectors.toSet());
-        String effectiveOperation = scopedOperationKeyword(roleCode, operation);
-        List<AuditLogDocument> logs = auditLogService.search(effectiveUserId, permissionId, effectiveOperation, from, to)
+        User currentUser = currentUserService.requireCurrentUser();
+        if (currentUserService.hasRole("BUSINESS_OWNER")) {
+            scopedUserIds.retainAll(resolveBusinessOwnerAuditScope(currentUser));
+        }
+        List<AuditLogDocument> logs = auditLogService.search(userId, permissionId, operation, from, to)
             .stream()
             .filter(item -> item.getUserId() != null && scopedUserIds.contains(item.getUserId()))
-            .filter(item -> roleScopedFilter(roleCode, currentUserId, item))
             .collect(Collectors.toList());
         return R.ok(logs);
     }
 
-    private Long scopedUserId(String roleCode, Long currentUserId, Long requestedUserId) {
-        if (roleCode == null) {
-            return requestedUserId;
+    private Set<Long> resolveBusinessOwnerAuditScope(User currentUser) {
+        Set<Long> allowed = new java.util.HashSet<>();
+        if (currentUser == null || currentUser.getId() == null) {
+            return allowed;
         }
-        if ("BUSINESS_OWNER".equals(roleCode) || "AUDIT".equals(roleCode)) {
-            return currentUserId;
+        allowed.add(currentUser.getId());
+        String department = currentUser.getDepartment();
+        if (department == null || department.trim().isEmpty()) {
+            return allowed;
         }
-        return requestedUserId;
-    }
-
-    private String scopedOperationKeyword(String roleCode, String operation) {
-        String requested = operation == null ? "" : operation.trim();
-        if ("SECOPS".equals(roleCode)) {
-            return requested.isEmpty() ? "security" : requested;
+        Long companyId = currentUser.getCompanyId();
+        if (companyId == null) {
+            return allowed;
         }
-        if ("BUSINESS_OWNER".equals(roleCode)) {
-            return requested.isEmpty() ? "approval" : requested;
+        List<User> sameDepartmentUsers = userService.lambdaQuery()
+            .eq(User::getCompanyId, companyId)
+            .eq(User::getDepartment, department)
+            .list();
+        for (User item : sameDepartmentUsers) {
+            if (item != null && item.getId() != null) {
+                allowed.add(item.getId());
+            }
         }
-        if ("AUDIT".equals(roleCode)) {
-            return requested.isEmpty() ? "audit" : requested;
-        }
-        return requested;
-    }
-
-    private boolean roleScopedFilter(String roleCode, Long currentUserId, AuditLogDocument log) {
-        if (log == null) {
-            return false;
-        }
-        String operation = String.valueOf(log.getOperation() == null ? "" : log.getOperation()).toLowerCase(Locale.ROOT);
-        if ("SECOPS".equals(roleCode)) {
-            return operation.contains("security") || operation.contains("threat") || operation.contains("anomaly") || operation.contains("shadow");
-        }
-        if ("BUSINESS_OWNER".equals(roleCode)) {
-            return java.util.Objects.equals(currentUserId, log.getUserId())
-                && (operation.contains("approval") || operation.contains("governance"));
-        }
-        if ("AUDIT".equals(roleCode)) {
-            return operation.contains("audit") || operation.contains("governance") || operation.contains("risk");
-        }
-        if ("ADMIN_REVIEWER".equals(roleCode)) {
-            return java.util.Objects.equals(currentUserId, log.getUserId());
-        }
-        return true;
+        return allowed;
     }
 
     @PostMapping("/delete")

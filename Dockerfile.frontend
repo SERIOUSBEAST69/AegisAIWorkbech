@@ -1,6 +1,12 @@
 # 构建阶段
-FROM hub.rat.dev/library/node:18-alpine AS builder
+FROM node:18-alpine AS builder
 WORKDIR /app
+
+# Skip heavyweight desktop/browser binary downloads not needed for web bundle build.
+ENV ELECTRON_SKIP_BINARY_DOWNLOAD=1 \
+	PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
+	PUPPETEER_SKIP_DOWNLOAD=1 \
+	CYPRESS_INSTALL_BINARY=0
 
 # 复制依赖清单（在仓库根目录）
 COPY package*.json ./
@@ -20,7 +26,7 @@ ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 RUN npm run build
 
 # 运行阶段
-FROM hub.rat.dev/library/nginx:alpine
+FROM nginx:alpine
 COPY --from=builder /app/dist /usr/share/nginx/html
 
 # Nginx 代理配置：支持 SPA history 路由 + 转发 /api/* 到后端

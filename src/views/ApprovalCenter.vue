@@ -1,5 +1,6 @@
 <template>
   <el-card class="approval-center-card">
+    <template v-if="hasVisibleTab">
     <el-tabs v-model="activeTab" @tab-change="onTabChange" class="approval-tabs">
       <el-tab-pane v-if="showTodoTab" name="todo" label="待我审批" />
       <el-tab-pane v-if="showMineTab" name="mine" label="我发起" />
@@ -31,6 +32,7 @@
           <el-option label="已通过" value="approved" />
           <el-option label="已驳回" value="rejected" />
           <el-option label="已撤回" value="revoked" />
+          <el-option label="草稿" value="draft" />
         </el-select>
       </el-form-item>
       <el-form-item label="模块">
@@ -54,29 +56,22 @@
     <el-table :data="rows" v-loading="loading" style="width: 100%" empty-text="暂无记录" class="approval-table" table-layout="fixed">
       <el-table-column prop="id" label="申请ID" width="110" />
       <el-table-column prop="title" label="申请标题" min-width="280" show-overflow-tooltip />
-      <el-table-column prop="requestType" label="类型" min-width="200" show-overflow-tooltip />
-      <el-table-column v-if="activeTab === 'todo'" label="追溯信息" min-width="360" show-overflow-tooltip>
-        <template #default="scope">
-          <div class="trace-cell">
-            <div class="trace-line"><span class="trace-label">指纹:</span>{{ scope.row.traceFingerprint || '-' }}</div>
-            <div class="trace-line"><span class="trace-label">链路:</span>{{ scope.row.tracePath || '-' }}</div>
-            <div class="trace-line"><span class="trace-label">发起:</span>{{ scope.row.traceActor || '-' }}</div>
-          </div>
-        </template>
+      <el-table-column prop="requestTypeLabel" label="类型" min-width="180" show-overflow-tooltip>
+        <template #default="scope">{{ scope.row.requestTypeLabel || scope.row.requestType || '-' }}</template>
       </el-table-column>
-      <el-table-column prop="riskLevel" label="风险" width="100" />
-      <el-table-column prop="status" label="状态" width="110">
+      <el-table-column v-if="activeTab === 'todo'" prop="requesterName" label="申请人" min-width="140" show-overflow-tooltip>
+        <template #default="scope">{{ scope.row.requesterName || scope.row.requesterId || '-' }}</template>
+      </el-table-column>
+      <el-table-column v-else prop="currentApproverName" label="当前审批人" min-width="140" show-overflow-tooltip>
+        <template #default="scope">{{ currentApproverDisplay(scope.row) }}</template>
+      </el-table-column>
+      <el-table-column prop="status" label="状态" width="120">
         <template #default="scope">
           <el-tag :type="statusTagType(scope.row.status)">{{ statusText(scope.row.status) }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="requesterId" label="发起人" width="100" />
-      <el-table-column prop="approverId" label="审批人" width="100" />
-      <el-table-column prop="createTime" label="发起时间" min-width="170">
+      <el-table-column prop="createTime" label="提交时间" min-width="170">
         <template #default="scope">{{ formatTime(scope.row.createTime) }}</template>
-      </el-table-column>
-      <el-table-column prop="updateTime" label="更新时间" min-width="170">
-        <template #default="scope">{{ formatTime(scope.row.updateTime) }}</template>
       </el-table-column>
       <el-table-column label="操作" width="260" fixed="right">
         <template #default="scope">
@@ -101,6 +96,14 @@
                 type="warning"
                 @click="doRevoke(scope.row)"
               >撤回</el-button>
+            </template>
+            <template v-else-if="canShowDeleteAction(scope.row)">
+              <el-button
+                size="small"
+                type="danger"
+                plain
+                @click="doDeleteDraft(scope.row)"
+              >删除</el-button>
             </template>
           </div>
         </template>
@@ -127,11 +130,11 @@
         <el-descriptions :column="2" border>
           <el-descriptions-item label="申请ID">{{ detail.id }}</el-descriptions-item>
           <el-descriptions-item label="申请标题">{{ detail.title }}</el-descriptions-item>
-          <el-descriptions-item label="类型">{{ detail.requestType }}</el-descriptions-item>
+          <el-descriptions-item label="类型">{{ detail.requestTypeLabel || detail.requestType }}</el-descriptions-item>
           <el-descriptions-item label="状态">{{ statusText(detail.status) }}</el-descriptions-item>
-          <el-descriptions-item label="发起人">{{ detail.requesterId }}</el-descriptions-item>
-          <el-descriptions-item label="审批人">{{ detail.approverId || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="发起时间">{{ formatTime(detail.createTime) }}</el-descriptions-item>
+          <el-descriptions-item label="申请人">{{ detail.requesterName || detail.requesterId || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="当前审批人">{{ currentApproverDisplay(detail) }}</el-descriptions-item>
+          <el-descriptions-item label="提交时间">{{ formatTime(detail.createTime) }}</el-descriptions-item>
           <el-descriptions-item label="审批时间">{{ formatTime(detail.approvedAt) }}</el-descriptions-item>
           <el-descriptions-item label="变更理由" :span="2">{{ detail.reason || '-' }}</el-descriptions-item>
           <el-descriptions-item label="影响说明" :span="2">{{ detail.impact || '-' }}</el-descriptions-item>
@@ -155,6 +158,9 @@
         </el-row>
       </div>
     </el-drawer>
+    </template>
+
+    <el-empty v-else description="当前身份暂无可见的审批功能" style="padding: 56px 0" />
 
   </el-card>
 </template>
@@ -164,6 +170,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import {
   approveRequest,
+  deleteDraftRequest,
   fetchApprovalDetail,
   fetchApprovalDiff,
   fetchMyPage,
@@ -189,7 +196,8 @@ const diffData = ref({ before: {}, after: {} });
 const canSubmit = computed(() => canSubmitGovernanceChange(getSession()?.user));
 const canReview = computed(() => canReviewGovernanceChange(getSession()?.user));
 const showTodoTab = computed(() => canReview.value);
-const showMineTab = computed(() => canSubmit.value || !showTodoTab.value);
+const showMineTab = computed(() => canSubmit.value);
+const hasVisibleTab = computed(() => showTodoTab.value || showMineTab.value);
 const pendingCount = computed(() => rows.value.filter(item => String(item?.status || '').toLowerCase() === 'pending').length);
 const doneCount = computed(() => rows.value.filter(item => {
   const status = String(item?.status || '').toLowerCase();
@@ -202,6 +210,7 @@ function statusText(status) {
     approved: '已通过',
     rejected: '已驳回',
     revoked: '已撤回',
+    draft: '草稿',
   };
   return map[String(status || '').toLowerCase()] || String(status || '-');
 }
@@ -212,6 +221,7 @@ function normalizedStatus(status) {
   if (value === '已通过' || value === 'approved' || value === '通过') return 'approved';
   if (value === '已驳回' || value === '已拒绝' || value === 'rejected' || value === '拒绝') return 'rejected';
   if (value === '已撤回' || value === 'revoked' || value === '撤回') return 'revoked';
+  if (value === '草稿' || value === 'draft') return 'draft';
   return value;
 }
 
@@ -221,6 +231,10 @@ function canShowTodoActions(row) {
 
 function canShowRevokeAction(row) {
   return activeTab.value === 'mine' && normalizedStatus(row?.status) === 'pending';
+}
+
+function canShowDeleteAction(row) {
+  return activeTab.value === 'mine' && normalizedStatus(row?.status) === 'draft';
 }
 
 function statusTagType(status) {
@@ -239,6 +253,15 @@ function formatTime(value) {
   return date.toLocaleString('zh-CN', { hour12: false });
 }
 
+function currentApproverDisplay(row) {
+  if (!row) return '-';
+  const status = normalizedStatus(row.status);
+  if (status === 'pending' || status === 'draft') {
+    return row.currentApproverName || row.approverName || '-';
+  }
+  return row.approverName || row.currentApproverName || '-';
+}
+
 function prettyJson(value) {
   try {
     return JSON.stringify(value || {}, null, 2);
@@ -252,6 +275,11 @@ function syncViewport() {
 }
 
 function onTabChange() {
+  if (!hasVisibleTab.value) {
+    rows.value = [];
+    pagination.value.total = 0;
+    return;
+  }
   if (activeTab.value === 'todo' && !showTodoTab.value && showMineTab.value) {
     activeTab.value = 'mine';
   }
@@ -371,6 +399,12 @@ function dedupeTodoRows(list) {
 async function fetchList() {
   loading.value = true;
   try {
+    if (!hasVisibleTab.value) {
+      rows.value = [];
+      pagination.value.total = 0;
+      duplicateCollapsed.value = 0;
+      return;
+    }
     let data;
     if (activeTab.value === 'todo') {
       if (!showTodoTab.value) {
@@ -517,6 +551,31 @@ async function doRevoke(row) {
     fetchList();
   } catch (err) {
     ElMessage.error(err?.message || '撤回失败');
+  }
+}
+
+async function doDeleteDraft(row) {
+  if (!canSubmit.value) {
+    ElMessage.error('当前身份无删除权限');
+    return;
+  }
+
+  try {
+    await ElMessageBox.confirm('确认删除这条草稿申请吗？删除后无法恢复。', '删除草稿', {
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+      type: 'warning',
+    });
+  } catch {
+    return;
+  }
+
+  try {
+    await deleteDraftRequest(row.id);
+    ElMessage.success('草稿已删除');
+    fetchList();
+  } catch (err) {
+    ElMessage.error(err?.message || '删除失败');
   }
 }
 

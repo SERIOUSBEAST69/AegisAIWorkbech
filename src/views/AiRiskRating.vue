@@ -58,44 +58,60 @@
     </div>
 
     <div class="score-legend scene-block card-glass">
-      <div class="legend-title">✅ 公司AI白名单（数据管理员提审，治理管理员审批生效）</div>
+      <div class="legend-title">✅ 公司AI白名单</div>
+      <div class="white-policy-strip">
+        <span><strong>提出者：</strong>业务负责人或AI应用开发者</span>
+        <span><strong>审批者：</strong>治理管理员（策略与合规核验）</span>
+        <span><strong>审计员：</strong>仅事后查看变更记录，不参与审批</span>
+      </div>
       <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
         <el-tag type="success">当前生效：{{ whitelistState.whitelist.length }} 项</el-tag>
-        <el-tag type="warning">待审批：{{ pendingRows.length }} 项</el-tag>
-      </div>
-
-      <el-select
-        v-model="selectedWhitelist"
-        multiple
-        collapse-tags
-        collapse-tags-tooltip
-        :disabled="!whitelistState.canRequest"
-        placeholder="选择白名单AI服务"
-        style="width:100%;margin-bottom:10px"
-      >
-        <el-option v-for="item in whitelistState.catalog" :key="item" :label="item" :value="item" />
-      </el-select>
-
-      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
         <el-button :loading="whitelistLoading" @click="loadWhitelist">刷新白名单</el-button>
-        <el-button v-if="whitelistState.canRequest" type="primary" :disabled="selectedWhitelist.length===0" @click="submitWhitelistRequest">提交审批</el-button>
       </div>
-
-      <el-table v-if="pendingRows.length>0" :data="pendingRows" size="small" style="margin-top:12px;">
-        <el-table-column prop="requestId" label="审批单" width="90" />
-        <el-table-column prop="requestedBy" label="提交人" width="120" />
-        <el-table-column label="目标白名单" min-width="260">
-          <template #default="scope">{{ (scope.row.targetWhitelist || []).join('、') }}</template>
-        </el-table-column>
-        <el-table-column prop="status" label="状态" width="100" />
-        <el-table-column v-if="whitelistState.canReview" label="处理" width="180">
-          <template #default="scope">
-            <el-button size="small" type="success" @click="reviewWhitelist(scope.row, 'approve')">通过</el-button>
-            <el-button size="small" type="danger" @click="reviewWhitelist(scope.row, 'reject')">拒绝</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+      <div class="white-tag-list" v-if="whitelistState.whitelist.length">
+        <el-tag
+          v-for="item in whitelistState.whitelist"
+          :key="item"
+          type="success"
+          effect="plain"
+          style="margin: 2px 6px 2px 0"
+        >{{ item }}</el-tag>
+      </div>
+      <el-empty v-else description="当前暂无生效白名单" />
     </div>
+
+    <FluidGlassReactHost
+      class="scene-block risk-glass-deck"
+      :cards="fluidGlassCards"
+      mode="lens"
+      :lens-props="{
+        scale: 0.25,
+        ior: 1.15,
+        thickness: 5,
+        chromaticAberration: 0.05,
+        anisotropy: 0.01,
+        transmission: 1,
+        roughness: 0,
+      }"
+      :bar-props="{
+        scale: 0.24,
+        ior: 1.15,
+        thickness: 10,
+        chromaticAberration: 0.04,
+        anisotropy: 0.01,
+        transmission: 1,
+        roughness: 0.02,
+      }"
+      :cube-props="{
+        scale: 0.23,
+        ior: 1.2,
+        thickness: 6,
+        chromaticAberration: 0.06,
+        anisotropy: 0.015,
+        transmission: 1,
+        roughness: 0.01,
+      }"
+    />
 
     <el-card class="radar-card scene-block card-glass" shadow="never">
       <template #header>
@@ -175,6 +191,7 @@
         :class="`risk-border-${svc.risk_level}`"
         @click="openDetail(svc)"
       >
+        <div class="service-card-kicker">AI RISK CARD</div>
         <!-- 卡片头 -->
         <div class="card-top">
           <span class="svc-logo">{{ svc.logo }}</span>
@@ -324,6 +341,7 @@ import { CanvasRenderer } from 'echarts/renderers';
 import request from '../api/request';
 import { useRouter } from 'vue-router';
 import { useUserStore } from '../store/user';
+import FluidGlassReactHost from '../components/risk/FluidGlassReactHost.vue';
 
 echarts.use([RadarChart, TooltipComponent, LegendComponent, CanvasRenderer]);
 
@@ -339,16 +357,11 @@ const router = useRouter();
 const whitelistState = ref({
   catalog: [],
   whitelist: [],
-  pending: [],
-  canRequest: false,
-  canReview: false,
 });
 const whitelistLoading = ref(false);
-const selectedWhitelist = ref([]);
-const pendingRows = computed(() => (whitelistState.value.pending || []).filter(item => item?.status === 'pending'));
 const canQueryOthers = computed(() => {
   const role = String(userStore.userInfo?.roleCode || '').toUpperCase();
-  return ['ADMIN', 'SECOPS', 'EXECUTIVE', 'DATA_ADMIN', 'AI_BUILDER', 'BUSINESS_OWNER'].includes(role);
+  return ['ADMIN', 'SECOPS', 'EXECUTIVE', 'DATA_ADMIN', 'AI_BUILDER'].includes(role);
 });
 
 const radarLoading = ref(false);
@@ -365,12 +378,17 @@ const radarProfile = ref({
 const radarChartRef = ref(null);
 let radarChart = null;
 
+const fluidGlassCards = computed(() => {
+  return (Array.isArray(services.value) ? services.value : []).map((service, index) => normalizeFluidCard(service, index));
+});
+
 // ── API ───────────────────────────────────────────────────────────────────────
 async function loadList() {
   loading.value = true;
   try {
     const data = await request.get('/ai-risk/list');
     services.value = Array.isArray(data?.services) ? data.services : [];
+    void hydrateServiceDetails(services.value);
     updatedAt.value = data?.updated_at || null;
   } catch (err) {
     services.value = [];
@@ -400,13 +418,7 @@ async function loadWhitelist() {
     whitelistState.value = {
       catalog: Array.isArray(data?.catalog) ? data.catalog : [],
       whitelist: Array.isArray(data?.whitelist) ? data.whitelist : [],
-      pending: Array.isArray(data?.pending) ? data.pending : [],
-      canRequest: !!data?.canRequest,
-      canReview: !!data?.canReview,
     };
-    if (!selectedWhitelist.value.length) {
-      selectedWhitelist.value = [...whitelistState.value.whitelist];
-    }
   } catch (err) {
     ElMessage.error(err?.message || '加载白名单失败');
   } finally {
@@ -516,33 +528,6 @@ function jumpRecommendation(rec) {
   router.push({ path: route, query });
 }
 
-async function submitWhitelistRequest() {
-  try {
-    await request.post('/ai-risk/whitelist/request', {
-      whitelist: selectedWhitelist.value,
-      note: `submitted-by-${userStore.userInfo?.username || 'unknown'}`,
-    });
-    ElMessage.success('白名单变更已提交审批');
-    await loadWhitelist();
-  } catch (err) {
-    ElMessage.error(err?.message || '提交审批失败');
-  }
-}
-
-async function reviewWhitelist(row, decision) {
-  try {
-    await request.post('/ai-risk/whitelist/review', {
-      requestId: row.requestId,
-      decision,
-      note: decision === 'approve' ? 'approved' : 'rejected',
-    });
-    ElMessage.success(decision === 'approve' ? '已审批通过并生效' : '已拒绝');
-    await loadWhitelist();
-  } catch (err) {
-    ElMessage.error(err?.message || '审批失败');
-  }
-}
-
 async function openDetail(svc) {
   showDetail.value = true;
   // 若卡片中已有 scores 字段（从详情 API 获取过），直接展示
@@ -559,6 +544,33 @@ async function openDetail(svc) {
   } catch {
     selected.value = svc;
   }
+}
+
+async function hydrateServiceDetails(baseServices) {
+  const source = Array.isArray(baseServices) ? baseServices : [];
+  const targets = source.filter(item => item?.id && !item?.scores);
+  if (!targets.length) return;
+
+  const settled = await Promise.allSettled(
+    targets.map(item => request.get(`/ai-risk/score?service=${encodeURIComponent(item.id)}`))
+  );
+
+  const detailMap = new Map();
+  for (let i = 0; i < targets.length; i += 1) {
+    const response = settled[i];
+    if (response?.status !== 'fulfilled') continue;
+    const detail = response.value;
+    const id = String(detail?.id || targets[i]?.id || '').trim();
+    if (!id) continue;
+    detailMap.set(id, detail);
+  }
+
+  if (!detailMap.size) return;
+
+  services.value = services.value.map(item => {
+    const id = String(item?.id || '').trim();
+    return detailMap.has(id) ? { ...item, ...detailMap.get(id) } : item;
+  });
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -617,6 +629,29 @@ function tagType(tag) {
   return 'info';
 }
 
+function normalizeFluidCard(service, index) {
+  const raw = service && typeof service === 'object' ? service : {};
+  const normalizedTags = Array.isArray(raw.tags)
+    ? raw.tags.filter(Boolean).map(tag => String(tag))
+    : String(raw.tags || '')
+      .split(/[、,，;；|]/)
+      .map(tag => tag.trim())
+      .filter(Boolean);
+
+  return {
+    ...raw,
+    id: raw.id || `risk-ai-${index + 1}`,
+    name: String(raw.name || `AI Service ${index + 1}`),
+    provider: String(raw.provider || '未知服务商'),
+    risk_level: String(raw.risk_level || 'medium').toLowerCase(),
+    total_risk_score: Math.max(0, Math.min(100, Number(raw.total_risk_score || 0))),
+    category: String(raw.category || 'general'),
+    tags: normalizedTags,
+    description: String(raw.description || '暂无描述'),
+    logo: String(raw.logo || 'AI'),
+  };
+}
+
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 onMounted(async () => {
   await Promise.all([loadList(), loadWhitelist(), loadRadarUsers()]);
@@ -641,6 +676,13 @@ function resizeRadar() {
   padding: 24px 32px;
   min-height: 100vh;
   color: var(--color-text);
+  display: flex;
+  flex-direction: column;
+}
+
+.risk-glass-deck {
+  order: 34;
+  margin-bottom: 20px;
 }
 
 .page-header {
@@ -698,6 +740,7 @@ function resizeRadar() {
 }
 
 .radar-card {
+  order: 80;
   margin-bottom: 20px;
 }
 
@@ -807,6 +850,31 @@ function resizeRadar() {
   margin-bottom: 10px;
 }
 
+.white-policy-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.white-policy-strip span {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  border: 1px solid rgba(128, 178, 242, 0.24);
+  border-radius: 999px;
+  padding: 5px 10px;
+  background: rgba(10, 24, 46, 0.5);
+}
+
+.white-policy-strip strong {
+  color: var(--color-text-soft);
+}
+
+.white-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+}
+
 .legend-items {
   display: flex;
   gap: 20px;
@@ -830,22 +898,53 @@ function resizeRadar() {
 
 /* ── Service Grid ────────────────────────────────────────────────────────────── */
 .service-grid {
+  order: 52;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 16px;
 }
 
 .service-card {
+  position: relative;
+  overflow: hidden;
   padding: 18px;
   border-radius: 12px;
   cursor: pointer;
   transition: transform 0.15s, box-shadow 0.15s;
-  border: 1px solid var(--color-border);
+  border: 1px solid rgba(128, 178, 242, 0.32);
+  background:
+    radial-gradient(circle at 14% 20%, rgba(112, 179, 255, 0.2), transparent 42%),
+    radial-gradient(circle at 88% 84%, rgba(150, 121, 255, 0.14), transparent 36%),
+    linear-gradient(145deg, rgba(9, 24, 45, 0.9), rgba(9, 18, 34, 0.86));
+  box-shadow: 0 14px 30px rgba(4, 14, 28, 0.36), inset 0 1px 0 rgba(182, 218, 255, 0.12);
 }
 
 .service-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  transform: translateY(-3px);
+  box-shadow: 0 18px 34px rgba(2, 10, 23, 0.44), inset 0 1px 0 rgba(199, 228, 255, 0.14);
+}
+
+.service-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(169, 214, 255, 0.08), transparent 28%, transparent 72%, rgba(126, 176, 239, 0.07));
+}
+
+.service-card-kicker {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  margin-bottom: 8px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(152, 208, 255, 0.36);
+  background: rgba(11, 35, 64, 0.52);
+  color: #cfe8ff;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  font-weight: 600;
 }
 
 .risk-border-high   { border-left: 3px solid #f53f3f; }

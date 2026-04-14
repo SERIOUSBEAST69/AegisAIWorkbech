@@ -1,5 +1,12 @@
 <template>
-  <div ref="containerRef" class="security-3d-canvas"></div>
+  <div class="security-visual-shell">
+    <div class="scanlines" aria-hidden="true"></div>
+    <div ref="containerRef" class="security-3d-canvas"></div>
+    <div class="hud-overlay" aria-hidden="true">
+      <span>SOC HOLOGRAM</span>
+      <span>THREAT LINK MATRIX</span>
+    </div>
+  </div>
 </template>
 
 <script setup>
@@ -22,17 +29,52 @@ let scene = null;
 let camera = null;
 let frameId = 0;
 let coreMesh = null;
-let shieldMesh = null;
+let shieldRingA = null;
+let shieldRingB = null;
 let pulseLine = null;
+let gridPlane = null;
+let stars = null;
+let stream = null;
 const departmentNodes = [];
+
+function makeGridTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 512;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    return new THREE.CanvasTexture(canvas);
+  }
+  ctx.fillStyle = '#050913';
+  ctx.fillRect(0, 0, 512, 512);
+  ctx.strokeStyle = 'rgba(64,180,255,0.26)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 32; i += 1) {
+    const p = i * 16;
+    ctx.beginPath();
+    ctx.moveTo(p, 0);
+    ctx.lineTo(p, 512);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(0, p);
+    ctx.lineTo(512, p);
+    ctx.stroke();
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(2, 2);
+  return texture;
+}
 
 function buildScene() {
   const el = containerRef.value;
   if (!el) return;
 
   scene = new THREE.Scene();
-  camera = new THREE.PerspectiveCamera(48, Math.max(1, el.clientWidth) / Math.max(1, el.clientHeight), 0.1, 100);
-  camera.position.set(0, 3.2, 10.2);
+  scene.fog = new THREE.Fog(0x05070d, 12, 42);
+  camera = new THREE.PerspectiveCamera(48, Math.max(1, el.clientWidth) / Math.max(1, el.clientHeight), 0.1, 120);
+  camera.position.set(0, 5.2, 11.6);
 
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
@@ -40,42 +82,119 @@ function buildScene() {
   renderer.setClearColor(0x000000, 0);
   el.appendChild(renderer.domElement);
 
-  const ambient = new THREE.AmbientLight(0x7fb8ff, 0.55);
+  const ambient = new THREE.AmbientLight(0x65a6ff, 0.45);
   scene.add(ambient);
 
-  const key = new THREE.PointLight(0x87ceff, 1.05, 40);
-  key.position.set(5, 8, 8);
+  const key = new THREE.PointLight(0x5dd1ff, 1.2, 45);
+  key.position.set(4, 8, 6);
   scene.add(key);
 
-  const coreGeo = new THREE.SphereGeometry(0.72, 24, 24);
-  const coreMat = new THREE.MeshStandardMaterial({ color: 0x37a6ff, emissive: 0x102f5a, metalness: 0.25, roughness: 0.35 });
+  const rim = new THREE.PointLight(0xff2a66, 0.68, 26);
+  rim.position.set(-6, 3, -3);
+  scene.add(rim);
+
+  const gridTex = makeGridTexture();
+  gridPlane = new THREE.Mesh(
+    new THREE.PlaneGeometry(24, 16),
+    new THREE.MeshStandardMaterial({
+      map: gridTex,
+      color: 0x0b1531,
+      emissive: 0x0c2d4a,
+      emissiveIntensity: 0.72,
+      metalness: 0.24,
+      roughness: 0.72,
+      transparent: true,
+      opacity: 0.9,
+    }),
+  );
+  gridPlane.rotation.x = -Math.PI / 2;
+  gridPlane.position.y = -0.7;
+  scene.add(gridPlane);
+
+  const coreGeo = new THREE.IcosahedronGeometry(1.02, 1);
+  const coreMat = new THREE.MeshStandardMaterial({
+    color: 0x54c9ff,
+    emissive: 0x102f56,
+    emissiveIntensity: 1.1,
+    metalness: 0.42,
+    roughness: 0.18,
+  });
   coreMesh = new THREE.Mesh(coreGeo, coreMat);
-  coreMesh.position.set(0, 0.2, 0);
+  coreMesh.position.set(0, 0.8, 0);
   scene.add(coreMesh);
 
-  const shieldGeo = new THREE.TorusGeometry(1.45, 0.08, 18, 80);
-  const shieldMat = new THREE.MeshStandardMaterial({ color: 0x8ed6ff, emissive: 0x12314a, metalness: 0.35, roughness: 0.3 });
-  shieldMesh = new THREE.Mesh(shieldGeo, shieldMat);
-  shieldMesh.rotation.x = 1.2;
-  scene.add(shieldMesh);
+  const ringMat = new THREE.MeshStandardMaterial({
+    color: 0x69d0ff,
+    emissive: 0x134266,
+    emissiveIntensity: 0.95,
+    metalness: 0.52,
+    roughness: 0.2,
+    transparent: true,
+    opacity: 0.95,
+  });
+  shieldRingA = new THREE.Mesh(new THREE.TorusGeometry(1.95, 0.08, 22, 120), ringMat.clone());
+  shieldRingA.rotation.x = 1.22;
+  scene.add(shieldRingA);
 
-  const lineGeo = new THREE.BufferGeometry().setFromPoints([
-    new THREE.Vector3(-4, 0.2, 0),
-    new THREE.Vector3(0, 0.2, 0),
-  ]);
-  const lineMat = new THREE.LineBasicMaterial({ color: 0xff4961, transparent: true, opacity: 0 });
-  pulseLine = new THREE.Line(lineGeo, lineMat);
+  shieldRingB = new THREE.Mesh(new THREE.TorusGeometry(2.28, 0.05, 18, 100), ringMat.clone());
+  shieldRingB.rotation.set(Math.PI / 2, 0, 0.44);
+  scene.add(shieldRingB);
+
+  pulseLine = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(-5.6, 0.2, 0),
+      new THREE.Vector3(0, 0.8, 0),
+    ]),
+    new THREE.LineBasicMaterial({ color: 0xff4e8f, transparent: true, opacity: 0 }),
+  );
   scene.add(pulseLine);
 
-  const nodeGeo = new THREE.BoxGeometry(0.55, 0.55, 0.55);
-  for (let i = 0; i < 6; i += 1) {
-    const angle = (Math.PI * 2 * i) / 6;
-    const mat = new THREE.MeshStandardMaterial({ color: 0x2f8fff, emissive: 0x11243b, metalness: 0.2, roughness: 0.55 });
+  const nodeGeo = new THREE.OctahedronGeometry(0.5, 0);
+  for (let i = 0; i < 7; i += 1) {
+    const angle = (Math.PI * 2 * i) / 7;
+    const radius = 4 + (i % 2) * 0.7;
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0x2e8dff,
+      emissive: 0x132b4c,
+      emissiveIntensity: 0.78,
+      metalness: 0.28,
+      roughness: 0.4,
+    });
     const node = new THREE.Mesh(nodeGeo, mat);
-    node.position.set(Math.cos(angle) * 3.2, 0.15 + ((i % 2) * 0.35), Math.sin(angle) * 2.4);
+    node.position.set(Math.cos(angle) * radius, 0.25 + ((i % 3) * 0.5), Math.sin(angle) * 2.8);
     scene.add(node);
     departmentNodes.push(node);
   }
+
+  const starCount = 160;
+  const starGeo = new THREE.BufferGeometry();
+  const starPos = new Float32Array(starCount * 3);
+  for (let i = 0; i < starCount; i += 1) {
+    starPos[i * 3] = (Math.random() - 0.5) * 22;
+    starPos[i * 3 + 1] = Math.random() * 8 + 1;
+    starPos[i * 3 + 2] = (Math.random() - 0.5) * 16;
+  }
+  starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+  stars = new THREE.Points(
+    starGeo,
+    new THREE.PointsMaterial({ color: 0x8ad9ff, size: 0.06, transparent: true, opacity: 0.82 }),
+  );
+  scene.add(stars);
+
+  const streamGeo = new THREE.BufferGeometry();
+  const streamCount = 70;
+  const streamPos = new Float32Array(streamCount * 3);
+  for (let i = 0; i < streamCount; i += 1) {
+    streamPos[i * 3] = (Math.random() - 0.5) * 18;
+    streamPos[i * 3 + 1] = Math.random() * 6.5;
+    streamPos[i * 3 + 2] = (Math.random() - 0.5) * 12;
+  }
+  streamGeo.setAttribute('position', new THREE.BufferAttribute(streamPos, 3));
+  stream = new THREE.Points(
+    streamGeo,
+    new THREE.PointsMaterial({ color: 0x40ffa7, size: 0.048, transparent: true, opacity: 0.68 }),
+  );
+  scene.add(stream);
 
   renderLoop();
 }
@@ -83,12 +202,25 @@ function buildScene() {
 function renderLoop() {
   if (!renderer || !scene || !camera) return;
   frameId = window.requestAnimationFrame(renderLoop);
-  if (shieldMesh) {
-    shieldMesh.rotation.z += 0.005;
-  }
+
+  if (shieldRingA) shieldRingA.rotation.z += 0.007;
+  if (shieldRingB) shieldRingB.rotation.y -= 0.005;
   if (coreMesh) {
-    coreMesh.rotation.y += 0.008;
+    coreMesh.rotation.y += 0.01;
+    coreMesh.rotation.x += 0.003;
   }
+  if (stars) {
+    stars.rotation.y += 0.0009;
+  }
+  if (stream) {
+    const attr = stream.geometry.getAttribute('position');
+    for (let i = 0; i < attr.count; i += 1) {
+      const y = attr.getY(i) - 0.035;
+      attr.setY(i, y < 0 ? 7 : y);
+    }
+    attr.needsUpdate = true;
+  }
+
   renderer.render(scene, camera);
 }
 
@@ -106,14 +238,14 @@ function parseColor(value, fallback) {
     if (typeof value === 'string' && value.trim()) {
       return new THREE.Color(value.trim());
     }
-  } catch (e) {
-    // Fall through to fallback color.
+  } catch {
+    // use fallback
   }
   return new THREE.Color(fallback);
 }
 
 function playAnimation(ev) {
-  if (!ev || !coreMesh || !shieldMesh || !pulseLine) {
+  if (!ev || !coreMesh || !shieldRingA || !shieldRingB || !pulseLine) {
     emit('animation-complete', ev?.eventId || null);
     return;
   }
@@ -121,57 +253,35 @@ function playAnimation(ev) {
   const targetNode = nodeByTarget(ev.targetKey);
   const severity = String(ev.severity || 'high').toLowerCase();
   const effectProfile = ev.effectProfile || ev.effect_profile || {};
-  const fallbackDanger = severity === 'critical' ? 0xff213f : 0xff5f3d;
+  const fallbackDanger = severity === 'critical' ? 0xff1d6f : 0xff5f3d;
   const danger = parseColor(effectProfile.primaryColor, fallbackDanger);
-  const calmColor = 0x2f8fff;
-  const scaleBoost = String(effectProfile.intensity || '').toLowerCase() === 'high' ? 1.52 : 1.42;
-  const animationDuration = Math.max(520, Number(effectProfile.durationMs || 680));
+  const calm = new THREE.Color(0x69d0ff);
+  const scaleBoost = String(effectProfile.intensity || '').toLowerCase() === 'high' ? 1.62 : 1.48;
+  const duration = Math.max(580, Number(effectProfile.durationMs || 760));
 
   const lineMat = pulseLine.material;
-  const targetPos = targetNode ? targetNode.position : new THREE.Vector3(2.8, 0.2, 0);
+  const targetPos = targetNode ? targetNode.position : new THREE.Vector3(3.4, 0.6, 0);
   pulseLine.geometry.setFromPoints([
-    new THREE.Vector3(-4.2, 0.2, 0),
+    new THREE.Vector3(-5.8, 0.2, -0.2),
     new THREE.Vector3(targetPos.x, targetPos.y, targetPos.z),
   ]);
 
-  gsap.timeline({
-    onComplete: () => {
-      emit('animation-complete', ev.eventId || null);
-    },
-  })
-    .to(lineMat, { opacity: 0.9, duration: animationDuration / 3400 })
-    .to(lineMat, { opacity: 0, duration: animationDuration / 3000 }, '+=0.08')
-    .to(coreMesh.scale, { x: 1.2, y: 1.2, z: 1.2, duration: animationDuration / 3800 }, 0)
-    .to(coreMesh.scale, { x: 1, y: 1, z: 1, duration: animationDuration / 2600 }, '+=0.16')
-    .to(shieldMesh.material.color, {
-      r: danger.r,
-      g: danger.g,
-      b: danger.b,
-      duration: animationDuration / 3800,
-    }, 0.04)
-    .to(shieldMesh.material.color, {
-      r: new THREE.Color(calmColor).r,
-      g: new THREE.Color(calmColor).g,
-      b: new THREE.Color(calmColor).b,
-      duration: animationDuration / 1700,
-    }, '+=0.18');
+  gsap.timeline({ onComplete: () => emit('animation-complete', ev.eventId || null) })
+    .to(lineMat, { opacity: 1, duration: duration / 3200 })
+    .to(lineMat, { opacity: 0, duration: duration / 2600 }, '+=0.08')
+    .to(coreMesh.scale, { x: 1.3, y: 1.3, z: 1.3, duration: duration / 3300 }, 0)
+    .to(coreMesh.scale, { x: 1, y: 1, z: 1, duration: duration / 2400 }, '+=0.2')
+    .to(shieldRingA.material.color, { r: danger.r, g: danger.g, b: danger.b, duration: duration / 3000 }, 0.02)
+    .to(shieldRingB.material.color, { r: danger.r, g: danger.g, b: danger.b, duration: duration / 2800 }, 0.04)
+    .to(shieldRingA.material.color, { r: calm.r, g: calm.g, b: calm.b, duration: duration / 1700 }, '+=0.2')
+    .to(shieldRingB.material.color, { r: calm.r, g: calm.g, b: calm.b, duration: duration / 1600 }, '<');
 
   if (targetNode) {
     gsap.timeline()
-      .to(targetNode.scale, { x: scaleBoost, y: scaleBoost, z: scaleBoost, duration: animationDuration / 4200 })
-      .to(targetNode.material.color, {
-        r: danger.r,
-        g: danger.g,
-        b: danger.b,
-        duration: animationDuration / 5600,
-      }, 0)
-      .to(targetNode.scale, { x: 1, y: 1, z: 1, duration: animationDuration / 2600 }, '+=0.22')
-      .to(targetNode.material.color, {
-        r: new THREE.Color(calmColor).r,
-        g: new THREE.Color(calmColor).g,
-        b: new THREE.Color(calmColor).b,
-        duration: animationDuration / 2100,
-      }, '+=0.05');
+      .to(targetNode.scale, { x: scaleBoost, y: scaleBoost, z: scaleBoost, duration: duration / 3900 })
+      .to(targetNode.material.color, { r: danger.r, g: danger.g, b: danger.b, duration: duration / 4400 }, 0)
+      .to(targetNode.scale, { x: 1, y: 1, z: 1, duration: duration / 2200 }, '+=0.26')
+      .to(targetNode.material.color, { r: calm.r, g: calm.g, b: calm.b, duration: duration / 1900 }, '+=0.06');
   }
 }
 
@@ -188,10 +298,8 @@ function handleResize() {
 watch(
   () => props.activeEvent?.eventId,
   () => {
-    if (props.activeEvent) {
-      playAnimation(props.activeEvent);
-    }
-  }
+    if (props.activeEvent) playAnimation(props.activeEvent);
+  },
 );
 
 onMounted(() => {
@@ -205,31 +313,105 @@ onBeforeUnmount(() => {
     window.cancelAnimationFrame(frameId);
     frameId = 0;
   }
+  departmentNodes.forEach((node) => {
+    node.geometry.dispose();
+    node.material.dispose();
+  });
+  departmentNodes.length = 0;
+  stars?.geometry?.dispose();
+  stars?.material?.dispose();
+  stream?.geometry?.dispose();
+  stream?.material?.dispose();
+  gridPlane?.material?.map?.dispose();
+  gridPlane?.geometry?.dispose();
+  gridPlane?.material?.dispose();
+  pulseLine?.geometry?.dispose();
+  pulseLine?.material?.dispose();
+  coreMesh?.geometry?.dispose();
+  coreMesh?.material?.dispose();
+  shieldRingA?.geometry?.dispose();
+  shieldRingA?.material?.dispose();
+  shieldRingB?.geometry?.dispose();
+  shieldRingB?.material?.dispose();
   if (renderer) {
     renderer.dispose();
     renderer = null;
   }
-  if (containerRef.value) {
-    containerRef.value.innerHTML = '';
-  }
-  departmentNodes.length = 0;
+  if (containerRef.value) containerRef.value.innerHTML = '';
   scene = null;
   camera = null;
   coreMesh = null;
-  shieldMesh = null;
+  shieldRingA = null;
+  shieldRingB = null;
   pulseLine = null;
+  gridPlane = null;
+  stars = null;
+  stream = null;
 });
 </script>
 
 <style scoped>
+.security-visual-shell {
+  position: relative;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid rgba(94, 214, 255, 0.28);
+  box-shadow: 0 0 0 1px rgba(67, 132, 255, 0.22) inset, 0 22px 42px rgba(0, 8, 25, 0.55);
+}
+
 .security-3d-canvas {
   width: 100%;
-  height: 280px;
-  border-radius: 12px;
+  height: 320px;
+  border-radius: 14px;
   background:
-    radial-gradient(circle at 20% 20%, rgba(46, 129, 255, 0.18), transparent 35%),
-    radial-gradient(circle at 80% 80%, rgba(118, 189, 255, 0.14), transparent 32%),
-    linear-gradient(140deg, rgba(5, 17, 34, 0.95), rgba(4, 10, 20, 0.92));
-  border: 1px solid rgba(118, 170, 255, 0.22);
+    radial-gradient(circle at 16% 18%, rgba(36, 134, 255, 0.22), transparent 42%),
+    radial-gradient(circle at 84% 82%, rgba(255, 37, 115, 0.2), transparent 40%),
+    linear-gradient(150deg, rgba(3, 7, 16, 0.98), rgba(4, 11, 23, 0.98));
+}
+
+.scanlines {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(196, 244, 255, 0.04) 0px,
+    rgba(196, 244, 255, 0.04) 1px,
+    transparent 1px,
+    transparent 4px
+  );
+  mix-blend-mode: screen;
+  animation: scanMove 7s linear infinite;
+}
+
+.hud-overlay {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 10px;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 11px;
+  letter-spacing: 0.09em;
+  color: rgba(142, 236, 255, 0.92);
+  text-shadow: 0 0 12px rgba(76, 203, 255, 0.66);
+  pointer-events: none;
+}
+
+@keyframes scanMove {
+  0% { transform: translateY(0); }
+  100% { transform: translateY(16px); }
+}
+
+@media (max-width: 900px) {
+  .security-3d-canvas {
+    height: 280px;
+  }
+
+  .hud-overlay {
+    font-size: 10px;
+    letter-spacing: 0.06em;
+  }
 }
 </style>

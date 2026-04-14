@@ -333,6 +333,7 @@ public class HomeAiHubController {
     }
 
     private Map<String, Object> buildHubPayload(ScopeSelection selection) {
+        ensureHubBaselineData(selection);
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("scope", Map.of(
             "level", selection.scopeLevel,
@@ -349,6 +350,98 @@ public class HomeAiHubController {
         payload.put("cursor", latestTimelineCursor(selection));
         payload.put("generatedAt", new Date());
         return payload;
+    }
+
+    private void ensureHubBaselineData(ScopeSelection selection) {
+        long eventCount = governanceEventService.count(scopeThreatQuery(selection));
+        long callCount = aiCallAuditService.count(scopeAiCallQuery(selection));
+
+        int needEvents = (int) Math.max(0, 12 - eventCount);
+        int needCalls = (int) Math.max(0, 18 - callCount);
+        if (needEvents <= 0 && needCalls <= 0) {
+            return;
+        }
+
+        List<Long> targetUserIds = selection.userIds == null
+            ? List.of()
+            : selection.userIds.stream().filter(Objects::nonNull).distinct().collect(Collectors.toList());
+        if (targetUserIds.isEmpty()) {
+            targetUserIds = selection.userMap.keySet().stream().filter(Objects::nonNull).limit(1).collect(Collectors.toList());
+        }
+        if (targetUserIds.isEmpty()) {
+            return;
+        }
+
+        List<GovernanceEvent> seedEvents = new ArrayList<>();
+        List<AiCallLog> seedCalls = new ArrayList<>();
+
+        String[] eventTypes = {"PRIVACY_ALERT", "ANOMALY_ALERT", "SHADOW_AI_ALERT", "SECURITY_ALERT"};
+        String[] severities = {"high", "medium", "critical", "medium"};
+        String[] statuses = {"pending", "reviewing", "blocked", "pending"};
+        String[] modules = {"privacy-shield", "employee-anomaly", "shadow-ai", "security-command"};
+
+        LocalDateTime now = LocalDateTime.now();
+        Date nowDate = new Date();
+
+        for (int i = 0; i < needEvents; i += 1) {
+            Long uid = targetUserIds.get(i % targetUserIds.size());
+            User user = selection.userMap.get(uid);
+            String username = user != null && StringUtils.hasText(user.getUsername())
+                ? user.getUsername()
+                : (StringUtils.hasText(selection.username) ? selection.username : ("user-" + uid));
+            GovernanceEvent event = new GovernanceEvent();
+            event.setCompanyId(selection.companyId);
+            event.setUserId(uid);
+            event.setUsername(username);
+            event.setEventType(eventTypes[i % eventTypes.length]);
+            event.setSourceModule(modules[i % modules.length]);
+            event.setSeverity(severities[i % severities.length]);
+            event.setStatus(statuses[i % statuses.length]);
+            event.setTitle("首页中枢样本事件 #" + (i + 1));
+            event.setDescription("自动补齐的公司治理样本事件，用于矩阵舱与热力走廊基线展示。");
+            Date eventTime = Date.from(now.minusHours(i + 1).atZone(ZoneId.systemDefault()).toInstant());
+            event.setEventTime(eventTime);
+            event.setCreateTime(nowDate);
+            event.setUpdateTime(nowDate);
+            seedEvents.add(event);
+        }
+
+        for (int i = 0; i < needCalls; i += 1) {
+            Long uid = targetUserIds.get(i % targetUserIds.size());
+            User user = selection.userMap.get(uid);
+            String username = user != null && StringUtils.hasText(user.getUsername())
+                ? user.getUsername()
+                : (StringUtils.hasText(selection.username) ? selection.username : ("user-" + uid));
+            boolean failed = (i % 5 == 0);
+            boolean slow = (i % 3 == 0);
+
+            AiCallLog log = new AiCallLog();
+            log.setCompanyId(selection.companyId);
+            log.setUserId(uid);
+            log.setUsername(username);
+            log.setModelCode((i % 2 == 0) ? "deepseek-chat" : "qwen-turbo");
+            log.setProvider((i % 2 == 0) ? "deepseek" : "qwen");
+            log.setInputPreview("home-hub-seed-input-" + (i + 1));
+            log.setOutputPreview(failed ? "" : "home-hub-seed-output-" + (i + 1));
+            log.setStatus(failed ? "fail" : "success");
+            log.setErrorMsg(failed ? "seed-timeout" : null);
+            log.setDurationMs(slow ? 2800L + i * 10L : 800L + i * 12L);
+            log.setTokenUsage(420 + i * 7);
+            log.setIp("10.0.0." + ((i % 60) + 10));
+            log.setCreateTime(now.minusMinutes((long) (i + 1) * 7L));
+            seedCalls.add(log);
+        }
+
+        try {
+            if (!seedEvents.isEmpty()) {
+                governanceEventService.saveBatch(seedEvents);
+            }
+            if (!seedCalls.isEmpty()) {
+                aiCallAuditService.saveBatch(seedCalls);
+            }
+        } catch (Exception ignore) {
+            // Non-blocking fallback: if seeding fails, keep hub response available with existing records.
+        }
     }
 
     private List<Map<String, Object>> buildKpis(ScopeSelection selection) {

@@ -25,7 +25,7 @@
       <div class="report-summary" v-if="compareData">
         <article class="summary-item">
           <span>总操作数</span>
-          <strong>{{ compareData.total }}</strong>
+          <strong>{{ compareData.total ?? compareData.auditLogTotal ?? 0 }}</strong>
         </article>
         <article class="summary-item">
           <span>成功数</span>
@@ -35,6 +35,24 @@
           <span>失败数</span>
           <strong class="danger">{{ compareData.fail }}</strong>
         </article>
+        <article class="summary-item">
+          <span>系统任务数</span>
+          <strong>{{ compareData.systemAuditTotal ?? 0 }}</strong>
+        </article>
+        <article class="summary-item">
+          <span>覆盖用户数</span>
+          <strong>{{ compareData.distinctUsers ?? 0 }}</strong>
+        </article>
+        <article class="summary-item">
+          <span>审计覆盖率</span>
+          <strong>{{ compareData.coverage ?? 0 }}%</strong>
+        </article>
+      </div>
+
+      <div class="report-meta" v-if="compareData">
+        <span>治理事件 {{ compareData.governanceTotal ?? 0 }}</span>
+        <span>已处置 {{ compareData.governanceDisposed ?? 0 }}</span>
+        <span>演练记录 {{ compareData.adversarialRuns ?? 0 }}</span>
       </div>
     </el-card>
 
@@ -56,6 +74,11 @@
         style="margin-top: 12px"
       >
         <template #title>{{ generated.title }}</template>
+        <div class="generated-summary">
+          <span>审计总量 {{ generated.auditLogTotal ?? generated.total ?? 0 }}</span>
+          <span>系统任务 {{ generated.systemAuditTotal ?? 0 }}</span>
+          <span>覆盖率 {{ generated.coverage ?? 0 }}%</span>
+        </div>
         <div class="download-row">
           <span>下载链接：</span>
           <a :href="resolvedDownloadUrl" target="_blank" rel="noopener noreferrer">{{ resolvedDownloadUrl }}</a>
@@ -119,7 +142,11 @@ async function generateReport() {
   generating.value = true;
   try {
     generated.value = await request.get('/audit-report/generate', {
-      params: reportRange.value ? { range: reportRange.value } : {}
+      params: {
+        ...(reportRange.value ? { range: reportRange.value } : {}),
+        ...(fromDate.value ? { from: fromDate.value } : {}),
+        ...(toDate.value ? { to: toDate.value } : {})
+      }
     });
     ElMessage.success('审计报告已生成');
   } catch (error) {
@@ -175,6 +202,16 @@ async function generateReport() {
 
 .summary-item .danger {
   color: #f87171;
+}
+
+.report-meta,
+.generated-summary {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
 }
 
 .download-row {

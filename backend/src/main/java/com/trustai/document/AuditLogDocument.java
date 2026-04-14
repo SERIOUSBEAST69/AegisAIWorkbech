@@ -29,4 +29,5 @@ public class AuditLogDocument {
     private String hash;
     @Field(type = FieldType.Date)
     private Date createTime;
+    private String actorType;
 }

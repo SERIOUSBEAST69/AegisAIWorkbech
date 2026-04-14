@@ -18,20 +18,10 @@ const EmployeeAiBehaviorMonitor = () => import('../views/EmployeeAiBehaviorMonit
 const ThreatMonitor = () => import('../views/ThreatMonitor.vue');
 import { getSession, hasActiveSession } from '../utils/auth';
 import { canAccessPath } from '../utils/persona';
-import { hasPermissionByUser } from '../utils/permission';
-
-function isPlatformAdmin(user) {
-  const roleCode = String(user?.roleCode || '').trim().toUpperCase();
-  return roleCode === 'ADMIN';
-}
-
-function isAdminReviewerReadOnlyPath(user, path) {
-  const roleCode = String(user?.roleCode || '').trim().toUpperCase();
-  if (roleCode !== 'ADMIN_REVIEWER') {
-    return false;
-  }
-  return path === '/user-manage' || path === '/role-manage' || path === '/permission-manage';
-}
+import {
+  isPermissionLogJump,
+  shouldBlockByMetaPermission,
+} from '../utils/accessGuardPolicy';
 
 const routes = [
   { path: '/login', name: 'Login', component: Login, meta: { public: true, depth: 0 } },
@@ -73,17 +63,19 @@ router.beforeEach((to, from, next) => {
   }
 
   const session = getSession();
-  const isPermissionLogJump = to.path === '/audit-log'
-    && from.path === '/permission-manage'
-    && hasPermissionByUser(session?.user, 'permission:manage');
-  if (isPermissionLogJump) {
+  const permissionLogJump = isPermissionLogJump({
+    toPath: to.path,
+    fromPath: from.path,
+    user: session?.user,
+  });
+  if (permissionLogJump) {
     return next();
   }
-  if (to.meta?.permission
-    && !hasPermissionByUser(session?.user, to.meta.permission)
-    && !isPlatformAdmin(session?.user)
-    && !isAdminReviewerReadOnlyPath(session?.user, to.path)
-    && !isPermissionLogJump) {
+  if (shouldBlockByMetaPermission({
+    toMetaPermission: to.meta?.permission,
+    toPath: to.path,
+    user: session?.user,
+  })) {
     return next('/');
   }
   if (!canAccessPath(to.path, session?.user)) {

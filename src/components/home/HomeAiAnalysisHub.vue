@@ -206,7 +206,7 @@
           <template #header>
             <div class="panel-headline panel-headline-between">
               <div class="deepseek-title-block">
-                <span>DeepSeek智能解读</span>
+                <span class="deepseek-title-text">DeepSeek智能解读 <span class="deepseek-emoji" aria-hidden="true">🐋</span></span>
                 <small>聚焦 DeepSeek 全库治理解读</small>
               </div>
               <div class="deepseek-header-actions">
@@ -214,9 +214,6 @@
               </div>
             </div>
           </template>
-          <div class="deepseek-whale-stage" aria-hidden="true">
-            <img class="deepseek-icon" :src="deepseekLogoUrl" alt="" />
-          </div>
           <div v-if="deepseekText" class="deepseek-content">{{ deepseekText }}</div>
           <el-empty v-else description="暂无智能解读结果" :image-size="54" />
           </el-card>
@@ -233,7 +230,6 @@ import { dashboardApi } from '../../api/dashboard';
 import BorderGlow from '../../components/BorderGlow.vue';
 import WarMatrixBay from './WarMatrixBay.vue';
 import RiskHeatCorridor from './RiskHeatCorridor.vue';
-import deepseekLogoUrl from '../../assets/icons/deepseek-logo.svg';
 
 const props = defineProps({
   hub: {
@@ -778,6 +774,17 @@ onBeforeUnmount(() => {
   gap: 2px;
 }
 
+.deepseek-title-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.deepseek-emoji {
+  font-size: 16px;
+  line-height: 1;
+}
+
 .deepseek-title-block small {
   color: #9cb8dd;
   font-size: 11px;
@@ -1071,37 +1078,34 @@ onBeforeUnmount(() => {
 .deepseek-panel {
   position: relative;
   overflow: hidden;
+  border: 1px solid rgba(126, 178, 244, 0.36);
+  background:
+    radial-gradient(140% 110% at 15% 8%, rgba(112, 176, 255, 0.26), transparent 56%),
+    radial-gradient(130% 110% at 88% 100%, rgba(40, 108, 199, 0.34), transparent 60%),
+    linear-gradient(168deg, rgba(6, 21, 46, 0.9), rgba(5, 14, 30, 0.86));
 }
 
-.deepseek-whale-stage {
+.deepseek-panel::before {
+  content: '';
   position: absolute;
-  inset: 44px 12px 12px 56%;
+  inset: 0;
   pointer-events: none;
-  opacity: 0.9;
-}
-
-.deepseek-icon {
-  width: 76%;
-  max-width: 220px;
-  opacity: 0.92;
-  filter: drop-shadow(0 0 12px rgba(98, 154, 255, 0.34));
-  animation: deepseekFloat 8s ease-in-out infinite;
+  background:
+    radial-gradient(circle at 18% 24%, rgba(186, 220, 255, 0.12), transparent 30%),
+    repeating-linear-gradient(112deg, rgba(130, 188, 255, 0.08) 0, rgba(130, 188, 255, 0.08) 1px, transparent 1px, transparent 28px);
+  mix-blend-mode: screen;
+  opacity: 0.58;
 }
 
 .deepseek-content {
   position: relative;
-  z-index: 1;
-  padding-right: 30%;
-  color: #d8e7ff;
-  text-shadow: 0 0 10px rgba(60, 128, 189, 0.22);
-}
-
-.ai-hub-shell.motion-tier-medium .deepseek-icon {
-  animation-duration: 11s;
-}
-
-.ai-hub-shell.motion-tier-low .deepseek-whale-stage {
-  opacity: 0.35;
+  z-index: 2;
+  padding: 8px 4px;
+  color: #eaf3ff;
+  font-size: 15px;
+  line-height: 1.9;
+  text-shadow: 0 1px 6px rgba(9, 34, 73, 0.5);
+  font-weight: 500;
 }
 
 .ai-hub-shell.motion-tier-low .hub-ambient-grid,
@@ -1122,7 +1126,7 @@ onBeforeUnmount(() => {
   transition: none !important;
 }
 
-.ai-hub-shell.reduce-motion .deepseek-icon,
+.ai-hub-shell.reduce-motion .deepseek-emoji,
 .ai-hub-shell.reduce-motion .corridor-item .radar-heat-track i {
   animation: none !important;
 }
@@ -1131,12 +1135,6 @@ onBeforeUnmount(() => {
   0% { filter: saturate(1.05) brightness(0.95); }
   50% { filter: saturate(1.28) brightness(1.12); }
   100% { filter: saturate(1.05) brightness(0.95); }
-}
-
-@keyframes deepseekFloat {
-  0% { transform: translate3d(0, 6px, 0) scale(1); }
-  50% { transform: translate3d(0, -3px, 0) scale(1.02); }
-  100% { transform: translate3d(0, 6px, 0) scale(1); }
 }
 
 @keyframes ambientShift {
@@ -1187,15 +1185,5 @@ onBeforeUnmount(() => {
     justify-content: space-between;
     flex-wrap: wrap;
   }
-
-  .deepseek-whale-stage {
-    opacity: 0.58;
-    inset: 52px 8px 10px 62%;
-  }
-
-  .deepseek-content {
-    padding-right: 14%;
-  }
-
 }
 </style>

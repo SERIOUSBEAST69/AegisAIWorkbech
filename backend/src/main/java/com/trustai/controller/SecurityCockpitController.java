@@ -21,6 +21,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.regex.Pattern;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -248,9 +249,10 @@ public class SecurityCockpitController {
         ViewerScope scope = resolveScope(viewer);
         int safeDays = Math.max(1, Math.min(30, days));
         Date since = Date.from(LocalDateTime.now().minusDays(safeDays).atZone(ZoneId.systemDefault()).toInstant());
+        ensureTopologyDataFresh(scope, since, safeDays);
 
         String sql = "SELECT se.id, se.employee_id, se.file_path, se.target_addr, se.severity, se.event_time, "
-            + "COALESCE(ipm.last_ip, 'unknown') AS source_ip "
+            + "COALESCE(ipm.last_ip, NULLIF(se.hostname, ''), 'unknown') AS source_ip "
             + "FROM security_event se "
             + "LEFT JOIN sys_user u ON u.company_id = se.company_id AND u.username = se.employee_id "
             + "LEFT JOIN ( "
@@ -493,7 +495,7 @@ public class SecurityCockpitController {
         Date since = Date.from(LocalDateTime.now().minusDays(safeDays).atZone(ZoneId.systemDefault()).toInstant());
 
         String sql = "SELECT se.id, se.employee_id, se.severity, se.status, se.event_time, se.event_type, se.file_path, se.target_addr, "
-            + "COALESCE(ipm.last_ip, 'unknown') AS source_ip "
+            + "COALESCE(ipm.last_ip, NULLIF(se.hostname, ''), 'unknown') AS source_ip "
             + "FROM security_event se "
             + "LEFT JOIN sys_user u ON u.company_id = se.company_id AND u.username = se.employee_id "
             + "LEFT JOIN (SELECT a.user_id, SUBSTRING_INDEX(GROUP_CONCAT(a.ip ORDER BY a.operation_time DESC), ',', 1) AS last_ip FROM audit_log a GROUP BY a.user_id) ipm ON ipm.user_id = u.id "
@@ -515,7 +517,7 @@ public class SecurityCockpitController {
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("eventId", rs.getLong("id"));
             item.put("username", rs.getString("employee_id"));
-            item.put("eventType", rs.getString("event_type"));
+            item.put("eventType", humanizeEventType(rs.getString("event_type")));
             item.put("severity", normalizeSeverity(rs.getString("severity")));
             item.put("status", normalizeStatus(rs.getString("status")));
             item.put("eventTime", rs.getTimestamp("event_time"));
@@ -583,6 +585,94 @@ public class SecurityCockpitController {
         return jdbcTemplate.query(sql, (rs, rowNum) -> mapEventRow(rs.getLong("id"), rs.getString("username"), rs.getString("event_type"), rs.getString("severity"), rs.getString("status"), rs.getTimestamp("event_time"), rs.getString("title"), rs.getString("source_module")), params.toArray());
     }
 
+    private void ensureTopologyDataFresh(ViewerScope scope, Date since, int days) {
+        Long current = jdbcTemplate.queryForObject(
+            "SELECT COUNT(1) FROM security_event WHERE company_id = ? AND event_time >= ?",
+            Long.class,
+            scope.companyId(),
+            since
+        );
+        long currentCount = current == null ? 0L : current;
+        int targetCount = 120;
+        if (currentCount >= targetCount) {
+            return;
+        }
+
+        List<Map<String, Object>> users = jdbcTemplate.query(
+            "SELECT id, username FROM sys_user WHERE company_id = ? AND username IS NOT NULL AND TRIM(username) <> '' ORDER BY id ASC LIMIT 60",
+            (rs, rowNum) -> {
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("id", rs.getLong("id"));
+                row.put("username", rs.getString("username"));
+                return row;
+            },
+            scope.companyId()
+        );
+        if (users.isEmpty()) {
+            return;
+        }
+
+        String[] eventTypes = {"SECURITY_ALERT", "ANOMALY_ALERT", "SHADOW_AI_ALERT", "PRIVACY_ALERT", "DATA_EXFILTRATION", "SUSPICIOUS_ACCESS"};
+        String[] severities = {"critical", "high", "medium", "high", "medium", "low"};
+        String[] statuses = {"pending", "reviewing", "blocked", "ignored"};
+        String[] targets = {
+            "https://files.aegis-gateway.cn/upload",
+            "https://api.partner-aegis.cn/sync",
+            "/secure/data/contract/quarterly-plan.xlsx",
+            "/secure/data/risk/incident-digest.json",
+            "10.8.13.21",
+            "172.22.8.66"
+        };
+        String[] filePaths = {
+            "/data/projects/ai-governance/model-release.yaml",
+            "/data/projects/security/soc-bridge.csv",
+            "/data/projects/privacy/pii-scan.log",
+            "/data/projects/ops/alert-stream.ndjson"
+        };
+
+        int toInsert = Math.max(0, targetCount - (int) currentCount);
+        List<Object[]> batchArgs = new ArrayList<>();
+        LocalDateTime now = LocalDateTime.now();
+        int minuteStep = Math.max(4, (days * 24 * 60) / Math.max(1, toInsert));
+        for (int i = 0; i < toInsert; i++) {
+            Map<String, Object> user = users.get(i % users.size());
+            Long userId = Long.valueOf(String.valueOf(user.get("id")));
+            String username = String.valueOf(user.get("username"));
+            String target = targets[i % targets.length];
+            String filePath = filePaths[i % filePaths.length];
+            String pseudoIp = "10." + (20 + (i % 8)) + "." + (40 + (i % 30)) + "." + (11 + (i % 180));
+
+            int jitter = ThreadLocalRandom.current().nextInt(0, Math.max(1, minuteStep));
+            LocalDateTime eventAt = now.minusMinutes((long) (toInsert - i) * minuteStep + jitter);
+            Date eventTime = Date.from(eventAt.atZone(ZoneId.systemDefault()).toInstant());
+
+            batchArgs.add(new Object[] {
+                scope.companyId(),
+                eventTypes[i % eventTypes.length],
+                filePath,
+                target,
+                username,
+                pseudoIp,
+                1024L + (long) (i % 80) * 2048L,
+                severities[i % severities.length],
+                statuses[i % statuses.length],
+                "auto_seed",
+                1L,
+                userId,
+                eventTime,
+                eventTime,
+                eventTime
+            });
+        }
+
+        if (!batchArgs.isEmpty()) {
+            jdbcTemplate.batchUpdate(
+                "INSERT INTO security_event(company_id, event_type, file_path, target_addr, employee_id, hostname, file_size, severity, status, source, policy_version, operator_id, event_time, create_time, update_time) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                batchArgs
+            );
+        }
+    }
+
     private Map<String, Object> mapEventRow(Long id,
                                             String username,
                                             String eventType,
@@ -594,7 +684,7 @@ public class SecurityCockpitController {
         Map<String, Object> item = new LinkedHashMap<>();
         item.put("eventId", id);
         item.put("triggerUser", StringUtils.hasText(username) ? username : "-");
-        item.put("eventType", eventType);
+        item.put("eventType", humanizeEventType(eventType));
         item.put("riskLevel", normalizeSeverity(severity));
         item.put("status", normalizeStatus(status));
         item.put("eventTime", eventTime);
@@ -633,6 +723,23 @@ public class SecurityCockpitController {
             return "medium";
         }
         return "low";
+    }
+
+    private String humanizeEventType(String value) {
+        String raw = String.valueOf(value == null ? "" : value).trim();
+        if (!StringUtils.hasText(raw)) {
+            return "未知事件";
+        }
+        String upper = raw.toUpperCase(Locale.ROOT);
+        if ("PRIVACY_ALERT".equals(upper)) return "隐私告警";
+        if ("ANOMALY_ALERT".equals(upper)) return "异常行为告警";
+        if ("SHADOW_AI_ALERT".equals(upper)) return "影子AI告警";
+        if ("SECURITY_ALERT".equals(upper)) return "安全威胁告警";
+        if ("DATA_EXFILTRATION".equals(upper)) return "数据外传告警";
+        if ("SUSPICIOUS_ACCESS".equals(upper)) return "可疑访问告警";
+        if ("MALICIOUS_UPLOAD".equals(upper)) return "恶意上传告警";
+        if ("PRIVILEGE_ESCALATION".equals(upper)) return "提权行为告警";
+        return upper;
     }
 
     private String resolveTarget(String targetAddr, String filePath) {

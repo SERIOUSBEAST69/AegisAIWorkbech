@@ -156,7 +156,7 @@ public class AiRiskRatingController {
     public R<Map<String, Object>> riskRadarProfile(@RequestParam(required = false) String username) {
         User current = currentUserService.requireCurrentUser();
         Long companyId = companyScopeService.requireCompanyId();
-        boolean canQueryOthers = currentUserService.hasAnyRole("ADMIN", "ADMIN_REVIEWER", "SECOPS", "BUSINESS_OWNER");
+        boolean canQueryOthers = currentUserService.hasAnyRole("ADMIN", "ADMIN_REVIEWER", "SECOPS");
 
         User target = current;
         if (StringUtils.hasText(username) && canQueryOthers) {
@@ -279,7 +279,7 @@ public class AiRiskRatingController {
     public R<Map<String, Object>> riskRadarUsers() {
         User current = currentUserService.requireCurrentUser();
         Long companyId = companyScopeService.requireCompanyId();
-        boolean canQueryOthers = currentUserService.hasAnyRole("ADMIN", "ADMIN_REVIEWER", "SECOPS", "BUSINESS_OWNER");
+        boolean canQueryOthers = currentUserService.hasAnyRole("ADMIN", "ADMIN_REVIEWER", "SECOPS");
 
         List<Map<String, Object>> users = jdbcTemplate.query(
             "SELECT u.id, u.username, COALESCE(NULLIF(TRIM(u.real_name), ''), u.username) AS real_name, "

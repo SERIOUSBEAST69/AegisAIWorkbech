@@ -43,8 +43,9 @@ let rafId = null;
 let nativeCursorHidden = false;
 
 function hideNativeCursor() {
-  document.documentElement.style.cursor = 'none';
-  nativeCursorHidden = true;
+  // Keep native cursor visible to avoid accidental invisible-pointer states.
+  document.documentElement.style.cursor = 'auto';
+  nativeCursorHidden = false;
 }
 
 function showNativeCursor() {
@@ -67,6 +68,10 @@ function tick() {
 function onMouseMove(e) {
   mx = e.clientX;
   my = e.clientY;
+  // Restore visibility on any movement in case overlays changed focus state.
+  if (ringEl.value && dotEl.value) {
+    gsap.set([ringEl.value, dotEl.value], { opacity: 1 });
+  }
 }
 
 const CLICKABLE = 'a, button, [role="button"], label, select, input[type="checkbox"], input[type="radio"], .clickable, .nav-item, .el-menu-item, .el-button, .el-dropdown, .el-link, [data-cursor="pointer"]';
@@ -118,7 +123,7 @@ function onWindowFocus() {
 }
 
 onMounted(() => {
-  // 默认启用自定义光标，必要时退回系统光标避免“看不见鼠标”
+  // Always show native cursor to keep pointer visible in all navigation states.
   hideNativeCursor();
 
   window.addEventListener('mousemove', onMouseMove,     { passive: true });
@@ -137,7 +142,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
-  document.documentElement.style.cursor = '';
+  document.documentElement.style.cursor = 'auto';
   window.removeEventListener('mousemove', onMouseMove);
   window.removeEventListener('mousemove', updateCursorState);
   window.removeEventListener('mousedown', onMouseDown);
