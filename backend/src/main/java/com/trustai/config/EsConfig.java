@@ -6,10 +6,12 @@ import org.elasticsearch.client.RestHighLevelClient;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 
 import java.net.URI;
 
 @Configuration
+@ConditionalOnProperty(prefix = "app.elasticsearch", name = "enabled", havingValue = "true")
 @SuppressWarnings("deprecation")
 public class EsConfig {
 

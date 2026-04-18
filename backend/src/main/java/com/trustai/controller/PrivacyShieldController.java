@@ -60,7 +60,8 @@ public class PrivacyShieldController {
             @RequestHeader(value = "X-Client-Token", required = false) String clientToken,
             @RequestHeader(value = "X-Company-Id", required = false) Long headerCompanyId,
             @RequestBody PrivacyEventReportReq req) {
-        if (!clientIngressAuthService.isAuthorized(clientToken)) {
+        String normalizedToken = clientIngressAuthService.normalizeToken(clientToken);
+        if (!StringUtils.hasText(normalizedToken) || !clientIngressAuthService.isAcceptedClientToken(normalizedToken)) {
             return R.error(40100, "客户端令牌无效");
         }
         if (req == null) {

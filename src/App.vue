@@ -219,6 +219,7 @@ async function syncElectronAuthState() {
   try {
     await window.aegisClient.setAuthState({
       authenticated: Boolean(userStore.token && userStore.userInfo),
+      token: userStore.token || '',
       user: userStore.userInfo || null,
     });
     if (!userStore.token && window.aegisClient?.clearClientToken) {

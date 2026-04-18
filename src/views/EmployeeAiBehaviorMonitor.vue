@@ -60,10 +60,11 @@
       <div class="sim-head">
         <div>
           <h3>员工AI异常行为监控</h3>
-          <p>基于 CircularGallery 的员工卡片流，按治理部门分组展示；异常触发后部门与角色联动高亮告警。</p>
+          <p>基于 CircularGallery 的员工卡片流，按治理部门分组展示；支持模拟演练与客户端真实上报叠加联动。</p>
         </div>
         <div class="sim-actions">
-          <el-button type="danger" plain :loading="simulationTriggering" @click="triggerComplianceSimulation">触发异常告警</el-button>
+          <el-button type="danger" plain :loading="simulationTriggering" @click="triggerComplianceSimulation">触发异常告警（模拟）</el-button>
+          <el-tag type="warning" effect="plain">真实检测与模拟演练同时显示</el-tag>
           <el-tag type="danger" effect="dark" v-if="activeSimulationMeta">
             当前告警：{{ activeSimulationMeta.employeeLabel }} / {{ activeSimulationMeta.department }} · {{ activeSimulationMeta.role }}
           </el-tag>
@@ -211,6 +212,8 @@ const anomalySummaryOnly = ref(false);
 const anomalySummary = ref({ total: 0, anomalyCount: 0, normalCount: 0, anomalyRate: 0 });
 const anomalyTotalRecords = ref(0);
 const modelReady = ref(false);
+const simulationTriggering = ref(false);
+const simulatedAnomalyEvents = ref([]);
 const visualLayersReady = ref(false);
 let visualMountTimer = null;
 const privacySummary = ref({ total: 0, today: 0, extensionCount: 0, clipboardCount: 0, summaryOnly: false });
@@ -218,9 +221,8 @@ const activeSimulationMeta = ref(null);
 const activeGalleryCardKey = ref('');
 const activeDepartmentKey = ref('');
 const expandedDepartmentKeys = ref([]);
-const simulationTriggering = ref(false);
 // Keep one lightweight visual layer by default to avoid page-open jank.
-const showPrismLayer = false;
+const showPrismLayer = true;
 const MAX_GALLERY_CARDS = 12;
 const tablePagination = ref({
   page: 1,
@@ -374,7 +376,7 @@ const anomalyTableRows = computed(() => {
     const role = String(anomalyRole(item) || '-');
     const aiService = String(item?.ai_service || '-');
     const sourceTag = String(item?.source_tag || 'anomaly').toLowerCase();
-    const eventSource = sourceTag === 'privacy' ? '隐私告警' : '异常行为';
+    const eventSource = sourceTagToLabel(sourceTag);
     const riskLevel = normalizeRiskLevel(item);
     const riskLevelText = riskLevel === 'critical' ? '严重' : riskLevel === 'high' ? '高' : riskLevel === 'medium' ? '中' : '低';
     const riskTagType = riskLevel === 'critical' || riskLevel === 'high' ? 'danger' : riskLevel === 'medium' ? 'warning' : 'success';
@@ -457,6 +459,27 @@ const directoryEmployees = computed(() => {
     seen.add(uniqueKey);
     employees.push(candidate);
   }
+
+  const currentUser = userStore.userInfo || null;
+  const currentUsernameValue = String(currentUser?.username || '').toLowerCase();
+  const currentUserIdValue = currentUser?.id != null ? String(currentUser.id) : '';
+  if (currentUser && currentUsernameValue) {
+    const hasCurrent = employees.some((candidate) => {
+      const sameUsername = String(candidate?.username || '').toLowerCase() === currentUsernameValue;
+      const sameUserId = currentUserIdValue && String(candidate?.id || '') === currentUserIdValue;
+      return sameUsername || sameUserId;
+    });
+    if (!hasCurrent) {
+      employees.push({
+        id: currentUserIdValue || currentUsernameValue,
+        username: currentUser.username,
+        roleCode: currentUser.roleCode,
+        roleCodes: Array.isArray(currentUser.roleCodes) ? currentUser.roleCodes : (currentUser.roleCode ? [currentUser.roleCode] : []),
+        department: currentUser.department || '-',
+      });
+    }
+  }
+
   if (isCompanyScopeView.value) return employees;
   if (isDepartmentScopeView.value) {
     const dept = currentDepartment.value;
@@ -527,14 +550,27 @@ const galleryCards = computed(() => {
     return sorted;
   }
 
-  return [...sorted]
+  const ranked = [...sorted]
     .sort((a, b) => {
       const riskGap = riskWeight(b.risk) - riskWeight(a.risk);
       if (riskGap !== 0) return riskGap;
       if (a.departmentOrder !== b.departmentOrder) return a.departmentOrder - b.departmentOrder;
       return a.employeeName.localeCompare(b.employeeName, 'zh-CN');
-    })
-    .slice(0, MAX_GALLERY_CARDS)
+    });
+
+  let selected = ranked.slice(0, MAX_GALLERY_CARDS);
+  const currentCandidate = sorted.find((card) => {
+    const sameUsername = currentUsername.value && String(card?.username || '').toLowerCase() === currentUsername.value;
+    const sameUserId = currentUserId.value && String(card?.employeeId || '') === currentUserId.value;
+    return sameUsername || sameUserId;
+  });
+
+  if (currentCandidate && !selected.some(item => item.key === currentCandidate.key)) {
+    selected = selected.slice(0, Math.max(0, MAX_GALLERY_CARDS - 1));
+    selected.push(currentCandidate);
+  }
+
+  return selected
     .sort((a, b) => {
       if (a.departmentOrder !== b.departmentOrder) return a.departmentOrder - b.departmentOrder;
       if (a.department !== b.department) return a.department.localeCompare(b.department, 'zh-CN');
@@ -618,6 +654,64 @@ const highestRiskGalleryCard = computed(() => {
   return bestWeight >= 3 ? best : null;
 });
 
+const currentUserRiskCard = computed(() => {
+  const username = currentUsername.value;
+  const userId = currentUserId.value;
+  if (!username && !userId) {
+    return null;
+  }
+  let best = null;
+  let bestWeight = 0;
+  for (const card of displayedGalleryCards.value) {
+    const sameUsername = username && String(card?.username || '').toLowerCase() === username;
+    const sameUserId = userId && String(card?.employeeId || '') === userId;
+    if (!sameUsername && !sameUserId) {
+      continue;
+    }
+    const weight = riskWeight(card?.risk);
+    if (weight >= 3 && weight >= bestWeight) {
+      best = card;
+      bestWeight = weight;
+    }
+  }
+  return best;
+});
+
+const currentUserEventRisk = computed(() => {
+  const username = currentUsername.value;
+  const userId = currentUserId.value;
+  if (!username && !userId) {
+    return { level: 'low', weight: 0 };
+  }
+
+  let bestLevel = 'low';
+  let bestWeight = 0;
+  for (const item of anomalyEvents.value) {
+    const eventUser = String(item?.employee_id || item?.userId || item?.username || '').toLowerCase();
+    if (!eventUser) {
+      continue;
+    }
+    const sameUsername = username && eventUser === username;
+    const sameUserId = userId && eventUser === userId.toLowerCase();
+    if (!sameUsername && !sameUserId) {
+      continue;
+    }
+    const level = normalizeRiskLevel(item);
+    const weight = riskWeight(level);
+    if (weight >= bestWeight) {
+      bestWeight = weight;
+      bestLevel = level;
+    }
+  }
+
+  return {
+    level: bestLevel,
+    weight: bestWeight,
+  };
+});
+
+const preferredAlertGalleryCard = computed(() => currentUserRiskCard.value || highestRiskGalleryCard.value);
+
 watch(departmentCards, (list) => {
   const keys = new Set(list.map(item => item.key));
   if (activeDepartmentKey.value && !keys.has(activeDepartmentKey.value)) {
@@ -649,10 +743,33 @@ watch(() => tablePagination.value.pageSize, () => {
   tablePagination.value.page = 1;
 });
 
-watch(highestRiskGalleryCard, (card) => {
+watch(preferredAlertGalleryCard, (card) => {
+  if (currentUserEventRisk.value.weight >= 3) {
+    const username = currentUsername.value;
+    const userId = currentUserId.value;
+    const currentCard = displayedGalleryCards.value.find((item) => {
+      const sameUsername = username && String(item?.username || '').toLowerCase() === username;
+      const sameUserId = userId && String(item?.employeeId || '') === userId;
+      return sameUsername || sameUserId;
+    }) || currentUserRiskCard.value;
+
+    if (currentCard?.key) {
+      activeGalleryCardKey.value = currentCard.key;
+    }
+
+    activeSimulationMeta.value = {
+      seatId: currentCard?.key || activeGalleryCardKey.value || 'self',
+      employeeLabel: currentCard?.employeeName || String(userStore.userInfo?.username || '当前账号'),
+      severity: currentUserEventRisk.value.level,
+      department: currentCard?.department || String(userStore.userInfo?.department || '-'),
+      role: currentCard?.role || String(userStore.userInfo?.roleCode || '-'),
+    };
+    return;
+  }
+
   if (!card) return;
   const current = displayedGalleryCards.value.find(item => item.key === activeGalleryCardKey.value);
-  if (current && riskWeight(current.risk) >= 3) return;
+  if (current && riskWeight(current.risk) >= 3 && current.key === card.key) return;
 
   activeGalleryCardKey.value = card.key;
   activeSimulationMeta.value = {
@@ -703,6 +820,17 @@ function departmentTierLabel(tier) {
   return '基础覆盖';
 }
 
+function sourceTagToLabel(sourceTag) {
+  const tag = String(sourceTag || '').toLowerCase();
+  if (tag === 'privacy') return '隐私告警';
+  if (tag === 'simulation') return '模拟演练';
+  if (tag === 'shadow_ai_browser') return '浏览器告警';
+  if (tag === 'shadow_ai_network') return '网络告警';
+  if (tag === 'shadow_ai_process') return '进程告警';
+  if (tag.startsWith('shadow_ai')) return '影子AI告警';
+  return '异常行为';
+}
+
 function normalizeRiskLevel(item) {
   const level = String(item?.risk_level || item?.severity || '').toLowerCase();
   if (level.includes('critical') || level.includes('严重')) return 'critical';
@@ -711,39 +839,71 @@ function normalizeRiskLevel(item) {
   return item?.is_anomaly ? 'high' : 'low';
 }
 
+function buildSyntheticAnomalyEvent(sample = null) {
+  const now = new Date();
+  const base = sample || {
+    key: `sim-${now.getTime()}`,
+    employeeName: currentUsername.value || 'demo-employee',
+    department: currentDepartment.value || '治理中心',
+    role: String(userStore.userInfo?.roleCode || 'EMPLOYEE'),
+  };
+
+  const scenarios = [
+    { eventType: 'CLIPBOARD_EXFIL', service: 'clipboard-guard', risk: 'critical', description: '模拟：检测到敏感内容复制并疑似外传' },
+    { eventType: 'WINDOW_SWITCH_BURST', service: 'desktop-monitor', risk: 'high', description: '模拟：检测到短时窗口高频切换与可疑操作链' },
+    { eventType: 'BULK_ACCESS_WITH_AI_ACTIVE', service: 'policy-hub', risk: 'high', description: '模拟：检测到AI活跃期间批量访问敏感资源' },
+  ];
+  const picked = scenarios[Math.floor(Math.random() * scenarios.length)];
+
+  return {
+    event_id: `simulation-${now.getTime()}`,
+    employee_id: base.employeeId || base.employeeName,
+    username: base.employeeName,
+    department: base.department,
+    role: base.role,
+    ai_service: picked.service,
+    is_anomaly: true,
+    risk_level: picked.risk,
+    anomaly_score: picked.risk === 'critical' ? 0.99 : 0.92,
+    created_at: now.toISOString().replace('T', ' ').slice(0, 19),
+    description: `${picked.description}（${picked.eventType}）`,
+    source_tag: 'simulation',
+  };
+}
+
 async function triggerComplianceSimulation() {
   if (simulationTriggering.value) {
     return;
   }
   simulationTriggering.value = true;
-  const scenarios = ['CLIPBOARD_EXFIL', 'WINDOW_SWITCH_BURST', 'BULK_ACCESS_WITH_AI_ACTIVE'];
-  const pickedScenario = scenarios[Math.floor(Math.random() * scenarios.length)];
   try {
-    ElMessage.success(`本地异常仿真已启动：${pickedScenario}`);
+    const cards = displayedGalleryCards.value;
+    const fallbackCard = {
+      key: `synthetic-${Date.now()}`,
+      employeeName: currentUsername.value || 'demo-employee',
+      employeeId: currentUserId.value || (currentUsername.value || 'demo-employee'),
+      department: currentDepartment.value || '治理中心',
+      role: String(userStore.userInfo?.roleCode || 'EMPLOYEE'),
+      risk: 'critical',
+    };
+    const sample = cards.length ? cards[Math.floor(Math.random() * cards.length)] : fallbackCard;
+    const syntheticEvent = buildSyntheticAnomalyEvent(sample);
+    simulatedAnomalyEvents.value = [syntheticEvent, ...simulatedAnomalyEvents.value].slice(0, 30);
+
+    activeGalleryCardKey.value = sample.key;
+    activeSimulationMeta.value = {
+      seatId: sample.key,
+      employeeLabel: sample.employeeName,
+      severity: syntheticEvent.risk_level,
+      department: sample.department,
+      role: sample.role,
+    };
+    ElMessage.success('已触发模拟异常告警，真实事件数据保持不变');
   } catch (err) {
     ElMessage.error('异常模拟触发失败：' + (err?.message || '未知错误'));
   } finally {
     simulationTriggering.value = false;
   }
-
-  const cards = displayedGalleryCards.value;
-  const fallbackCard = {
-    key: `synthetic-${Date.now()}`,
-    employeeName: 'demo-employee',
-    department: 'Security',
-    role: 'Analyst',
-    risk: 'critical',
-  };
-  const sample = cards.length ? cards[Math.floor(Math.random() * cards.length)] : fallbackCard;
-
-  activeGalleryCardKey.value = sample.key;
-  activeSimulationMeta.value = {
-    seatId: sample.key,
-    employeeLabel: sample.employeeName,
-    severity: sample.risk,
-    department: sample.department,
-    role: sample.role,
-  };
 }
 
 function formatDate(value) {
@@ -849,7 +1009,16 @@ function hasBoundRole(ev) {
     return true;
   }
   const user = anomalyUser(ev);
-  if (!user) return false;
+  if (!user) {
+    const eventUser = String(ev?.employee_id || ev?.userId || ev?.username || '').toLowerCase();
+    if (currentUsername.value && eventUser === currentUsername.value) {
+      return true;
+    }
+    if (currentUserId.value && eventUser === currentUserId.value.toLowerCase()) {
+      return true;
+    }
+    return false;
+  }
   const roleCodes = Array.isArray(user.roleCodes)
     ? user.roleCodes.map(item => String(item || '').trim()).filter(Boolean)
     : [];
@@ -881,47 +1050,116 @@ function anomalyCompany(ev) {
 function normalizeAnomalyEvent(item = {}) {
   return {
     ...item,
-    source_tag: 'anomaly',
-    employee_id: item.employee_id || item.employeeId || item.userId || '-',
+    source_tag: item.source_tag || item.sourceTag || 'anomaly',
+    employee_id: item.employee_id || item.employeeId || item.userId || item.username || item.osUsername || '-',
     department: item.department || item.dept || '-',
-    ai_service: item.ai_service || item.aiService || item.source || '-',
+    ai_service: item.ai_service || item.aiService || item.source || item.hostname || '-',
     anomaly_score: item.anomaly_score ?? item.anomalyScore ?? null,
-    risk_level: item.risk_level || item.riskLevel || '-',
+    risk_level: item.risk_level || item.riskLevel || item.level || '-',
     created_at: item.created_at || item.event_time || item.eventTime || null,
+    description: item.description || item.title || item.message || '',
   };
 }
 
-  function buildSyntheticAnomalyEvents(count = 21) {
-    const plan = [
-      { username: 'admin', department: '治理中心', role: 'ADMIN', service: 'policy-hub', desc: '治理管理员处置告警并修改策略' },
-      { username: 'admin_reviewer', department: '治理中心', role: 'ADMIN_REVIEWER', service: 'approval-center', desc: '治理复核员审批通过治理变更' },
-      { username: 'secops', department: '安全运营中心', role: 'SECOPS', service: 'security-console', desc: '安全运维标记事件状态并处置告警' },
-      { username: 'bizowner', department: '业务创新部', role: 'BUSINESS_OWNER', service: 'business-change', desc: '业务负责人提交业务变更申请并添加备注' },
-      { username: 'audit01', department: '审计中心', role: 'AUDIT', service: 'audit-center', desc: '审计员查看日志并发起验真' },
-    ];
-    const riskLevels = ['critical', 'high', 'medium', 'high', 'medium'];
-    const events = [];
-    const now = Date.now();
-    for (let i = 0; i < Math.max(0, count); i += 1) {
-      const seed = plan[i % plan.length];
-      events.push({
-        event_id: `synthetic-anomaly-${i + 1}`,
-        employee_id: seed.username,
-        department: seed.department,
-        ai_service: seed.service,
-        is_anomaly: true,
-        risk_level: riskLevels[i % riskLevels.length],
-        anomaly_score: 0.86 - ((i % 5) * 0.04),
-        created_at: new Date(now - (i + 1) * 45 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19),
-        description: `${seed.desc}（样本 ${i + 1}）`,
-        source_tag: 'anomaly',
-        username: seed.username,
-        role: seed.role,
-        user_id: seed.username,
-      });
-    }
-    return events;
+function parseClientDiscoveredServices(value) {
+  if (Array.isArray(value)) {
+    return value;
   }
+  const raw = String(value || '').trim();
+  if (!raw) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function normalizeShadowSource(value) {
+  const text = String(value || '').toLowerCase();
+  if (text.includes('browser')) return 'browser';
+  if (text.includes('network')) return 'network';
+  if (text.includes('process')) return 'process';
+  return '';
+}
+
+function sourceDisplayLabel(sourceKey) {
+  if (sourceKey === 'browser') return '浏览器历史';
+  if (sourceKey === 'network') return '网络连接';
+  if (sourceKey === 'process') return '本机进程';
+  return '多维扫描';
+}
+
+function summarizeShadowSources(services) {
+  const sourceCount = new Map([
+    ['browser', 0],
+    ['network', 0],
+    ['process', 0],
+  ]);
+  for (const service of services) {
+    const parts = String(service?.source || '')
+      .split('|')
+      .map(item => normalizeShadowSource(item))
+      .filter(Boolean);
+    if (!parts.length) {
+      continue;
+    }
+    const uniqueSources = [...new Set(parts)];
+    uniqueSources.forEach((source) => {
+      sourceCount.set(source, Number(sourceCount.get(source) || 0) + 1);
+    });
+  }
+  return [...sourceCount.entries()].filter(([, count]) => Number(count) > 0);
+}
+
+function normalizeShadowAiClientEvents(clientRows = []) {
+  const events = [];
+  clientRows.forEach((row, rowIndex) => {
+    const services = parseClientDiscoveredServices(row?.discoveredServices);
+    const sources = summarizeShadowSources(services);
+    const employeeId = String(row?.osUsername || row?.username || row?.userId || '-').trim() || '-';
+    const hostname = String(row?.hostname || 'unknown-host').trim() || 'unknown-host';
+    const risk = String(row?.riskLevel || 'low').toLowerCase();
+    const aiCount = Number(row?.shadowAiCount || services.length || 0);
+    const createdAt = row?.scanTime || row?.updateTime || row?.createTime || null;
+    const clientId = String(row?.clientId || `client-${rowIndex}`);
+    const isAnomaly = riskWeight(risk) >= 2 || aiCount > 0;
+
+    if (!sources.length) {
+      events.push({
+        event_id: `shadow-ai-${clientId}-${rowIndex}`,
+        employee_id: employeeId,
+        department: '-',
+        ai_service: 'shadow-scan',
+        is_anomaly: isAnomaly,
+        risk_level: risk,
+        anomaly_score: null,
+        created_at: createdAt,
+        description: `客户端影子AI扫描告警：设备 ${hostname} 命中 ${aiCount} 个可疑服务`,
+        source_tag: 'shadow_ai',
+      });
+      return;
+    }
+
+    sources.forEach(([sourceKey, count], sourceIndex) => {
+      events.push({
+        event_id: `shadow-ai-${clientId}-${sourceKey}-${sourceIndex}`,
+        employee_id: employeeId,
+        department: '-',
+        ai_service: `shadow-scan:${sourceKey}`,
+        is_anomaly: isAnomaly,
+        risk_level: risk,
+        anomaly_score: null,
+        created_at: createdAt,
+        description: `客户端${sourceDisplayLabel(sourceKey)}告警：设备 ${hostname} 命中 ${count} 个可疑服务`,
+        source_tag: `shadow_ai_${sourceKey}`,
+      });
+    });
+  });
+  return events;
+}
 
 function isCurrentUserEvent(userValue) {
   if (isCompanyScopeView.value) return true;
@@ -961,7 +1199,7 @@ async function loadAnomaly() {
   }
   anomalyLoading.value = true;
   try {
-    const [anomalyData, privacyData] = await Promise.all([
+    const [anomalyData, privacyData, clientRowsRaw] = await Promise.all([
       request.get('/anomaly/events', {
         params: {
           page: 1,
@@ -969,7 +1207,10 @@ async function loadAnomaly() {
         },
       }),
       privacyApi.listEvents({ page: 1, pageSize: 120 }),
+      request.get('/client/list').catch(() => []),
     ]);
+
+    const clientRows = Array.isArray(clientRowsRaw) ? clientRowsRaw : [];
 
     privacySummary.value = {
       total: privacyData?.total || 0,
@@ -996,11 +1237,10 @@ async function loadAnomaly() {
     const normalizedAnomaly = Array.isArray(anomalyData?.events)
       ? anomalyData.events.map((item) => normalizeAnomalyEvent(item))
       : [];
-    const enrichedAnomaly = normalizedAnomaly.length >= 21
-      ? normalizedAnomaly
-      : [...normalizedAnomaly, ...buildSyntheticAnomalyEvents(21 - normalizedAnomaly.length)];
 
-    const mergedEvents = [...enrichedAnomaly, ...normalizedPrivacy].sort((a, b) => {
+    const normalizedShadowAi = normalizeShadowAiClientEvents(clientRows);
+
+    const mergedEvents = [...simulatedAnomalyEvents.value, ...normalizedAnomaly, ...normalizedPrivacy, ...normalizedShadowAi].sort((a, b) => {
       const ta = new Date(String(a?.created_at || '').replace(' ', 'T')).getTime();
       const tb = new Date(String(b?.created_at || '').replace(' ', 'T')).getTime();
       return (Number.isNaN(tb) ? 0 : tb) - (Number.isNaN(ta) ? 0 : ta);
@@ -1008,21 +1248,19 @@ async function loadAnomaly() {
 
     anomalySummaryOnly.value = !!anomalyData?.summaryOnly;
     if (anomalySummaryOnly.value) {
-      const totalMerged = Number(anomalyData?.total || 0) + Number(privacySummary.value.total || 0);
-      const anomalyMerged = Number(anomalyData?.anomalyCount || 0) + Number(privacySummary.value.total || 0);
+      const shadowTotal = normalizedShadowAi.length;
+      const shadowAnomaly = normalizedShadowAi.filter(item => !!item.is_anomaly).length;
+      const totalMerged = Number(anomalyData?.total || 0) + Number(privacySummary.value.total || 0) + shadowTotal;
+      const anomalyMerged = Number(anomalyData?.anomalyCount || 0) + Number(privacySummary.value.total || 0) + shadowAnomaly;
+      const simulatedCount = simulatedAnomalyEvents.value.length;
       anomalySummary.value = {
-        total: totalMerged,
-        anomalyCount: anomalyMerged,
+        total: totalMerged + simulatedCount,
+        anomalyCount: anomalyMerged + simulatedCount,
         normalCount: Math.max(0, totalMerged - anomalyMerged),
-        anomalyRate: totalMerged > 0 ? anomalyMerged / totalMerged : 0,
+        anomalyRate: (totalMerged + simulatedCount) > 0 ? (anomalyMerged + simulatedCount) / (totalMerged + simulatedCount) : 0,
       };
-      anomalyTotalRecords.value = totalMerged;
-      // 即使在summaryOnly模式下，也要生成合成数据以便显示3D卡牌
-      if (enrichedAnomaly.length === 0) {
-        anomalyEvents.value = buildSyntheticAnomalyEvents(21);
-      } else {
-        anomalyEvents.value = enrichedAnomaly;
-      }
+      anomalyTotalRecords.value = totalMerged + simulatedCount;
+      anomalyEvents.value = [...simulatedAnomalyEvents.value, ...normalizedAnomaly, ...normalizedShadowAi];
       return;
     }
 
@@ -1036,9 +1274,9 @@ async function loadAnomaly() {
     anomalyTotalRecords.value = roleBoundEvents.length;
     anomalyEvents.value = roleBoundEvents;
   } catch (error) {
-    anomalyTotalRecords.value = 21;
-    anomalyEvents.value = buildSyntheticAnomalyEvents(21);
-    ElMessage.warning('API调用失败，显示模拟数据: ' + (error?.message || '未知错误'));
+    anomalyTotalRecords.value = simulatedAnomalyEvents.value.length;
+    anomalyEvents.value = [...simulatedAnomalyEvents.value];
+    ElMessage.warning('API调用失败，已保留本地模拟数据并等待真实链路恢复: ' + (error?.message || '未知错误'));
   } finally {
     anomalyLoading.value = false;
     if (pendingAnomalyReload.value) {

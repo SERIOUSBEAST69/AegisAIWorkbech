@@ -128,6 +128,10 @@ public class ClientDownloadController {
                         if (versionDiff != 0) {
                             return versionDiff;
                         }
+                        int modifiedDiff = Long.compare(a.lastModifiedEpoch, b.lastModifiedEpoch);
+                        if (modifiedDiff != 0) {
+                            return modifiedDiff;
+                        }
                         return Integer.compare(a.sourceRank, b.sourceRank);
                     })
                     .orElseGet(() -> new PackageArtifact(fallbackFilename, "1.0.0", new ClassPathResource("clients/" + fallbackFilename), platform));
@@ -141,7 +145,6 @@ public class ClientDownloadController {
                 Paths.get(System.getProperty("user.dir"), "electron", "dist"),
                 Paths.get(System.getProperty("user.dir"), "..", "electron", "dist")
         );
-
         List<Resource> resources = new java.util.ArrayList<>();
         for (Path root : roots) {
             try {
@@ -234,20 +237,22 @@ public class ClientDownloadController {
      */
     private void serveOrFallback(HttpServletResponse response, PackageArtifact artifact,
                                   String contentType) throws IOException {
-        ClassPathResource resource = new ClassPathResource("clients/" + artifact.filename);
-        if (resource.exists()) {
-            setDownloadHeaders(response, artifact.filename, contentType);
-            response.setContentType(contentType);
-            try (InputStream is = resource.getInputStream()) {
-                is.transferTo(response.getOutputStream());
-            }
-        } else if (artifact.resource != null && artifact.resource.exists()) {
+        if (artifact.resource != null && artifact.resource.exists()) {
             setDownloadHeaders(response, artifact.filename, contentType);
             response.setContentType(contentType);
             try (InputStream is = artifact.resource.getInputStream()) {
                 is.transferTo(response.getOutputStream());
             }
         } else {
+            ClassPathResource resource = new ClassPathResource("clients/" + artifact.filename);
+            if (resource.exists()) {
+                setDownloadHeaders(response, artifact.filename, contentType);
+                response.setContentType(contentType);
+                try (InputStream is = resource.getInputStream()) {
+                    is.transferTo(response.getOutputStream());
+                }
+                return;
+            }
             // 回退：提供纯文本安装说明，触发浏览器下载
             String ext = artifact.extension;
             String readmeFilename = "AegisClient-install-guide-" + ext + ".txt";
@@ -307,6 +312,7 @@ public class ClientDownloadController {
         private final String platform;
         private final String extension;
         private final int sourceRank;
+        private final long lastModifiedEpoch;
 
         private PackageArtifact(String filename, String version, Resource resource, String platform) {
             this.filename = filename;
@@ -316,6 +322,18 @@ public class ClientDownloadController {
             int dot = filename.lastIndexOf('.');
             this.extension = dot >= 0 ? filename.substring(dot + 1) : "bin";
             this.sourceRank = resource instanceof FileSystemResource ? 2 : 1;
+            this.lastModifiedEpoch = readLastModified(resource);
+        }
+
+        private static long readLastModified(Resource resource) {
+            if (resource == null || !resource.exists()) {
+                return 0L;
+            }
+            try {
+                return resource.lastModified();
+            } catch (IOException ex) {
+                return 0L;
+            }
         }
     }
 }

@@ -54,8 +54,8 @@ function loadConfig() {
     autoStart: true,
     minimizeToTray: true,
     enableClipboardMonitor: app.isPackaged ? false : true,
-    requireLoginBeforeScan: false,
-    requirePolicySync: false,
+    requireLoginBeforeScan: true,
+    requirePolicySync: true,
   };
   try {
     if (fs.existsSync(CONFIG_PATH)) {
@@ -286,6 +286,7 @@ let clipboardMonitor = null;
 let policySyncJob = null;
 let authState    = {
   authenticated: false,
+  token: '',
   user: null,
   updatedAt: null,
 };
@@ -320,15 +321,35 @@ function policyCapability(name, fallback = true) {
   return Boolean(caps[name]);
 }
 
-function canRunScan() {
-  // 即使没有登录也允许扫描
-  // if (config.requireLoginBeforeScan && !authState.authenticated) {
-  //   return false;
-  // }
-  if (!policyCapability('allowShadowScan', true)) {
-    return false;
+function resolveAuthAccessToken() {
+  const token = String(authState?.token || '').trim();
+  return token;
+}
+
+function evaluateScanGate() {
+  if (config.requireLoginBeforeScan && !authState.authenticated) {
+    return {
+      allowed: false,
+      reason: '请先登录后再开始检测。',
+    };
   }
-  return true;
+  if (!resolveClientIngressToken()) {
+    return {
+      allowed: false,
+      reason: '客户端令牌未就绪，请重新登录后重试。',
+    };
+  }
+  if (!policyCapability('allowShadowScan', true)) {
+    return {
+      allowed: false,
+      reason: '当前策略禁止执行影子AI扫描。',
+    };
+  }
+  return { allowed: true, reason: '' };
+}
+
+function canRunScan() {
+  return evaluateScanGate().allowed;
 }
 
 function resolveReportCompanyId() {
@@ -357,20 +378,79 @@ function resolveBackendApiBase() {
   return raw.endsWith('/') ? raw.slice(0, -1) : raw;
 }
 
+function resolveHostOsType() {
+  const p = process.platform;
+  if (p === 'win32') return 'Windows';
+  if (p === 'darwin') return 'macOS';
+  return 'Linux';
+}
+
+async function ensureClientRegistration(force = false) {
+  const existing = resolveClientIngressToken();
+  if (existing && !force) {
+    return existing;
+  }
+  if (!authState?.authenticated) {
+    return existing || null;
+  }
+  const accessToken = resolveAuthAccessToken();
+  if (!accessToken) {
+    return existing || null;
+  }
+
+  const endpoint = `${resolveBackendApiBase()}/api/client/register`;
+  try {
+    const resp = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        clientId: CLIENT_ID,
+        hostname: os.hostname(),
+        osUsername: resolvePolicyUsername(),
+        osType: resolveHostOsType(),
+        clientVersion: '1.0.0',
+      }),
+    });
+    const payload = await resp.json().catch(() => ({}));
+    const data = payload?.data || payload || {};
+    if (!resp.ok || Number(payload?.code || 20000) !== 20000) {
+      throw new Error(payload?.msg || payload?.message || `HTTP ${resp.status}`);
+    }
+    const token = String(data?.clientToken || '').trim();
+    if (token) {
+      config.clientTokenEncrypted = encryptClientToken(token);
+      saveConfig(config);
+      updateTrayMenu();
+      return token;
+    }
+  } catch (err) {
+    console.warn('[Aegis] 客户端令牌注册失败：', err?.message || err);
+  }
+  return existing || null;
+}
+
 async function syncClientPolicy(force = false) {
-  const token = resolveClientIngressToken();
-  // 即使没有令牌，也尝试同步策略
-  // if (!token) {
-  //   clientPolicyState = {
-  //     ...clientPolicyState,
-  //     synced: false,
-  //     lastError: 'missing-client-token',
-  //   };
-  //   return null;
-  // }
+  let token = resolveClientIngressToken();
+  if (!token && authState?.authenticated) {
+    token = await ensureClientRegistration(false);
+  }
   const now = Date.now();
   if (!force && clientPolicyState.fetchedAt > 0 && now - clientPolicyState.fetchedAt < POLICY_SYNC_INTERVAL_MS) {
     return clientPolicyState.policy;
+  }
+
+  if (!token && config.requirePolicySync) {
+    clientPolicyState = {
+      ...clientPolicyState,
+      synced: false,
+      fetchedAt: now,
+      expiresAt: 0,
+      lastError: 'missing-client-token',
+    };
+    return null;
   }
 
   const endpoint = `${resolveBackendApiBase()}/api/client/policy/snapshot`;
@@ -383,6 +463,11 @@ async function syncClientPolicy(force = false) {
     // 只有在有令牌时才添加令牌头
     if (token) {
       headers['X-Client-Token'] = token;
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    const accessToken = resolveAuthAccessToken();
+    if (!headers.Authorization && accessToken) {
+      headers['Authorization'] = `Bearer ${accessToken}`;
     }
     
     const resp = await fetch(endpoint, {
@@ -406,6 +491,11 @@ async function syncClientPolicy(force = false) {
 
     config.requireLoginBeforeScan = data.requireLoginBeforeScan !== false;
     config.requirePolicySync = data.policySyncRequired !== false;
+    const nextClientToken = String(data.clientToken || '').trim();
+    if (nextClientToken) {
+      config.clientTokenEncrypted = encryptClientToken(nextClientToken);
+    }
+    saveConfig(config);
     const allowClipboardMonitor = policyCapability('allowClipboardMonitor', true);
     if (allowClipboardMonitor !== Boolean(config.enableClipboardMonitor)) {
       config.enableClipboardMonitor = allowClipboardMonitor;
@@ -774,8 +864,9 @@ async function showServerSettings() {
 // ── 后台扫描 ─────────────────────────────────────────────────────────────────
 
 async function runScan() {
-  if (!canRunScan()) {
-    const reason = '请先登录后再开始检测。';
+  const gate = evaluateScanGate();
+  if (!gate.allowed) {
+    const reason = gate.reason || '请先登录后再开始检测。';
     return {
       time: new Date().toISOString(),
       shadowAiCount: 0,
@@ -788,8 +879,23 @@ async function runScan() {
 
   console.log('[Aegis] 开始影子AI扫描…');
   try {
+    let clientToken = resolveClientIngressToken();
+    if (!clientToken && authState?.authenticated) {
+      clientToken = await ensureClientRegistration(false);
+    }
+    if (!clientToken) {
+      return {
+        time: new Date().toISOString(),
+        shadowAiCount: 0,
+        riskLevel: 'none',
+        services: [],
+        skipped: true,
+        reason: '客户端令牌未就绪，请重新登录后重试。',
+      };
+    }
+
     // 即使策略同步失败，也允许扫描
-    const hasClientToken = Boolean(resolveClientIngressToken());
+    const hasClientToken = Boolean(clientToken);
     if (config.requirePolicySync !== false && hasClientToken && !policyIsFresh()) {
       try {
         await syncClientPolicy(true);
@@ -803,7 +909,7 @@ async function runScan() {
       clientId: CLIENT_ID,
       backendUrl: config.backendUrl || config.serverUrl,
       companyId: resolveReportCompanyId(),
-      clientToken: resolveClientIngressToken(),
+      clientToken,
       authenticatedUsername: authState?.authenticated ? authState?.user?.username : null,
     });
     lastScanResult = result;
@@ -892,13 +998,18 @@ ipcMain.handle('run-scan', async () => {
 ipcMain.handle('set-auth-state', async (event, state) => {
   authState = {
     authenticated: Boolean(state?.authenticated),
+    token: state?.authenticated ? String(state?.token || '').trim() : '',
     user: state?.user || null,
     updatedAt: new Date().toISOString(),
   };
-  if (canRunScan()) {
-    setTimeout(() => runScan().catch(console.error), 500);
-  }
-  syncClientPolicy(true).catch(() => {});
+  ensureClientRegistration(false)
+    .then(() => syncClientPolicy(true))
+    .then(() => {
+      if (canRunScan()) {
+        setTimeout(() => runScan().catch(console.error), 500);
+      }
+    })
+    .catch(() => {});
   return authState;
 });
 

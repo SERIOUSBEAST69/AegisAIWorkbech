@@ -583,14 +583,62 @@ watch(filteredClients, (list) => {
 function parseServices(client) {
   if (!client?.discoveredServices) return [];
   try {
-    if (typeof client.discoveredServices === 'string') {
-      return JSON.parse(client.discoveredServices);
+    const parsed = typeof client.discoveredServices === 'string'
+      ? JSON.parse(client.discoveredServices)
+      : client.discoveredServices;
+    if (!Array.isArray(parsed)) {
+      return [];
     }
-    return client.discoveredServices;
+    return parsed
+      .map(normalizeDiscoveredService)
+      .filter(item => String(item?.name || '').trim().length > 0);
   } catch (e) {
     console.warn('[ShadowAI] Failed to parse discoveredServices:', e.message);
     return [];
   }
+}
+
+function normalizeDiscoveredService(service) {
+  const source = String(service?.source || '').trim();
+  const domain = String(service?.domain || '').trim();
+  const rawName = String(service?.name || '').trim();
+  const name = resolveServiceDisplayName(rawName, domain, source);
+  return {
+    ...service,
+    name,
+    domain,
+    source,
+  };
+}
+
+function resolveServiceDisplayName(rawName, domain, source) {
+  const name = String(rawName || '').trim();
+  if (name && !isPlaceholderShadowName(name)) {
+    return name;
+  }
+  const normalizedDomain = normalizeDomainLabel(domain);
+  if (normalizedDomain) {
+    return normalizedDomain;
+  }
+  if (source.includes('browser')) return '浏览器发现AI服务';
+  if (source.includes('network')) return '网络发现AI服务';
+  if (source.includes('process')) return '进程发现AI服务';
+  return '未知AI服务';
+}
+
+function normalizeDomainLabel(domain) {
+  const value = String(domain || '').trim();
+  if (!value) return '';
+  return value
+    .replace(/^https?:\/\//i, '')
+    .replace(/\/.*$/, '')
+    .replace(/^www\./i, '');
+}
+
+function isPlaceholderShadowName(name) {
+  const normalized = String(name || '').trim().toLowerCase();
+  if (!normalized) return true;
+  return /^shadow[a-z0-9_-]*ai$/.test(normalized);
 }
 
 function riskLabel(level) {
@@ -613,6 +661,7 @@ function categoryLabel(cat) {
 
 function sourceLabel(src) {
   const map = {
+    browser: '浏览器历史',
     browser_history: '浏览器历史',
     network: '网络连接',
     process: '运行进程',
@@ -647,6 +696,16 @@ function normalizeClientText(value) {
   return normalized || '-';
 }
 
+function isSyntheticClientRecord(client) {
+  const clientId = String(client?.clientId || '').toLowerCase();
+  const hostname = String(client?.hostname || '').toLowerCase();
+  if (!clientId && !hostname) return false;
+  return clientId.startsWith('seed-client-')
+    || clientId.startsWith('sim-client-')
+    || clientId.includes('demo')
+    || hostname.includes('demo');
+}
+
 // ── 本地 Electron 扫描 ────────────────────────────────────────────────────────
 
 /**
@@ -675,6 +734,7 @@ async function syncElectronAuthGate() {
   try {
     await window.aegisClient.setAuthState({
       authenticated: Boolean(userStore.token && userStore.userInfo),
+      token: userStore.token || '',
       user: userStore.userInfo || null,
     });
   } catch (error) {
@@ -761,7 +821,7 @@ async function refresh() {
       shadowAiApi.getClients(),
     ]);
     stats.value   = s;
-    clients.value = c;
+    clients.value = (Array.isArray(c) ? c : []).filter(item => !isSyntheticClientRecord(item));
 
     if (!selectedClient.value && clients.value.length) {
       selectedClient.value = clients.value[0];

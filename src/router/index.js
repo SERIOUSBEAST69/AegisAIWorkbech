@@ -1,20 +1,22 @@
 import { createRouter, createWebHistory } from 'vue-router';
 
-const Home = () => import('../views/Home.vue');
-const AuditCenter = () => import('../views/AuditCenter.vue');
-const UserManage = () => import('../views/UserManage.vue');
-const RoleManage = () => import('../views/RoleManage.vue');
-const PermissionManage = () => import('../views/PermissionManage.vue');
-const SecurityCommand = () => import('../views/SecurityCommand.vue');
-const OpsObservability = () => import('../views/OpsObservability.vue');
-const ApprovalCenterHub = () => import('../views/ApprovalCenterHub.vue');
-const PolicyManage = () => import('../views/PolicyManage.vue');
-const Login = () => import('../views/Login.vue');
-const Profile = () => import('../views/Profile.vue');
-const Settings = () => import('../views/Settings.vue');
-const ShadowAiDiscovery = () => import('../views/ShadowAiDiscovery.vue');
-const ThreatMonitor = () => import('../views/ThreatMonitor.vue');
-const EmployeeAiBehaviorMonitor = () => import('../views/EmployeeAiBehaviorMonitor.vue');
+import Home from '../views/Home.vue';
+import AuditCenter from '../views/AuditCenter.vue';
+import UserManage from '../views/UserManage.vue';
+import RoleManage from '../views/RoleManage.vue';
+import PermissionManage from '../views/PermissionManage.vue';
+import SecurityCommand from '../views/SecurityCommand.vue';
+import OpsObservability from '../views/OpsObservability.vue';
+import ApprovalCenterHub from '../views/ApprovalCenterHub.vue';
+import PolicyManage from '../views/PolicyManage.vue';
+import Login from '../views/Login.vue';
+import Profile from '../views/Profile.vue';
+import Settings from '../views/Settings.vue';
+import ShadowAiDiscovery from '../views/ShadowAiDiscovery.vue';
+import ThreatMonitor from '../views/ThreatMonitor.vue';
+import EmployeeAiBehaviorMonitor from '../views/EmployeeAiBehaviorMonitor.vue';
+import TestPage from '../views/TestPage.vue';
+import SimpleTest from '../views/SimpleTest.vue';
 import { getSession, hasActiveSession } from '../utils/auth';
 import { canAccessPath } from '../utils/persona';
 import {
@@ -41,13 +43,19 @@ const routes = [
   { path: '/desense-preview', redirect: '/' },
   { path: '/subject-request', redirect: '/' },
   { path: '/ai/risk-rating', redirect: to => ({ path: '/shadow-ai', query: { ...to.query, tab: 'risk' } }) },
-  { path: '/ai/anomaly', redirect: '/shadow-ai' },
   { path: '/shadow-ai', name: 'ShadowAiDiscovery', component: ShadowAiDiscovery, meta: { depth: 2 } },
   { path: '/threat-monitor', name: 'ThreatMonitor', component: ThreatMonitor, meta: { depth: 2 } },
-  { path: '/privacy-monitor', name: 'EmployeeAiBehaviorMonitor', component: EmployeeAiBehaviorMonitor, meta: { depth: 2 } },
-  { path: '/employee-ai-behavior', name: 'EmployeeAiBehaviorMonitor', component: EmployeeAiBehaviorMonitor, meta: { depth: 2 } },
+  {
+    path: '/privacy-monitor',
+    alias: ['/employee-ai-behavior', '/ai-compliance', '/ai/anomaly'],
+    name: 'AIComplianceMonitor',
+    component: EmployeeAiBehaviorMonitor,
+    meta: { depth: 2 }
+  },
   { path: '/profile', name: 'Profile', component: Profile, meta: { depth: 2 } },
-  { path: '/settings', name: 'Settings', component: Settings, meta: { depth: 2 } }
+  { path: '/settings', name: 'Settings', component: Settings, meta: { depth: 2 } },
+  { path: '/test', name: 'TestPage', component: TestPage, meta: { depth: 2 } },
+  { path: '/simple-test', name: 'SimpleTest', component: SimpleTest, meta: { depth: 2 } }
 ];
 
 const router = createRouter({

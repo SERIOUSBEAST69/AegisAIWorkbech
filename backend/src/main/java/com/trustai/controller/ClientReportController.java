@@ -1,6 +1,8 @@
 package com.trustai.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.trustai.entity.ClientReport;
 import com.trustai.entity.ClientScanQueue;
 import com.trustai.entity.Role;
@@ -19,6 +21,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import com.trustai.config.jwt.JwtUtil;
+import io.jsonwebtoken.Claims;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
@@ -53,6 +56,7 @@ public class ClientReportController {
     private final SecurityEventService securityEventService;
     private final RoleService roleService;
     private final JwtUtil jwtUtil;
+    private final ObjectMapper objectMapper;
 
     @PostMapping("/register")
     @PreAuthorize("isAuthenticated()")
@@ -109,13 +113,20 @@ public class ClientReportController {
                                                  @RequestHeader(value = "X-Company-Id", required = false) Long headerCompanyId,
                                                  @RequestHeader(value = "X-Client-Id", required = false) String clientId) {
         String providedToken = resolveProvidedToken(authorization, clientToken);
-        boolean tokenValid = clientIngressAuthService.isAcceptedClientToken(providedToken);
+        Claims claims = parseClaimsSafe(providedToken);
+        String tokenType = claims == null ? "" : String.valueOf(claims.get("typ", String.class));
+        boolean tokenValid = claims != null
+            && ("client_token".equalsIgnoreCase(tokenType) || "user_token".equalsIgnoreCase(tokenType));
         User boundUser = null;
         String roleCode = "USER";
         boolean privileged = false;
-        
+
         if (tokenValid) {
-            boundUser = resolveBoundUser(resolveClientUsername(headerUsername, null), headerCompanyId);
+            String tokenUsername = String.valueOf(claims.getSubject() == null ? "" : claims.getSubject()).trim();
+            Long tokenCompanyId = claimAsLong(claims, "cid");
+            String resolvedUsername = resolveClientUsername(headerUsername, tokenUsername);
+            Long resolvedCompanyId = tokenCompanyId != null ? tokenCompanyId : headerCompanyId;
+            boundUser = resolveBoundUser(resolvedUsername, resolvedCompanyId);
             if (boundUser != null && boundUser.getCompanyId() != null) {
                 roleCode = resolveRoleCode(boundUser);
                 privileged = hasPrivilegedRole(roleCode);
@@ -134,9 +145,10 @@ public class ClientReportController {
         policy.put("companyId", boundUser != null ? boundUser.getCompanyId() : clientIngressAuthService.getDefaultCompanyId());
         policy.put("username", boundUser != null ? boundUser.getUsername() : "anonymous");
         policy.put("roleCode", roleCode);
-        policy.put("requireLoginBeforeScan", false);
+        policy.put("requireLoginBeforeScan", true);
         policy.put("forbidClientSimulation", false);
-        policy.put("policySyncRequired", false);
+        policy.put("policySyncRequired", true);
+        policy.put("clientTokenRequired", true);
         policy.put("ttlSeconds", 86400);
         policy.put("configVersion", 2);
         policy.put("capabilities", capabilities);
@@ -160,10 +172,11 @@ public class ClientReportController {
                                          HttpServletRequest servletReq,
                                          @RequestBody ClientReport report) {
         String providedToken = resolveProvidedToken(authorization, clientToken);
-        // 即使没有有效令牌，也接受报告（用于允许未登录扫描）
-        // if (!clientIngressAuthService.isAcceptedClientToken(providedToken)) {
-        //     return R.error(40100, "客户端令牌无效");
-        // }
+        Claims claims = parseClaimsSafe(providedToken);
+        String tokenType = claims == null ? "" : String.valueOf(claims.get("typ", String.class));
+        if (claims == null || !"client_token".equalsIgnoreCase(tokenType)) {
+            return R.error(40100, "客户端令牌无效");
+        }
         if (report.getClientId() == null || report.getClientId().isBlank()) {
             return R.error(40000, "clientId 不能为空");
         }
@@ -177,14 +190,21 @@ public class ClientReportController {
             return R.error(40000, "osType 不能为空");
         }
 
-        String clientUsername = resolveClientUsername(headerUsername, report.getOsUsername());
-        User relatedUser = resolveBoundUser(clientUsername, headerCompanyId);
+        String tokenUsername = String.valueOf(claims.getSubject() == null ? "" : claims.getSubject()).trim();
+        Long tokenCompanyId = claimAsLong(claims, "cid");
+        String clientUsername = resolveClientUsername(headerUsername, tokenUsername);
+        if (StringUtils.hasText(tokenUsername) && StringUtils.hasText(clientUsername)
+            && !tokenUsername.equalsIgnoreCase(clientUsername)) {
+            return R.error(40000, "客户端身份与令牌不一致");
+        }
+
+        Long resolvedCompanyId = tokenCompanyId != null ? tokenCompanyId : headerCompanyId;
+        User relatedUser = resolveBoundUser(tokenUsername, resolvedCompanyId);
         if (relatedUser == null || relatedUser.getCompanyId() == null) {
-            // 即使无法绑定用户，也允许报告，使用默认公司ID
-            relatedUser = new User();
-            relatedUser.setId(1L);
-            relatedUser.setUsername(clientUsername != null ? clientUsername : "anonymous");
-            relatedUser.setCompanyId(headerCompanyId != null ? headerCompanyId : clientIngressAuthService.getDefaultCompanyId());
+            return R.error(40000, "无法绑定合法账号与企业");
+        }
+        if (headerCompanyId != null && !headerCompanyId.equals(relatedUser.getCompanyId())) {
+            return R.error(40000, "companyId 与客户端令牌归属不一致");
         }
 
         report.setId(null);
@@ -225,6 +245,7 @@ public class ClientReportController {
             "serviceCount", report.getShadowAiCount() == null ? 0 : report.getShadowAiCount(),
             "riskLevel", String.valueOf(report.getRiskLevel() == null ? "" : report.getRiskLevel())
         ));
+        emitCoreSecurityWarnings(report, relatedUser);
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("id", report.getId());
@@ -588,6 +609,131 @@ public class ClientReportController {
             return token;
         }
         return clientIngressAuthService.normalizeToken(clientToken);
+    }
+
+    private Claims parseClaimsSafe(String token) {
+        if (!StringUtils.hasText(token)) {
+            return null;
+        }
+        try {
+            return jwtUtil.parse(token);
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    private Long claimAsLong(Claims claims, String key) {
+        if (claims == null || !StringUtils.hasText(key)) {
+            return null;
+        }
+        Object value = claims.get(key);
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        if (value instanceof String text && StringUtils.hasText(text)) {
+            try {
+                return Long.parseLong(text.trim());
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private void emitCoreSecurityWarnings(ClientReport report, User relatedUser) {
+        if (report == null || relatedUser == null) {
+            return;
+        }
+        Set<String> signals = extractCoreSignals(report.getDiscoveredServices());
+        if (signals.isEmpty()) {
+            int shadowCount = report.getShadowAiCount() == null ? 0 : report.getShadowAiCount();
+            if (shadowCount <= 0) {
+                return;
+            }
+            signals = new LinkedHashSet<>(List.of("aggregate"));
+        }
+
+        Date eventTime = report.getScanTime() == null ? new Date() : java.sql.Timestamp.valueOf(report.getScanTime());
+        Date now = new Date();
+        String severity = normalizeSecuritySeverity(report.getRiskLevel());
+
+        for (String signal : signals) {
+            SecurityEvent event = new SecurityEvent();
+            event.setCompanyId(report.getCompanyId());
+            event.setEmployeeId(relatedUser.getUsername());
+            event.setHostname(report.getHostname());
+            event.setEventType(signalToEventType(signal));
+            event.setFilePath(StringUtils.hasText(report.getHostname()) ? report.getHostname() : report.getClientId());
+            event.setTargetAddr("client:" + report.getClientId());
+            event.setFileSize(Long.valueOf(Math.max(0, report.getShadowAiCount() == null ? 0 : report.getShadowAiCount())));
+            event.setSeverity(severity);
+            event.setStatus("pending");
+            event.setSource("client-shadow-scan");
+            event.setPolicyVersion(eventHubService.resolvePolicyVersion(report.getCompanyId()));
+            event.setEventTime(eventTime);
+            event.setCreateTime(now);
+            event.setUpdateTime(now);
+            securityEventService.save(event);
+            eventHubService.ingestSecurityEvent(event, relatedUser, Map.of(
+                "signal", signal,
+                "clientId", String.valueOf(report.getClientId() == null ? "" : report.getClientId()),
+                "hostname", String.valueOf(report.getHostname() == null ? "" : report.getHostname()),
+                "riskLevel", String.valueOf(report.getRiskLevel() == null ? "" : report.getRiskLevel())
+            ));
+        }
+    }
+
+    private String normalizeSecuritySeverity(String riskLevel) {
+        String normalized = String.valueOf(riskLevel == null ? "" : riskLevel).trim().toLowerCase(Locale.ROOT);
+        return switch (normalized) {
+            case "critical", "high", "medium", "low" -> normalized;
+            case "none" -> "low";
+            case "高" -> "high";
+            case "中" -> "medium";
+            case "低" -> "low";
+            default -> "medium";
+        };
+    }
+
+    private String signalToEventType(String signal) {
+        return switch (String.valueOf(signal == null ? "" : signal).toLowerCase(Locale.ROOT)) {
+            case "browser" -> "SHADOW_AI_BROWSER";
+            case "network" -> "SHADOW_AI_NETWORK";
+            case "process" -> "SHADOW_AI_PROCESS";
+            default -> "SHADOW_AI_ACTIVITY";
+        };
+    }
+
+    private Set<String> extractCoreSignals(String discoveredServicesJson) {
+        if (!StringUtils.hasText(discoveredServicesJson)) {
+            return new LinkedHashSet<>();
+        }
+        Set<String> signals = new LinkedHashSet<>();
+        try {
+            JsonNode root = objectMapper.readTree(discoveredServicesJson);
+            if (!root.isArray()) {
+                return signals;
+            }
+            for (JsonNode node : root) {
+                String source = node.path("source").asText("");
+                if (!StringUtils.hasText(source)) {
+                    continue;
+                }
+                for (String part : source.split("\\|")) {
+                    String normalized = String.valueOf(part == null ? "" : part).trim().toLowerCase(Locale.ROOT);
+                    if (normalized.contains("browser")) {
+                        signals.add("browser");
+                    } else if (normalized.contains("network")) {
+                        signals.add("network");
+                    } else if (normalized.contains("process")) {
+                        signals.add("process");
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+            return signals;
+        }
+        return signals;
     }
 
     @Data

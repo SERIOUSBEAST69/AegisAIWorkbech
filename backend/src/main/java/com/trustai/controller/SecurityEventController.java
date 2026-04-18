@@ -17,6 +17,7 @@ import com.trustai.service.UserService;
 import com.trustai.utils.R;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Date;
@@ -208,7 +209,8 @@ public class SecurityEventController {
     public R<?> report(@RequestHeader(value = "X-Client-Token", required = false) String clientToken,
                        @RequestHeader(value = "X-Company-Id", required = false) Long headerCompanyId,
                        @RequestBody SecurityEvent event) {
-        if (!clientIngressAuthService.isAuthorized(clientToken)) {
+        String normalizedToken = clientIngressAuthService.normalizeToken(clientToken);
+        if (!StringUtils.hasText(normalizedToken) || !clientIngressAuthService.isAcceptedClientToken(normalizedToken)) {
             return R.error(40100, "客户端令牌无效");
         }
 

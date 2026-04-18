@@ -184,27 +184,34 @@ const EXTRA_ROUTE_AUDIENCES = {
   '/shadow-ai': ['governanceAdmin', 'governanceReviewer', 'secops', 'businessOwner', 'audit'],
   '/threat-monitor': ['governanceAdmin', 'secops'],
   '/privacy-monitor': ['governanceAdmin', 'governanceReviewer', 'secops'],
+  '/ai-compliance': ['governanceAdmin', 'governanceReviewer', 'secops'],
+};
+
+const ACCESS_PATH_ALIASES = {
+  '/employee-ai-behavior': '/privacy-monitor',
+  '/ai-compliance': '/privacy-monitor',
+  '/ai/anomaly': '/privacy-monitor',
 };
 
 const ROLE_PATH_ALLOWLIST = {
   ADMIN: [
-    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/threat-monitor', '/privacy-monitor', '/ai/risk-rating', '/audit-center', '/approval-center',
+    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/threat-monitor', '/privacy-monitor', '/ai-compliance', '/ai/risk-rating', '/audit-center', '/approval-center',
     '/policy-manage', '/user-manage', '/role-manage', '/permission-manage', '/profile', '/settings',
   ],
   ADMIN_REVIEWER: [
-    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/privacy-monitor', '/ai/risk-rating', '/audit-center', '/approval-center',
+    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/privacy-monitor', '/ai-compliance', '/ai/risk-rating', '/audit-center', '/approval-center',
     '/policy-manage', '/user-manage', '/role-manage', '/permission-manage', '/profile', '/settings',
   ],
   ADMIN_OPS: [
-    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/threat-monitor', '/privacy-monitor', '/ai/risk-rating', '/audit-center',
+    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/threat-monitor', '/privacy-monitor', '/ai-compliance', '/ai/risk-rating', '/audit-center',
     '/policy-manage', '/profile', '/settings',
   ],
   SECOPS: [
-    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/threat-monitor', '/privacy-monitor', '/ai/risk-rating', '/audit-center',
+    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/threat-monitor', '/privacy-monitor', '/ai-compliance', '/ai/risk-rating', '/audit-center',
     '/policy-manage', '/profile', '/settings',
   ],
   SECOPS_RESPONDER: [
-    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/threat-monitor', '/privacy-monitor', '/ai/risk-rating', '/audit-center',
+    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/threat-monitor', '/privacy-monitor', '/ai-compliance', '/ai/risk-rating', '/audit-center',
     '/policy-manage', '/profile', '/settings',
   ],
   BUSINESS_OWNER: [
@@ -217,7 +224,7 @@ const ROLE_PATH_ALLOWLIST = {
     '/', '/operations-command', '/shadow-ai', '/ai/risk-rating', '/audit-center', '/policy-manage', '/profile', '/settings',
   ],
   SEC: [
-    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/threat-monitor', '/privacy-monitor', '/audit-center', '/profile', '/settings',
+    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/threat-monitor', '/privacy-monitor', '/ai-compliance', '/audit-center', '/profile', '/settings',
   ],
 };
 
@@ -315,18 +322,19 @@ export function getVisibleMenuSections(user) {
 }
 
 export function canAccessPath(path, user) {
-  if (!path || path === '/login') {
+  const normalizedPath = ACCESS_PATH_ALIASES[path] || path;
+  if (!normalizedPath || normalizedPath === '/login') {
     return true;
   }
   const roleAllowlist = rolePathAllowlist(user);
   const personaId = inferPersona(user);
-  const menuItem = MENU_SECTIONS.flatMap(section => section.items).find(item => item.path === path);
+  const menuItem = MENU_SECTIONS.flatMap(section => section.items).find(item => item.path === normalizedPath);
   if (menuItem) {
-    return (roleAllowlist ? roleAllowlist.has(path) : allows(menuItem.audiences, personaId)) && isPathPermissionAllowed(path, user);
+    return (roleAllowlist ? roleAllowlist.has(normalizedPath) : allows(menuItem.audiences, personaId)) && isPathPermissionAllowed(normalizedPath, user);
   }
-  const explicit = EXTRA_ROUTE_AUDIENCES[path];
+  const explicit = EXTRA_ROUTE_AUDIENCES[normalizedPath];
   if (explicit) {
-    return (roleAllowlist ? roleAllowlist.has(path) : allows(explicit, personaId)) && isPathPermissionAllowed(path, user);
+    return (roleAllowlist ? roleAllowlist.has(normalizedPath) : allows(explicit, personaId)) && isPathPermissionAllowed(normalizedPath, user);
   }
   return false;
 }

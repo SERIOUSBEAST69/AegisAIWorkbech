@@ -72,7 +72,7 @@ spring:
       timeout: ${SPRING_DATA_REDIS_TIMEOUT:3000ms}
     elasticsearch:
       repositories:
-        enabled: ${SPRING_DATA_ELASTICSEARCH_REPOSITORIES_ENABLED:true}
+        enabled: ${SPRING_DATA_ELASTICSEARCH_REPOSITORIES_ENABLED:false}
 
   cloud:
     openfeign:
@@ -85,6 +85,10 @@ spring:
   # Elasticsearch 配置
   elasticsearch:
     uris: ${SPRING_ELASTICSEARCH_URIS:http://localhost:9200}
+
+app:
+  elasticsearch:
+    enabled: ${APP_ELASTICSEARCH_ENABLED:false}
 
 # Flowable 配置
 flowable:

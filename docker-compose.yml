@@ -143,7 +143,8 @@ services:
       SPRING_REDIS_HOST: redis
       SPRING_REDIS_PORT: 6379
       SPRING_REDIS_PASSWORD: root
-      SPRING_ELASTICSEARCH_URIS: http://es:9200
+      SPRING_DATA_ELASTICSEARCH_REPOSITORIES_ENABLED: "false"
+      APP_ELASTICSEARCH_ENABLED: "false"
       SPRING_RABBITMQ_HOST: rabbitmq
       SPRING_RABBITMQ_PORT: 5672
       SPRING_RABBITMQ_USERNAME: admin
@@ -162,8 +163,6 @@ services:
       aegisai-mysql-bootstrap:
         condition: service_completed_successfully
       redis:
-        condition: service_healthy
-      es:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy

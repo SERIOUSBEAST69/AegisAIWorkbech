@@ -909,11 +909,68 @@ class ClipboardPrivacyMonitor {
         timeout: 4000,
         headers,
       });
+
+      // High-risk clipboard detections are also escalated into the threat monitor stream.
+      if (this.shouldEscalateToSecurity(payload)) {
+        await this.reportSecurityThreat(payload, backendUrl, headers);
+      }
     } catch {
       const pending = loadPendingEvents(queueContext);
       pending.push(outbound);
       savePendingEvents(pending, queueContext);
       // Ignore to keep tray process resilient.
+    }
+  }
+
+  shouldEscalateToSecurity(payload) {
+    const severity = normalizeText(payload?.severity);
+    const eventType = normalizeText(payload?.eventType);
+    if (eventType.includes('exfil')) {
+      return true;
+    }
+    return severity === 'high' || severity === 'critical';
+  }
+
+  toSecurityEventPayload(payload) {
+    const eventType = normalizeText(payload?.eventType);
+    const isFile = eventType.includes('file');
+    const severity = normalizeText(payload?.severity) || 'high';
+    const mappedEventType = eventType.includes('exfil')
+      ? 'EXFILTRATION'
+      : (isFile ? 'BATCH_COPY' : 'SUSPICIOUS_UPLOAD');
+    const rawContent = String(payload?.content || '');
+    const filePath = isFile ? rawContent.slice(0, 255) : '[clipboard-text]';
+    const targetAddr = String(payload?.windowTitle || '').slice(0, 255) || 'clipboard-monitor';
+
+    return {
+      eventType: mappedEventType,
+      filePath,
+      targetAddr,
+      employeeId: String(payload?.userId || '').trim(),
+      hostname: String(payload?.hostname || os.hostname()),
+      fileSize: Buffer.byteLength(rawContent, 'utf8'),
+      severity,
+      status: 'pending',
+      source: 'clipboard-guard',
+      eventTime: payload?.timestamp || new Date().toISOString(),
+    };
+  }
+
+  async reportSecurityThreat(payload, backendUrl, headers) {
+    const employeeId = String(payload?.userId || '').trim();
+    if (!employeeId) {
+      return;
+    }
+
+    const securityPayload = this.toSecurityEventPayload(payload);
+    const securityHeaders = { ...headers };
+    try {
+      await axios.post(`${backendUrl}/api/security/events/report`, securityPayload, {
+        timeout: 4000,
+        headers: securityHeaders,
+      });
+    } catch {
+      // Keep privacy reporting primary; security escalation is best-effort.
     }
   }
 }

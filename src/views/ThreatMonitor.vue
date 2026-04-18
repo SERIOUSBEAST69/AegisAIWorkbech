@@ -1251,8 +1251,9 @@ async function refreshEvents() {
 
     const data = await request.get('/security/events', { params });
     const normalized = (data.list || []).map(normalizeThreatRow);
-    events.value = sortByLatestEventTime(normalized);
-    pagination.value.total = Number(data.total ?? normalized.length);
+    const classifiedOnly = normalized.filter(item => isClassifiedEventType(item?.eventType));
+    events.value = sortByLatestEventTime(classifiedOnly);
+    pagination.value.total = classifiedOnly.length;
   } catch (e) {
     ElMessage.error('加载事件失败：' + (e.message || '未知错误'));
   } finally {
@@ -2300,31 +2301,40 @@ function statusLabel(s) {
   return { pending: '待处理', blocked: '已阻拦', ignored: '已忽略', reviewing: '审查中' }[normalizeStatus(s)] ?? s;
 }
 
+const EVENT_TYPE_LABEL_MAP = {
+  FILE_STEAL: '文件窃取',
+  SUSPICIOUS_UPLOAD: '可疑上传',
+  BATCH_COPY: '批量复制',
+  EXFILTRATION: '数据外泄',
+  DATA_EXFILTRATION: '数据外泄',
+  DATA_EXPORT: '数据导出',
+  DATA_LEAK_ALERT: '数据泄露告警',
+  DATA_SCRAPE: '数据抓取',
+  CREDENTIAL_DUMP: '凭证转储',
+  PRIVACY_ALERT: '隐私告警',
+  SECURITY_ALERT: '安全威胁告警',
+  SHADOW_AI_ALERT: '影子AI告警',
+  ANOMALY_ALERT: '行为异常告警',
+  BEHAVIOR_ANOMALY: '行为异常事件',
+  POLICY_VIOLATION: '策略违规事件',
+  ACCESS_CONTROL_VIOLATION: '访问控制违规',
+  SENSITIVE_OPERATION: '敏感操作事件',
+  SLOW_QUERY_ALERT: '慢查询告警',
+  RELIABILITY_ALERT: '韧性告警',
+};
+
+function isClassifiedEventType(eventType) {
+  const raw = String(eventType || '').trim();
+  if (!raw) return false;
+  const key = raw.toUpperCase();
+  if (EVENT_TYPE_LABEL_MAP[key]) return true;
+  return /[\u4e00-\u9fa5]/.test(raw);
+}
+
 function eventTypeLabel(t) {
   const raw = String(t || '').trim();
   const key = raw.toUpperCase();
-  const map = {
-    FILE_STEAL: '文件窃取',
-    SUSPICIOUS_UPLOAD: '可疑上传',
-    BATCH_COPY: '批量复制',
-    EXFILTRATION: '数据外泄',
-    DATA_EXFILTRATION: '数据外泄',
-    DATA_EXPORT: '数据导出',
-    DATA_LEAK_ALERT: '数据泄露告警',
-    DATA_SCRAPE: '数据抓取',
-    CREDENTIAL_DUMP: '凭证转储',
-    PRIVACY_ALERT: '隐私告警',
-    SECURITY_ALERT: '安全威胁告警',
-    SHADOW_AI_ALERT: '影子AI告警',
-    ANOMALY_ALERT: '行为异常告警',
-    BEHAVIOR_ANOMALY: '行为异常事件',
-    POLICY_VIOLATION: '策略违规事件',
-    ACCESS_CONTROL_VIOLATION: '访问控制违规',
-    SENSITIVE_OPERATION: '敏感操作事件',
-    SLOW_QUERY_ALERT: '慢查询告警',
-    RELIABILITY_ALERT: '韧性告警',
-  };
-  if (map[key]) return map[key];
+  if (EVENT_TYPE_LABEL_MAP[key]) return EVENT_TYPE_LABEL_MAP[key];
   if (/[\u4e00-\u9fa5]/.test(raw)) return raw;
   return raw ? `未分类事件（${key}）` : '未知事件';
 }
