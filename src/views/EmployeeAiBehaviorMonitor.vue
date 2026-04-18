@@ -20,21 +20,39 @@
     </div>
 
     <div class="stats-grid">
-      <div class="stat-card">
-        <div class="stat-title">总事件数（已过滤空角色）</div>
+      <div class="stat-card stat-card-total">
+        <div class="stat-head-row">
+          <div class="stat-title">总事件数（已过滤空角色）</div>
+          <div class="stat-kicker">EVENTS</div>
+        </div>
         <div class="stat-value">{{ anomalyTotal }}</div>
+        <div class="stat-foot">覆盖异常+隐私联动样本</div>
       </div>
-      <div class="stat-card">
-        <div class="stat-title">异常事件数</div>
+      <div class="stat-card stat-card-danger">
+        <div class="stat-head-row">
+          <div class="stat-title">异常事件数</div>
+          <div class="stat-kicker">ALERT</div>
+        </div>
         <div class="stat-value danger">{{ anomalyCount }}</div>
+        <div class="stat-foot">高危行为优先进入治理链路</div>
       </div>
-      <div class="stat-card">
-        <div class="stat-title">异常占比</div>
+      <div class="stat-card stat-card-rate">
+        <div class="stat-head-row">
+          <div class="stat-title">异常占比</div>
+          <div class="stat-kicker">RATIO</div>
+        </div>
         <div class="stat-value">{{ anomalyRateText }}</div>
+        <div class="stat-meter">
+          <i :style="{ width: `${anomalyRatePercent}%` }"></i>
+        </div>
       </div>
-      <div class="stat-card">
-        <div class="stat-title">模型状态</div>
+      <div class="stat-card stat-card-ready" :class="{ 'stat-card-ready-off': !modelReady }">
+        <div class="stat-head-row">
+          <div class="stat-title">模型状态</div>
+          <div class="stat-kicker">MODEL</div>
+        </div>
         <div class="stat-value">{{ modelReady ? '就绪' : '未就绪' }}</div>
+        <div class="stat-foot">{{ modelReady ? '可用于实时异常判别' : '待加载或待校验' }}</div>
       </div>
     </div>
 
@@ -74,19 +92,27 @@
             ]"
             @click="toggleDepartmentCard(dept.key)"
           >
+            <div class="dept-card-orbit" aria-hidden="true"></div>
             <div class="dept-card-head">
               <strong>{{ dept.department }}</strong>
               <span class="dept-card-metric">{{ dept.totalCount }} / {{ dept.anomalyCount }}</span>
+            </div>
+            <div class="dept-card-meta-row">
+              <span class="dept-card-tier-badge">{{ departmentTierLabel(dept.priorityTier) }}</span>
+              <span class="dept-card-ratio">异常占比 {{ departmentAnomalyRatio(dept) }}%</span>
             </div>
             <div class="dept-role-tags">
               <span
                 v-for="role in (isDepartmentExpanded(dept.key) ? dept.roles : dept.roles.slice(0, 3))"
                 :key="`${dept.key}-${role.code}`"
                 class="dept-role-tag"
-                :class="{ alert: role.anomalyCount > 0, pulse: role.anomalyCount > 0 && dept.anomalyCount > 0 }"
+                :class="{ alert: role.anomalyCount > 0 }"
               >
                 {{ role.label }}
               </span>
+            </div>
+            <div class="dept-card-meter" aria-hidden="true">
+              <i :style="{ width: `${departmentAnomalyRatio(dept)}%` }"></i>
             </div>
             <p class="dept-card-hint">{{ isDepartmentExpanded(dept.key) ? '收起角色' : `展开角色（${dept.roles.length}）` }}</p>
           </button>
@@ -94,14 +120,70 @@
       </div>
       <div v-if="!displayedGalleryCards.length" class="sim-empty">当前筛选分组暂无可用于模拟的员工卡片</div>
       <div v-else class="sim-canvas-wrap">
-        <CircularGalleryReactHost :items="displayedGalleryCards" :active-key="activeGalleryCardKey" :show-titles="false" />
+        <div v-if="showPrismLayer" class="sim-prism-layer" aria-hidden="true">
+          <PrismReactHost v-if="visualLayersReady" />
+        </div>
+        <div class="sim-gallery-layer">
+          <CircularGalleryReactHost v-if="visualLayersReady" :items="displayedGalleryCards" :active-key="activeGalleryCardKey" :show-titles="false" />
+        </div>
       </div>
     </section>
+
+    <el-card class="table-card card-glass scene-block" shadow="never">
+      <div class="panel-head">
+        <div>
+          <div class="card-header">异常行为事件明细</div>
+          <p class="panel-subtitle">口径：当前视图去重后事件明细，字段统一中文展示，健康状态可直接筛读。</p>
+        </div>
+      </div>
+
+      <el-table
+        :data="pagedAnomalyTableRows"
+        border
+        stripe
+        size="small"
+        empty-text="暂无事件明细"
+        style="width: 100%"
+      >
+        <el-table-column type="index" label="序号" width="72" />
+        <el-table-column prop="accountName" label="账号" min-width="130" show-overflow-tooltip />
+        <el-table-column prop="department" label="部门" min-width="130" show-overflow-tooltip />
+        <el-table-column prop="role" label="角色" min-width="130" show-overflow-tooltip />
+        <el-table-column prop="aiService" label="AI服务" min-width="140" show-overflow-tooltip />
+        <el-table-column prop="riskLevelText" label="风险等级" width="110">
+          <template #default="scope">
+            <el-tag size="small" :type="scope.row.riskTagType">{{ scope.row.riskLevelText }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="healthStatus" label="健康状态" width="100">
+          <template #default="scope">
+            <el-tag size="small" :type="scope.row.healthStatus === '健康' ? 'success' : 'danger'" effect="dark">
+              {{ scope.row.healthStatus }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="eventSource" label="事件来源" width="110" />
+        <el-table-column prop="eventTime" label="事件时间" min-width="168" />
+        <el-table-column prop="description" label="事件描述" min-width="260" show-overflow-tooltip />
+      </el-table>
+
+      <div class="table-pagination-wrap">
+        <el-pagination
+          v-model:current-page="tablePagination.page"
+          v-model:page-size="tablePagination.pageSize"
+          :total="anomalyTableRows.length"
+          :page-sizes="[10, 20, 30, 50]"
+          layout="total, sizes, prev, pager, next, jumper"
+          small
+          background
+        />
+      </div>
+    </el-card>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { ElMessage } from 'element-plus';
 import request from '../api/request';
 import { alertCenterApi } from '../api/alertCenter';
@@ -110,27 +192,40 @@ import { useUserStore } from '../store/user';
 import { hasAnyRole, isExecutive as isExecutiveRole } from '../utils/roleBoundary';
 import { getUserDirectory } from '../utils/userDirectoryCache';
 import CircularGalleryReactHost from '../components/anomaly/CircularGalleryReactHost.vue';
+import PrismReactHost from '../components/anomaly/PrismReactHost.vue';
 
 const userStore = useUserStore();
 const isExecutive = computed(() => isExecutiveRole(userStore.userInfo));
-const isPersonalView = computed(() => !hasAnyRole(userStore.userInfo, ['ADMIN', 'SECOPS', 'EXECUTIVE']));
+const isCompanyScopeView = computed(() => hasAnyRole(userStore.userInfo, ['ADMIN', 'ADMIN_REVIEWER', 'SECOPS']));
+const isDepartmentScopeView = computed(() => hasAnyRole(userStore.userInfo, ['BUSINESS_OWNER']));
 const currentUserId = computed(() => (userStore.userInfo?.id != null ? String(userStore.userInfo.id) : ''));
 const currentUsername = computed(() => String(userStore.userInfo?.username || '').toLowerCase());
+const currentDepartment = computed(() => String(userStore.userInfo?.department || '').trim());
 
 const userDirectory = ref(new Map());
+let userDirectoryRequest = null;
 const anomalyLoading = ref(false);
+const pendingAnomalyReload = ref(false);
 const anomalyEvents = ref([]);
 const anomalySummaryOnly = ref(false);
 const anomalySummary = ref({ total: 0, anomalyCount: 0, normalCount: 0, anomalyRate: 0 });
 const anomalyTotalRecords = ref(0);
 const modelReady = ref(false);
+const visualLayersReady = ref(false);
+let visualMountTimer = null;
 const privacySummary = ref({ total: 0, today: 0, extensionCount: 0, clipboardCount: 0, summaryOnly: false });
 const activeSimulationMeta = ref(null);
 const activeGalleryCardKey = ref('');
 const activeDepartmentKey = ref('');
 const expandedDepartmentKeys = ref([]);
 const simulationTriggering = ref(false);
-const MAX_GALLERY_CARDS = 36;
+// Keep one lightweight visual layer by default to avoid page-open jank.
+const showPrismLayer = false;
+const MAX_GALLERY_CARDS = 12;
+const tablePagination = ref({
+  page: 1,
+  pageSize: 10,
+});
 
 const governanceSnapshot = ref({
   anomaly: 0,
@@ -156,7 +251,6 @@ const DEPARTMENT_ROLE_LAYOUT = [
     roles: ['EXECUTIVE', 'EXECUTIVE_COMPLIANCE', 'EXECUTIVE_OVERVIEW'],
   },
   {
-    key: 'data-governance',
     label: '数据治理部',
     priorityTier: 'mid',
     order: 3,
@@ -261,6 +355,80 @@ const anomalyRateText = computed(() => {
   return `${((anomalyCount.value / anomalyEvents.value.length) * 100).toFixed(1)}%`;
 });
 
+const anomalyRatePercent = computed(() => {
+  if (anomalySummaryOnly.value) {
+    const rate = Number(anomalySummary.value.anomalyRate || 0) * 100;
+    return Math.max(0, Math.min(100, Number.isFinite(rate) ? rate : 0));
+  }
+  if (!anomalyEvents.value.length) return 0;
+  const rate = (anomalyCount.value / anomalyEvents.value.length) * 100;
+  return Math.max(0, Math.min(100, Number.isFinite(rate) ? rate : 0));
+});
+
+const anomalyTableRows = computed(() => {
+  const dedup = new Map();
+  for (const item of anomalyEvents.value) {
+    const accountId = String(anomalyAccountId(item) || '-');
+    const accountName = String(anomalyAccountName(item) || '-');
+    const department = String(anomalyDepartment(item) || '-');
+    const role = String(anomalyRole(item) || '-');
+    const aiService = String(item?.ai_service || '-');
+    const sourceTag = String(item?.source_tag || 'anomaly').toLowerCase();
+    const eventSource = sourceTag === 'privacy' ? '隐私告警' : '异常行为';
+    const riskLevel = normalizeRiskLevel(item);
+    const riskLevelText = riskLevel === 'critical' ? '严重' : riskLevel === 'high' ? '高' : riskLevel === 'medium' ? '中' : '低';
+    const riskTagType = riskLevel === 'critical' || riskLevel === 'high' ? 'danger' : riskLevel === 'medium' ? 'warning' : 'success';
+    const healthStatus = item?.is_anomaly || riskWeight(riskLevel) >= 3 ? '异常' : '健康';
+    const description = sanitizeText(item?.description || (sourceTag === 'privacy' ? '隐私防护告警事件' : '员工行为检测事件'));
+    const eventTimeRaw = String(item?.created_at || '');
+    const eventTime = formatDate(eventTimeRaw);
+    const companyId = String(anomalyCompany(item) || '-');
+
+    const uniqueKey = String(item?.event_id || '').trim() || [
+      accountId,
+      accountName.toLowerCase(),
+      department,
+      role,
+      aiService,
+      sourceTag,
+      riskLevel,
+      description,
+      eventTimeRaw,
+      companyId,
+    ].join('|').toLowerCase();
+
+    if (dedup.has(uniqueKey)) {
+      continue;
+    }
+
+    const eventTs = new Date(eventTimeRaw.replace(' ', 'T')).getTime();
+    dedup.set(uniqueKey, {
+      accountName,
+      department,
+      role,
+      aiService,
+      riskLevelText,
+      riskTagType,
+      healthStatus,
+      eventSource,
+      eventTime,
+      description,
+      __eventTs: Number.isNaN(eventTs) ? 0 : eventTs,
+    });
+  }
+
+  return [...dedup.values()]
+    .sort((a, b) => b.__eventTs - a.__eventTs)
+    .map(({ __eventTs, ...rest }) => rest);
+});
+
+const pagedAnomalyTableRows = computed(() => {
+  const page = Math.max(1, Number(tablePagination.value.page) || 1);
+  const pageSize = Math.max(1, Number(tablePagination.value.pageSize) || 10);
+  const start = (page - 1) * pageSize;
+  return anomalyTableRows.value.slice(start, start + pageSize);
+});
+
 const employeeRiskMap = computed(() => {
   const map = new Map();
   for (const item of anomalyEvents.value) {
@@ -289,7 +457,12 @@ const directoryEmployees = computed(() => {
     seen.add(uniqueKey);
     employees.push(candidate);
   }
-  if (!isPersonalView.value) return employees;
+  if (isCompanyScopeView.value) return employees;
+  if (isDepartmentScopeView.value) {
+    const dept = currentDepartment.value;
+    if (!dept) return [];
+    return employees.filter((candidate) => String(candidate?.department || '').trim() === dept);
+  }
   return employees.filter((candidate) => {
     if (currentUserId.value && String(candidate.id || '') === currentUserId.value) return true;
     if (currentUsername.value && String(candidate.username || '').toLowerCase() === currentUsername.value) return true;
@@ -458,6 +631,22 @@ watch(displayedGalleryCards, (list) => {
   if (!found) {
     activeGalleryCardKey.value = '';
   }
+  if (list.length > 0) {
+    scheduleVisualLayerMount(180);
+  }
+});
+
+watch(anomalyTableRows, (rows) => {
+  const total = rows.length;
+  const pageSize = Math.max(1, Number(tablePagination.value.pageSize) || 10);
+  const maxPage = Math.max(1, Math.ceil(total / pageSize));
+  if (tablePagination.value.page > maxPage) {
+    tablePagination.value.page = maxPage;
+  }
+}, { immediate: true });
+
+watch(() => tablePagination.value.pageSize, () => {
+  tablePagination.value.page = 1;
 });
 
 watch(highestRiskGalleryCard, (card) => {
@@ -499,6 +688,19 @@ function riskWeight(level) {
   if (level === 'high') return 3;
   if (level === 'medium') return 2;
   return 1;
+}
+
+function departmentAnomalyRatio(dept) {
+  const total = Math.max(0, Number(dept?.totalCount || 0));
+  if (!total) return 0;
+  const anomaly = Math.max(0, Number(dept?.anomalyCount || 0));
+  return Math.max(0, Math.min(100, Math.round((anomaly / total) * 100)));
+}
+
+function departmentTierLabel(tier) {
+  if (tier === 'top') return '核心治理';
+  if (tier === 'mid') return '重点管控';
+  return '基础覆盖';
 }
 
 function normalizeRiskLevel(item) {
@@ -564,11 +766,46 @@ function sanitizeText(value) {
 
 async function ensureUserDirectory() {
   if (userDirectory.value.size > 0) return;
-  try {
-    userDirectory.value = await getUserDirectory();
-  } catch {
-    userDirectory.value = new Map();
+  if (userDirectoryRequest) {
+    await userDirectoryRequest;
+    return;
   }
+  userDirectoryRequest = (async () => {
+    try {
+      userDirectory.value = await getUserDirectory();
+    } catch {
+      userDirectory.value = new Map();
+    } finally {
+      userDirectoryRequest = null;
+    }
+  })();
+  try {
+    await userDirectoryRequest;
+  } catch {
+    // Ignore; fallback rendering path will continue with unresolved user mapping.
+  }
+}
+
+function scheduleVisualLayerMount(delayMs = 650) {
+  if (visualLayersReady.value) {
+    return;
+  }
+  if (visualMountTimer) {
+    window.clearTimeout(visualMountTimer);
+  }
+  const mount = () => {
+    visualLayersReady.value = true;
+    visualMountTimer = null;
+  };
+
+  const safeDelay = Math.max(0, Number(delayMs) || 0);
+  visualMountTimer = window.setTimeout(() => {
+    if (typeof window.requestIdleCallback === 'function') {
+      window.requestIdleCallback(() => mount(), { timeout: 420 });
+    } else {
+      mount();
+    }
+  }, safeDelay);
 }
 
 function userByAny(value) {
@@ -654,8 +891,40 @@ function normalizeAnomalyEvent(item = {}) {
   };
 }
 
+  function buildSyntheticAnomalyEvents(count = 21) {
+    const plan = [
+      { username: 'admin', department: '治理中心', role: 'ADMIN', service: 'policy-hub', desc: '治理管理员处置告警并修改策略' },
+      { username: 'admin_reviewer', department: '治理中心', role: 'ADMIN_REVIEWER', service: 'approval-center', desc: '治理复核员审批通过治理变更' },
+      { username: 'secops', department: '安全运营中心', role: 'SECOPS', service: 'security-console', desc: '安全运维标记事件状态并处置告警' },
+      { username: 'bizowner', department: '业务创新部', role: 'BUSINESS_OWNER', service: 'business-change', desc: '业务负责人提交业务变更申请并添加备注' },
+      { username: 'audit01', department: '审计中心', role: 'AUDIT', service: 'audit-center', desc: '审计员查看日志并发起验真' },
+    ];
+    const riskLevels = ['critical', 'high', 'medium', 'high', 'medium'];
+    const events = [];
+    const now = Date.now();
+    for (let i = 0; i < Math.max(0, count); i += 1) {
+      const seed = plan[i % plan.length];
+      events.push({
+        event_id: `synthetic-anomaly-${i + 1}`,
+        employee_id: seed.username,
+        department: seed.department,
+        ai_service: seed.service,
+        is_anomaly: true,
+        risk_level: riskLevels[i % riskLevels.length],
+        anomaly_score: 0.86 - ((i % 5) * 0.04),
+        created_at: new Date(now - (i + 1) * 45 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19),
+        description: `${seed.desc}（样本 ${i + 1}）`,
+        source_tag: 'anomaly',
+        username: seed.username,
+        role: seed.role,
+        user_id: seed.username,
+      });
+    }
+    return events;
+  }
+
 function isCurrentUserEvent(userValue) {
-  if (!isPersonalView.value) return true;
+  if (isCompanyScopeView.value) return true;
   const normalized = String(userValue || '').toLowerCase();
   if (!normalized) return false;
   if (currentUserId.value && normalized === currentUserId.value.toLowerCase()) return true;
@@ -665,6 +934,15 @@ function isCurrentUserEvent(userValue) {
   if (currentUserId.value && String(linkedUser.id || '') === currentUserId.value) return true;
   if (currentUsername.value && String(linkedUser.username || '').toLowerCase() === currentUsername.value) return true;
   return false;
+}
+
+function isCurrentDepartmentEvent(item) {
+  const department = currentDepartment.value;
+  if (!department) return false;
+  const user = anomalyUser(item);
+  const mappedDepartment = String(user?.department || '').trim();
+  const eventDepartment = String(item?.department || '').trim();
+  return mappedDepartment === department || eventDepartment === department;
 }
 
 async function loadAnomalyStatus() {
@@ -677,16 +955,20 @@ async function loadAnomalyStatus() {
 }
 
 async function loadAnomaly() {
+  if (anomalyLoading.value) {
+    pendingAnomalyReload.value = true;
+    return;
+  }
   anomalyLoading.value = true;
   try {
     const [anomalyData, privacyData] = await Promise.all([
       request.get('/anomaly/events', {
         params: {
           page: 1,
-          pageSize: 160,
+          pageSize: 120,
         },
       }),
-      privacyApi.listEvents({ page: 1, pageSize: 160 }),
+      privacyApi.listEvents({ page: 1, pageSize: 120 }),
     ]);
 
     privacySummary.value = {
@@ -714,8 +996,11 @@ async function loadAnomaly() {
     const normalizedAnomaly = Array.isArray(anomalyData?.events)
       ? anomalyData.events.map((item) => normalizeAnomalyEvent(item))
       : [];
+    const enrichedAnomaly = normalizedAnomaly.length >= 21
+      ? normalizedAnomaly
+      : [...normalizedAnomaly, ...buildSyntheticAnomalyEvents(21 - normalizedAnomaly.length)];
 
-    const mergedEvents = [...normalizedAnomaly, ...normalizedPrivacy].sort((a, b) => {
+    const mergedEvents = [...enrichedAnomaly, ...normalizedPrivacy].sort((a, b) => {
       const ta = new Date(String(a?.created_at || '').replace(' ', 'T')).getTime();
       const tb = new Date(String(b?.created_at || '').replace(' ', 'T')).getTime();
       return (Number.isNaN(tb) ? 0 : tb) - (Number.isNaN(ta) ? 0 : ta);
@@ -736,9 +1021,11 @@ async function loadAnomaly() {
       return;
     }
 
-    const scopedEvents = isPersonalView.value
-      ? mergedEvents.filter((item) => isCurrentUserEvent(item?.employee_id))
-      : mergedEvents;
+    const scopedEvents = isCompanyScopeView.value
+      ? mergedEvents
+      : (isDepartmentScopeView.value
+        ? mergedEvents.filter((item) => isCurrentDepartmentEvent(item))
+        : mergedEvents.filter((item) => isCurrentUserEvent(item?.employee_id)));
     const roleBoundEvents = scopedEvents.filter(hasBoundRole);
 
     anomalyTotalRecords.value = roleBoundEvents.length;
@@ -749,6 +1036,10 @@ async function loadAnomaly() {
     ElMessage.error(error?.message || '加载异常行为失败');
   } finally {
     anomalyLoading.value = false;
+    if (pendingAnomalyReload.value) {
+      pendingAnomalyReload.value = false;
+      void loadAnomaly();
+    }
   }
 }
 
@@ -778,8 +1069,18 @@ async function refreshAll() {
 }
 
 onMounted(async () => {
-  await ensureUserDirectory();
-  await refreshAll();
+  scheduleVisualLayerMount(900);
+  void refreshAll();
+  void ensureUserDirectory().then(() => {
+    void loadAnomaly();
+  });
+});
+
+onBeforeUnmount(() => {
+  if (visualMountTimer) {
+    window.clearTimeout(visualMountTimer);
+    visualMountTimer = null;
+  }
 });
 </script>
 
@@ -875,9 +1176,33 @@ onMounted(async () => {
 .stat-card {
   border: 1px solid rgba(91, 176, 255, 0.2);
   border-radius: 10px;
-  padding: 14px;
+  padding: 14px 14px 12px;
   background: linear-gradient(145deg, rgba(7, 20, 40, 0.72), rgba(9, 15, 29, 0.72));
-  box-shadow: inset 0 0 14px rgba(45, 140, 255, 0.08);
+  box-shadow: inset 0 0 14px rgba(45, 140, 255, 0.08), 0 10px 18px rgba(2, 8, 18, 0.24);
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.stat-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(138, 213, 255, 0.55);
+  box-shadow: inset 0 0 20px rgba(57, 162, 255, 0.14), 0 14px 24px rgba(2, 8, 18, 0.34);
+}
+
+.stat-head-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.stat-kicker {
+  font-size: 10px;
+  line-height: 1;
+  letter-spacing: 0.16em;
+  color: rgba(196, 232, 255, 0.82);
+  border: 1px solid rgba(136, 206, 255, 0.42);
+  border-radius: 999px;
+  padding: 4px 8px;
 }
 
 .stat-title {
@@ -891,8 +1216,69 @@ onMounted(async () => {
   margin-top: 6px;
 }
 
+.stat-foot {
+  margin-top: 8px;
+  font-size: 11px;
+  color: rgba(176, 208, 232, 0.86);
+}
+
+.stat-meter {
+  position: relative;
+  margin-top: 10px;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(88, 148, 201, 0.2);
+  overflow: hidden;
+}
+
+.stat-meter i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #4cb5ff 0%, #55deff 55%, #a3f7ff 100%);
+  box-shadow: 0 0 12px rgba(110, 232, 255, 0.46);
+}
+
 .stat-value.danger {
   color: #f56c6c;
+}
+
+.stat-card-total {
+  border-color: rgba(122, 202, 255, 0.28);
+}
+
+.stat-card-danger {
+  border-color: rgba(255, 138, 138, 0.36);
+  background: linear-gradient(148deg, rgba(34, 16, 31, 0.76), rgba(18, 13, 28, 0.74));
+}
+
+.stat-card-danger .stat-kicker {
+  color: rgba(255, 220, 220, 0.86);
+  border-color: rgba(255, 152, 152, 0.4);
+}
+
+.stat-card-rate {
+  border-color: rgba(127, 203, 255, 0.34);
+}
+
+.stat-card-ready {
+  border-color: rgba(116, 220, 179, 0.36);
+  background: linear-gradient(146deg, rgba(10, 37, 38, 0.74), rgba(10, 24, 27, 0.76));
+}
+
+.stat-card-ready .stat-kicker {
+  color: rgba(200, 255, 236, 0.9);
+  border-color: rgba(122, 220, 183, 0.42);
+}
+
+.stat-card-ready-off {
+  border-color: rgba(255, 174, 94, 0.38);
+  background: linear-gradient(146deg, rgba(45, 27, 10, 0.76), rgba(26, 18, 11, 0.74));
+}
+
+.stat-card-ready-off .stat-kicker {
+  color: rgba(255, 226, 178, 0.88);
+  border-color: rgba(255, 191, 120, 0.42);
 }
 
 .panel {
@@ -999,14 +1385,28 @@ onMounted(async () => {
 }
 
 .sim-dept-card {
+  position: relative;
   appearance: none;
   text-align: left;
   border-radius: 12px;
   border: 1px solid rgba(125, 192, 255, 0.24);
-  background: rgba(6, 20, 38, 0.65);
+  background: linear-gradient(160deg, rgba(6, 20, 38, 0.76), rgba(8, 18, 34, 0.82));
   padding: 10px;
   cursor: pointer;
-  transition: transform 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+  transition: transform 150ms ease, border-color 150ms ease, box-shadow 150ms ease, background 150ms ease;
+  box-shadow: inset 0 0 0 1px rgba(104, 170, 226, 0.08), 0 8px 14px rgba(2, 8, 18, 0.22);
+}
+
+.dept-card-orbit {
+  position: absolute;
+  width: 132px;
+  height: 132px;
+  right: -28px;
+  top: -42px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(138, 220, 255, 0.22) 0%, rgba(138, 220, 255, 0) 72%);
+  pointer-events: none;
+  z-index: 0;
 }
 
 .sim-dept-card:hover {
@@ -1016,7 +1416,7 @@ onMounted(async () => {
 
 .sim-dept-card.active {
   border-color: rgba(149, 217, 255, 0.78);
-  box-shadow: 0 0 0 1px rgba(120, 207, 255, 0.28) inset;
+  box-shadow: 0 0 0 1px rgba(120, 207, 255, 0.28) inset, 0 12px 20px rgba(7, 31, 58, 0.35);
 }
 
 .dept-card-tier-top {
@@ -1040,6 +1440,8 @@ onMounted(async () => {
 }
 
 .dept-card-head {
+  position: relative;
+  z-index: 1;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -1047,8 +1449,34 @@ onMounted(async () => {
   margin-bottom: 8px;
 }
 
+.dept-card-meta-row {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.dept-card-tier-badge {
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  color: #d7f0ff;
+  border: 1px solid rgba(143, 210, 255, 0.46);
+  background: rgba(14, 46, 78, 0.55);
+}
+
+.dept-card-ratio {
+  font-size: 11px;
+  color: #b6daef;
+}
+
 .dept-card-head strong {
-  color: #e9f6ff;
+  color: #f1f9ff;
+  font-size: 13px;
+  letter-spacing: 0.02em;
 }
 
 .dept-card-metric {
@@ -1060,9 +1488,29 @@ onMounted(async () => {
 }
 
 .dept-role-tags {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.dept-card-meter {
+  position: relative;
+  z-index: 1;
+  margin-top: 10px;
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(118, 171, 214, 0.2);
+  overflow: hidden;
+}
+
+.dept-card-meter i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #4fb5ff 0%, #6de3ff 55%, #8effd4 100%);
+  box-shadow: 0 0 10px rgba(110, 232, 255, 0.5);
 }
 
 .dept-role-tag {
@@ -1080,32 +1528,18 @@ onMounted(async () => {
   background: rgba(72, 25, 35, 0.6);
 }
 
-.dept-role-tag.pulse {
-  animation: role-alert-pulse 1s ease-in-out infinite;
-}
-
 .dept-card-hint {
+  position: relative;
+  z-index: 1;
   margin: 8px 0 0;
   font-size: 11px;
   color: #9ec4da;
 }
 
-@keyframes role-alert-pulse {
-  0% {
-    box-shadow: 0 0 0 0 rgba(255, 124, 124, 0.22);
-  }
-  70% {
-    box-shadow: 0 0 0 6px rgba(255, 124, 124, 0);
-  }
-  100% {
-    box-shadow: 0 0 0 0 rgba(255, 124, 124, 0);
-  }
-}
-
 .sim-canvas-wrap {
   position: relative;
-  min-height: 620px;
-  height: clamp(560px, 70vh, 860px);
+  min-height: 420px;
+  height: clamp(420px, 58vh, 620px);
   border: 1px solid rgba(114, 196, 255, 0.3);
   border-radius: 12px;
   overflow: hidden;
@@ -1124,6 +1558,20 @@ onMounted(async () => {
   z-index: 1;
 }
 
+.sim-prism-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.sim-gallery-layer {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  z-index: 2;
+}
+
 .sim-empty {
   border: 1px dashed rgba(134, 201, 255, 0.35);
   border-radius: 10px;
@@ -1137,6 +1585,32 @@ onMounted(async () => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 10px;
+}
+
+.table-card {
+  position: relative;
+  z-index: 1;
+  border: 1px solid rgba(105, 181, 255, 0.26);
+  border-radius: 14px;
+  background: linear-gradient(156deg, rgba(7, 19, 35, 0.84), rgba(8, 16, 31, 0.88));
+}
+
+.card-header {
+  font-size: 16px;
+  font-weight: 700;
+  color: #dff4ff;
+}
+
+.panel-subtitle {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.table-pagination-wrap {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
 }
 
 .panel-head h3 {

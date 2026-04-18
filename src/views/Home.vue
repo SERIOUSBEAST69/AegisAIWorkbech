@@ -57,6 +57,8 @@
               class="home-reveal-logo-btn"
               ref="revealLogoBtnRef"
               @click="skipHomeReveal"
+              @mouseenter="handleRevealLogoHover"
+              @focus="handleRevealLogoHover"
               :aria-label="revealAwaitingClick ? '点击进入工作台' : '工作台引导进行中'"
             >
               <img :src="defenderLogoUrl" alt="Aegis" class="home-reveal-logo" />
@@ -942,6 +944,7 @@ const {
   revealLogoBtnRef,
   revealTrackRef,
   revealProgressRef,
+  handleRevealLogoHover,
   skipHomeReveal,
   playEntryScene,
   initHomeRevealPending,
@@ -1191,6 +1194,15 @@ function normalizeModelListPayload(payload) {
 function cleanModelName(name) {
   if (!name || typeof name !== 'string') return '';
   return String(name).trim();
+}
+
+function isPermissionDeniedError(error) {
+  const code = Number(error?.code || error?.status || 0);
+  if (code === 403 || code === 40300) {
+    return true;
+  }
+  const message = String(error?.message || '').toLowerCase();
+  return message.includes('无权限') || message.includes('403');
 }
 
 function isEnabledModel(item) {
@@ -2269,8 +2281,7 @@ function routePathFromSignal(signal) {
   const text = `${signal?.title || ''} ${signal?.action || ''}`.toLowerCase();
   if (text.includes('影子') || text.includes('ai')) return '/shadow-ai';
   if (text.includes('审计')) return '/audit-center';
-  if (text.includes('风险')) return '/risk-event-manage';
-  if (text.includes('告警') || text.includes('阻断')) return '/operations-command';
+  if (text.includes('告警') || text.includes('阻断')) return '/threat-monitor';
   return '/ops-observability';
 }
 
@@ -2278,14 +2289,13 @@ function routeLabelFromSignal(signal) {
   const path = routePathFromSignal(signal);
   if (path === '/shadow-ai') return '影子AI';
   if (path === '/audit-center') return '审计中心';
-  if (path === '/risk-event-manage') return '风险事件';
-  if (path === '/operations-command') return '安全指挥台';
+  if (path === '/threat-monitor') return 'AI攻击防御';
   return '治理观测';
 }
 
 function routeQueryFromSignal(signal) {
   const path = routePathFromSignal(signal);
-  if (path === '/operations-command') return { status: 'pending' };
+  if (path === '/threat-monitor') return { tab: 'alertCenter' };
   if (path === '/shadow-ai') return { tab: 'risk' };
   return {};
 }
@@ -2422,7 +2432,9 @@ async function refreshHomeAiHub() {
       homeAiHubCursor.value = Number(data.cursor || 0);
     }
   } catch (error) {
-    ElMessage.error(error?.message || '首页AI中枢数据加载失败');
+    if (!isPermissionDeniedError(error)) {
+      ElMessage.error(error?.message || '首页AI中枢数据加载失败');
+    }
   } finally {
     homeAiHubLoading.value = false;
   }
@@ -2743,7 +2755,9 @@ async function fetchData() {
 
     schedulePrimaryChartRender();
   } catch (error) {
-    ElMessage.error(error?.message || '首页工作台加载失败');
+    if (!isPermissionDeniedError(error)) {
+      ElMessage.error(error?.message || '首页工作台加载失败');
+    }
   } finally {
     if (loading.value) {
       loading.value = false;
@@ -2785,7 +2799,9 @@ async function fetchAwardReadiness() {
     const report = await dashboardApi.getAwardReadinessReport();
     awardReadiness.value = report || awardReadiness.value;
   } catch (error) {
-    ElMessage.warning(error?.message || '治理就绪度报告加载失败');
+    if (!isPermissionDeniedError(error)) {
+      ElMessage.warning(error?.message || '治理就绪度报告加载失败');
+    }
   } finally {
     awardReadinessLoading.value = false;
   }
@@ -3132,7 +3148,7 @@ onBeforeUnmount(() => {
   border-radius: 0;
   padding: 14px 24px 14px 14px;
   overflow-x: hidden;
-  overflow-y: visible;
+  overflow-y: auto;
   touch-action: auto;
 }
 
@@ -3288,10 +3304,18 @@ onBeforeUnmount(() => {
 
 .home-stroke-track {
   stroke: rgba(120, 171, 208, 0.42);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+  shape-rendering: geometricPrecision;
 }
 
 .home-stroke-progress {
   stroke: rgba(233, 244, 255, 0.96);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+  shape-rendering: geometricPrecision;
 }
 
 .home-reveal-logo-btn {
@@ -4109,6 +4133,91 @@ onBeforeUnmount(() => {
   gap: 16px;
 }
 
+.performance-verification-card {
+  grid-column: 1 / -1;
+  padding: 24px;
+  border: 1px solid rgba(118, 164, 255, 0.16);
+  background:
+    radial-gradient(circle at top right, rgba(89, 133, 255, 0.18), transparent 44%),
+    linear-gradient(180deg, rgba(8, 14, 26, 0.96) 0%, rgba(11, 19, 35, 0.96) 100%);
+  box-shadow: 0 24px 60px rgba(3, 8, 16, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.performance-verification-head {
+  align-items: center;
+}
+
+.performance-verification-badge {
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(136, 176, 255, 0.2);
+  background: rgba(84, 124, 255, 0.08);
+  color: #dbe7ff;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.performance-verification-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.performance-verification-metric {
+  min-height: 172px;
+  padding: 20px 18px;
+  border-radius: 24px;
+  border: 1px solid rgba(123, 163, 255, 0.18);
+  background: linear-gradient(180deg, rgba(15, 25, 44, 0.92) 0%, rgba(10, 18, 31, 0.96) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03), 0 18px 40px rgba(2, 7, 15, 0.26);
+}
+
+.performance-verification-metric-label {
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #8fb4cb;
+}
+
+.performance-verification-metric-value-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.performance-verification-metric-value {
+  font-size: clamp(36px, 4.8vw, 64px);
+  line-height: 0.92;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  color: #f5fbff;
+}
+
+.performance-verification-metric-suffix {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #8ab5ff;
+}
+
+.performance-verification-metric-note {
+  margin-top: 14px;
+  color: #9ab1c7;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.performance-verification-footer {
+  margin: 16px 2px 0;
+  color: #90a8bf;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
 .pulse-grid {
   grid-column: 1 / -1;
   display: grid;
@@ -4513,6 +4622,10 @@ onBeforeUnmount(() => {
   }
 
   .stat-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .performance-verification-grid {
     grid-template-columns: 1fr;
   }
 

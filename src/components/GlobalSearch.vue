@@ -181,7 +181,6 @@ const searchableItems = [
   { id: 4, type: '功能', title: '影子AI发现', description: '发现组织内未经批准的AI工具', icon: Aim, path: '/shadow-ai', category: 'functions' },
   { id: 5, type: '页面', title: '审计日志', description: '查看所有操作的审计记录', icon: Histogram, path: '/audit-log', category: 'pages' },
   { id: 6, type: '页面', title: '审批中心待办', description: '集中处理审批与治理请求', icon: DocumentChecked, path: '/approval-center', category: 'pages' },
-  { id: 8, type: '功能', title: 'AI使用合规监控', description: '监控与分析员工AI使用合规状态', icon: ChatLineRound, path: '/ai/anomaly', category: 'functions' },
   { id: 9, type: '页面', title: '用户管理', description: '管理组织用户账号', icon: UserFilled, path: '/user-manage', category: 'pages' },
   { id: 10, type: '页面', title: '角色管理', description: '配置用户角色和权限边界', icon: Lock, path: '/role-manage', category: 'pages' },
   { id: 12, type: '页面', title: '系统设置', description: '配置系统参数和选项', icon: Tools, path: '/settings', category: 'pages' }
@@ -405,7 +404,8 @@ onBeforeUnmount(() => {
   position: relative;
   z-index: 1;
   height: 100%;
-  overflow-y: visible;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .search-inner {
@@ -519,11 +519,13 @@ onBeforeUnmount(() => {
 
 .search-results {
   flex: 1;
-  overflow-y: visible;
+  overflow-y: auto;
+  overflow-x: hidden;
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid rgba(169, 196, 255, 0.08);
   padding: 12px;
+  max-height: calc(100vh - 280px);
 }
 
 .search-loading,

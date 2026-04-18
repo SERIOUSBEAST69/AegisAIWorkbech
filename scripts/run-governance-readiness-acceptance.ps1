@@ -5,12 +5,10 @@ param(
     [string]$OutputPath = "./docs/governance-readiness-acceptance.json"
 )
 
-$target = Get-ChildItem -Path $PSScriptRoot -File -Filter "*readiness-acceptance.ps1" |
-    Where-Object { $_.Name -ne $MyInvocation.MyCommand.Name } |
-    Select-Object -First 1
+$target = Join-Path $PSScriptRoot "run-national-award-readiness-acceptance.ps1"
 
-if (-not $target) {
+if (-not (Test-Path $target)) {
     throw "No readiness acceptance script found."
 }
 
-& $target.FullName -BaseUrl $BaseUrl -Username $Username -Credential $Credential -OutputPath $OutputPath
+& $target -BaseUrl $BaseUrl -Username $Username -Credential $Credential -OutputPath $OutputPath

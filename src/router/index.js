@@ -6,7 +6,6 @@ const UserManage = () => import('../views/UserManage.vue');
 const RoleManage = () => import('../views/RoleManage.vue');
 const PermissionManage = () => import('../views/PermissionManage.vue');
 const SecurityCommand = () => import('../views/SecurityCommand.vue');
-const RiskEventManage = () => import('../views/RiskEventManage.vue');
 const OpsObservability = () => import('../views/OpsObservability.vue');
 const ApprovalCenterHub = () => import('../views/ApprovalCenterHub.vue');
 const PolicyManage = () => import('../views/PolicyManage.vue');
@@ -14,7 +13,6 @@ const Login = () => import('../views/Login.vue');
 const Profile = () => import('../views/Profile.vue');
 const Settings = () => import('../views/Settings.vue');
 const ShadowAiDiscovery = () => import('../views/ShadowAiDiscovery.vue');
-const EmployeeAiBehaviorMonitor = () => import('../views/EmployeeAiBehaviorMonitor.vue');
 const ThreatMonitor = () => import('../views/ThreatMonitor.vue');
 import { getSession, hasActiveSession } from '../utils/auth';
 import { canAccessPath } from '../utils/persona';
@@ -26,7 +24,7 @@ import {
 const routes = [
   { path: '/login', name: 'Login', component: Login, meta: { public: true, depth: 0 } },
   { path: '/', name: 'Home', component: Home, meta: { depth: 1 } },
-  { path: '/audit-center', name: 'AuditCenter', component: AuditCenter, meta: { depth: 2, permission: 'audit:log:view' } },
+  { path: '/audit-center', name: 'AuditCenter', component: AuditCenter, meta: { depth: 2 } },
   { path: '/audit-log', redirect: to => ({ path: '/audit-center', query: to.query }) },
   { path: '/audit-report', redirect: to => ({ path: '/audit-center', query: to.query }) },
   { path: '/user-manage', name: 'UserManage', component: UserManage, meta: { depth: 3, permission: 'user:manage' } },
@@ -36,14 +34,13 @@ const routes = [
   { path: '/ops-observability', name: 'OpsObservability', component: OpsObservability, meta: { depth: 3 } },
   { path: '/approval-center', name: 'ApprovalCenter', component: ApprovalCenterHub, meta: { depth: 3 } },
   { path: '/policy-manage', name: 'PolicyManage', component: PolicyManage, meta: { depth: 3 } },
-  { path: '/risk-event-manage', name: 'RiskEventManage', component: RiskEventManage, meta: { depth: 3 } },
   { path: '/data-asset', redirect: '/' },
   { path: '/sensitive-data-governance', redirect: '/' },
   { path: '/sensitive-scan', redirect: '/' },
   { path: '/desense-preview', redirect: '/' },
   { path: '/subject-request', redirect: '/' },
   { path: '/ai/risk-rating', redirect: to => ({ path: '/shadow-ai', query: { ...to.query, tab: 'risk' } }) },
-  { path: '/ai/anomaly', name: 'AnomalyDetection', component: EmployeeAiBehaviorMonitor, meta: { depth: 3 } },
+  { path: '/ai/anomaly', redirect: '/shadow-ai' },
   { path: '/shadow-ai', name: 'ShadowAiDiscovery', component: ShadowAiDiscovery, meta: { depth: 2 } },
   { path: '/threat-monitor', name: 'ThreatMonitor', component: ThreatMonitor, meta: { depth: 2 } },
   { path: '/profile', name: 'Profile', component: Profile, meta: { depth: 2 } },

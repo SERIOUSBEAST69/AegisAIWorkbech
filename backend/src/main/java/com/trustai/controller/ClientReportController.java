@@ -16,8 +16,11 @@ import com.trustai.service.SecurityEventService;
 import com.trustai.service.UserService;
 import com.trustai.utils.R;
 import jakarta.servlet.http.HttpServletRequest;
+import lombok.Data;
 import lombok.RequiredArgsConstructor;
+import com.trustai.config.jwt.JwtUtil;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
 import java.nio.charset.StandardCharsets;
@@ -31,8 +34,7 @@ import java.util.stream.Collectors;
  *
  * <h3>客户端集成流程</h3>
  * <ol>
- *   <li>客户端启动时调用 {@code POST /api/client/register} 完成注册，获取 clientId 确认。</li>
- *   <li>每次扫描完成后调用 {@code POST /api/client/report} 上报发现结果。</li>
+ *   <li>客户端每次扫描完成后调用 {@code POST /api/client/report} 上报发现结果。</li>
  *   <li>管理员通过 {@code GET /api/client/list} 查看所有在线客户端及其发现的影子AI。</li>
  *   <li>{@code GET /api/client/stats} 为工作台首页提供摘要统计数据。</li>
  * </ol>
@@ -50,63 +52,67 @@ public class ClientReportController {
     private final ClientIngressAuthService clientIngressAuthService;
     private final SecurityEventService securityEventService;
     private final RoleService roleService;
+    private final JwtUtil jwtUtil;
 
-    // ── 客户端注册（幂等） ──────────────────────────────────────────────────────
-
-    /**
-     * 客户端首次启动或重新连接时调用。
-     * 若该 clientId 已有历史报告则直接返回确认，否则记录初始化记录。
-     */
     @PostMapping("/register")
-    public R<Map<String, Object>> register(@RequestHeader(value = "X-Client-Token", required = false) String clientToken,
-                                           @RequestHeader(value = "X-Company-Id", required = false) Long headerCompanyId,
-                                           @RequestBody RegisterReq req) {
-        if (!clientIngressAuthService.isAuthorized(clientToken)) {
-            return R.error(40100, "客户端令牌无效");
-        }
-        if (req.getClientId() == null || req.getClientId().isBlank()) {
+    @PreAuthorize("isAuthenticated()")
+    public R<Map<String, Object>> register(@RequestHeader(value = "Authorization", required = false) String authorization,
+                                           @RequestHeader(value = "X-Client-Token", required = false) String clientToken,
+                                           @RequestBody(required = false) ClientRegisterReq req) {
+        User currentUser = currentUserService.requireCurrentUser();
+        String clientIdValue = req == null ? null : req.getClientId();
+        String clientId = StringUtils.hasText(clientIdValue) ? clientIdValue.trim() : "";
+        if (!StringUtils.hasText(clientId)) {
             return R.error(40000, "clientId 不能为空");
         }
-        if (req.getOsUsername() == null || req.getOsUsername().isBlank()) {
-            return R.error(40000, "osUsername 不能为空");
-        }
-        if (req.getHostname() == null || req.getHostname().isBlank()) {
-            return R.error(40000, "hostname 不能为空");
-        }
-        if (req.getOsType() == null || req.getOsType().isBlank()) {
-            return R.error(40000, "osType 不能为空");
+
+        String hostname = StringUtils.hasText(req == null ? null : req.getHostname()) ? req.getHostname().trim() : "unknown-host";
+        String osUsername = StringUtils.hasText(req == null ? null : req.getOsUsername()) ? req.getOsUsername().trim() : currentUser.getUsername();
+        String osType = StringUtils.hasText(req == null ? null : req.getOsType()) ? req.getOsType().trim() : "Windows";
+        String clientVersion = StringUtils.hasText(req == null ? null : req.getClientVersion()) ? req.getClientVersion().trim() : "1.0.0";
+        String deviceFingerprint = buildDeviceFingerprint(clientId, hostname, osUsername);
+
+        String providedToken = clientIngressAuthService.normalizeToken(clientToken);
+        if (StringUtils.hasText(providedToken) && !clientIngressAuthService.isAcceptedClientToken(providedToken)) {
+            return R.error(40100, "客户端令牌无效");
         }
 
-        User reporter = resolveBoundUser(req.getOsUsername(), headerCompanyId);
-        if (reporter == null || reporter.getCompanyId() == null) {
-            return R.error(40000, "无法绑定合法账号与企业");
-        }
-        Long companyId = reporter.getCompanyId();
-
-        long existing = clientReportService.count(
-                new QueryWrapper<ClientReport>()
-                    .eq("company_id", companyId)
-                    .eq("client_id", req.getClientId())
+        String token = jwtUtil.generateClientToken(
+            currentUser.getUsername(),
+            currentUser.getId(),
+            currentUser.getCompanyId(),
+            clientId,
+            deviceFingerprint
         );
 
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("companyId", companyId);
-        result.put("clientId", req.getClientId());
-        result.put("deviceFingerprint", buildDeviceFingerprint(req.getClientId(), req.getHostname(), req.getOsUsername()));
-        result.put("registered", existing > 0);
-        result.put("serverTime", LocalDateTime.now().toString());
+        result.put("clientToken", token);
+        result.put("tokenType", "Bearer");
+        result.put("companyId", currentUser.getCompanyId());
+        result.put("userId", currentUser.getId());
+        result.put("username", currentUser.getUsername());
+        result.put("clientId", clientId);
+        result.put("hostname", hostname);
+        result.put("osUsername", osUsername);
+        result.put("osType", osType);
+        result.put("clientVersion", clientVersion);
+        result.put("deviceFingerprint", deviceFingerprint);
+        result.put("expiresInSeconds", 12 * 60 * 60);
+        result.put("issuedAt", LocalDateTime.now());
         return R.ok(result);
     }
 
     @GetMapping("/policy/snapshot")
-    public R<Map<String, Object>> policySnapshot(@RequestHeader(value = "X-Client-Token", required = false) String clientToken,
+    public R<Map<String, Object>> policySnapshot(@RequestHeader(value = "Authorization", required = false) String authorization,
+                                                 @RequestHeader(value = "X-Client-Token", required = false) String clientToken,
+                                                 @RequestHeader(value = "X-Client-Username", required = false) String headerUsername,
                                                  @RequestHeader(value = "X-Company-Id", required = false) Long headerCompanyId,
-                                                 @RequestHeader(value = "X-Client-Username", required = false) String clientUsername,
                                                  @RequestHeader(value = "X-Client-Id", required = false) String clientId) {
-        if (!clientIngressAuthService.isAuthorized(clientToken)) {
+        String providedToken = resolveProvidedToken(authorization, clientToken);
+        if (!clientIngressAuthService.isAcceptedClientToken(providedToken)) {
             return R.error(40100, "客户端令牌无效");
         }
-        User boundUser = resolveBoundUser(clientUsername, headerCompanyId);
+        User boundUser = resolveBoundUser(resolveClientUsername(headerUsername, null), headerCompanyId);
         if (boundUser == null || boundUser.getCompanyId() == null) {
             return R.error(40000, "无法绑定合法账号与企业");
         }
@@ -145,11 +151,14 @@ public class ClientReportController {
      * 客户端扫描完成后调用，将本次发现的影子AI服务列表上报给服务端。
      */
     @PostMapping("/report")
-    public R<Map<String, Object>> report(@RequestHeader(value = "X-Client-Token", required = false) String clientToken,
+    public R<Map<String, Object>> report(@RequestHeader(value = "Authorization", required = false) String authorization,
+                                         @RequestHeader(value = "X-Client-Token", required = false) String clientToken,
+                                         @RequestHeader(value = "X-Client-Username", required = false) String headerUsername,
                                          @RequestHeader(value = "X-Company-Id", required = false) Long headerCompanyId,
                                          HttpServletRequest servletReq,
                                          @RequestBody ClientReport report) {
-        if (!clientIngressAuthService.isAuthorized(clientToken)) {
+        String providedToken = resolveProvidedToken(authorization, clientToken);
+        if (!clientIngressAuthService.isAcceptedClientToken(providedToken)) {
             return R.error(40100, "客户端令牌无效");
         }
         if (report.getClientId() == null || report.getClientId().isBlank()) {
@@ -165,7 +174,8 @@ public class ClientReportController {
             return R.error(40000, "osType 不能为空");
         }
 
-        User relatedUser = resolveBoundUser(report.getOsUsername(), headerCompanyId);
+        String clientUsername = resolveClientUsername(headerUsername, report.getOsUsername());
+        User relatedUser = resolveBoundUser(clientUsername, headerCompanyId);
         if (relatedUser == null || relatedUser.getCompanyId() == null) {
             return R.error(40000, "无法绑定合法账号与企业");
         }
@@ -442,14 +452,34 @@ public class ClientReportController {
         if (osUsername == null || osUsername.isBlank()) {
             return null;
         }
-        List<User> candidates = userService.lambdaQuery()
-            .eq(User::getUsername, osUsername)
-            .eq(headerCompanyId != null && headerCompanyId > 0, User::getCompanyId, headerCompanyId)
-            .list();
-        if (candidates == null || candidates.isEmpty()) {
-            return null;
+        List<String> usernameCandidates = new ArrayList<>();
+        String normalized = osUsername.trim();
+        usernameCandidates.add(normalized);
+        usernameCandidates.add(normalized.toLowerCase(Locale.ROOT));
+        if (normalized.matches(".*(?:_?1)$")) {
+            usernameCandidates.add(normalized.replaceAll("(?:_?1)$", ""));
         }
-        return candidates.get(0);
+
+        for (String candidate : usernameCandidates.stream().filter(StringUtils::hasText).distinct().toList()) {
+            List<User> candidates = userService.lambdaQuery()
+                .eq(User::getUsername, candidate)
+                .eq(headerCompanyId != null && headerCompanyId > 0, User::getCompanyId, headerCompanyId)
+                .list();
+            if (candidates != null && !candidates.isEmpty()) {
+                return candidates.get(0);
+            }
+        }
+        return null;
+    }
+
+    private String resolveClientUsername(String headerUsername, String bodyUsername) {
+        if (headerUsername != null && !headerUsername.isBlank()) {
+            return headerUsername.trim();
+        }
+        if (bodyUsername != null && !bodyUsername.isBlank()) {
+            return bodyUsername.trim();
+        }
+        return null;
     }
 
     private String resolveDispositionStatus(ClientReport report) {
@@ -545,26 +575,24 @@ public class ClientReportController {
         }
     }
 
-    // ── DTO ────────────────────────────────────────────────────────────────────
+    private String resolveProvidedToken(String authorization, String clientToken) {
+        String token = clientIngressAuthService.normalizeToken(authorization);
+        if (StringUtils.hasText(token)) {
+            return token;
+        }
+        return clientIngressAuthService.normalizeToken(clientToken);
+    }
 
-    public static class RegisterReq {
+    @Data
+    public static class ClientRegisterReq {
         private String clientId;
         private String hostname;
         private String osUsername;
         private String osType;
         private String clientVersion;
-
-        public String getClientId() { return clientId; }
-        public void setClientId(String clientId) { this.clientId = clientId; }
-        public String getHostname() { return hostname; }
-        public void setHostname(String hostname) { this.hostname = hostname; }
-        public String getOsUsername() { return osUsername; }
-        public void setOsUsername(String osUsername) { this.osUsername = osUsername; }
-        public String getOsType() { return osType; }
-        public void setOsType(String osType) { this.osType = osType; }
-        public String getClientVersion() { return clientVersion; }
-        public void setClientVersion(String clientVersion) { this.clientVersion = clientVersion; }
     }
+
+    // ── DTO ────────────────────────────────────────────────────────────────────
 
     public static class QueueReq {
         private String platform;

@@ -7,6 +7,7 @@ import com.trustai.service.AuditLogService;
 import com.trustai.service.RoleService;
 import com.trustai.service.UserService;
 import java.util.Calendar;
+import java.util.Collections;
 import java.util.Date;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -37,6 +38,11 @@ public class DataInitializer implements CommandLineRunner {
 
     private static final Long DEFAULT_COMPANY_ID = 1L;
     private static final String DEFAULT_PASSWORD = "Passw0rd!";
+    private static final Set<String> DEPRECATED_RISK_PERMISSION_CODES = Set.of(
+        "menu:risk_event_manage",
+        "risk:event:view",
+        "risk:event:handle"
+    );
 
     private static final List<UserSeed> BASELINE_USERS = List.of(
         new UserSeed("admin", "治理管理员", "ADMIN", "治理中心", "13800138000", "admin@aegisai.com", "wx_admin", "admin"),
@@ -934,7 +940,6 @@ public class DataInitializer implements CommandLineRunner {
             new PermissionSeed("权限管理菜单", "menu:permission_manage", "menu"),
             new PermissionSeed("审批中心菜单", "menu:approval_center", "menu"),
             new PermissionSeed("治理变更菜单", "menu:governance_change", "menu"),
-            new PermissionSeed("风险事件菜单", "menu:risk_event_manage", "menu"),
             new PermissionSeed("策略管理菜单", "menu:policy_manage", "menu"),
             new PermissionSeed("安全指挥台菜单", "menu:security_command", "menu"),
             new PermissionSeed("运维观测菜单", "menu:ops_observability", "menu"),
@@ -956,8 +961,6 @@ public class DataInitializer implements CommandLineRunner {
             new PermissionSeed("审批处理-治理", "approval:operate:governance", "button"),
             new PermissionSeed("审批处理-业务", "approval:operate:business", "button"),
             new PermissionSeed("审批流程配置", "approval:config", "button"),
-            new PermissionSeed("风险事件查看", "risk:event:view", "menu"),
-            new PermissionSeed("风险事件处置", "risk:event:handle", "button"),
             new PermissionSeed("安全事件查看", "security:event:view", "menu"),
             new PermissionSeed("安全事件处置", "security:event:handle", "button"),
             new PermissionSeed("安全规则管理", "security:rule:manage", "button"),
@@ -1016,7 +1019,6 @@ public class DataInitializer implements CommandLineRunner {
         permissionParentByCode.put("subject:request:view", "menu:subject_request");
         permissionParentByCode.put("approval:view", "menu:approval_center");
         permissionParentByCode.put("govern:change:view", "menu:governance_change");
-        permissionParentByCode.put("risk:event:view", "menu:risk_event_manage");
         permissionParentByCode.put("security:event:view", "menu:security_command");
         permissionParentByCode.put("security:command:view", "menu:security_command");
         permissionParentByCode.put("policy:view", "menu:policy_manage");
@@ -1037,7 +1039,6 @@ public class DataInitializer implements CommandLineRunner {
         permissionParentByCode.put("approval:operate:governance", "approval:view");
         permissionParentByCode.put("approval:operate:business", "approval:view");
         permissionParentByCode.put("approval:config", "approval:view");
-        permissionParentByCode.put("risk:event:handle", "risk:event:view");
         permissionParentByCode.put("security:event:handle", "security:event:view");
         permissionParentByCode.put("security:rule:manage", "security:event:view");
         permissionParentByCode.put("policy:structure:manage", "policy:view");
@@ -1046,6 +1047,7 @@ public class DataInitializer implements CommandLineRunner {
         assignPermissionParents(companyId, permissionParentByCode);
 
         normalizeLegacyPermissionCodes(companyId, permissionSeeds);
+        removeDeprecatedRiskEventPermissions(companyId);
 
         bindPermissions(roleMap.get("ADMIN"), Arrays.asList(
             "menu:data_asset",
@@ -1361,10 +1363,8 @@ public class DataInitializer implements CommandLineRunner {
         aliases.put("APPROVAL_OPERATE_BUSINESS", "approval:operate:business");
         aliases.put("AUDIT_VIEW", "audit:report:view");
         aliases.put("AUDIT_EXPORT", "audit:report:generate");
-        aliases.put("MODEL_RISK_VIEW", "risk:event:view");
         aliases.put("PERMISSION_MANAGE", "permission:manage");
         aliases.put("POLICY_MANAGE", "policy:structure:manage");
-        aliases.put("RISK_EVENT_HANDLE", "risk:event:handle");
         aliases.put("ROLE_MANAGE", "role:manage");
         aliases.put("SUBJECT_REQUEST_HANDLE", "approval:operate");
         aliases.put("USER_MANAGE", "user:manage");
@@ -1483,6 +1483,9 @@ public class DataInitializer implements CommandLineRunner {
             return;
         }
         for (String code : permissionCodes) {
+            if (DEPRECATED_RISK_PERMISSION_CODES.contains(String.valueOf(code))) {
+                continue;
+            }
             Long permissionId = querySingleLong(
                 "SELECT id FROM permission WHERE company_id = ? AND code = ? ORDER BY id ASC LIMIT 1",
                 role.getCompanyId(),
@@ -1501,6 +1504,31 @@ public class DataInitializer implements CommandLineRunner {
                 jdbcTemplate.update("INSERT INTO role_permission(role_id, permission_id) VALUES(?, ?)", role.getId(), permissionId);
             }
         }
+    }
+
+    private void removeDeprecatedRiskEventPermissions(Long companyId) {
+        if (companyId == null || !tableExists("permission") || !tableExists("role_permission")) {
+            return;
+        }
+        List<String> deprecatedCodes = List.of(
+            "menu:risk_event_manage",
+            "risk:event:view",
+            "risk:event:handle"
+        );
+        String placeholders = String.join(",", Collections.nCopies(deprecatedCodes.size(), "?"));
+        List<Object> params = new ArrayList<>();
+        params.add(companyId);
+        params.addAll(deprecatedCodes);
+        jdbcTemplate.update(
+            "DELETE FROM role_permission WHERE permission_id IN (" +
+                "SELECT id FROM permission WHERE company_id = ? AND code IN (" + placeholders + ")" +
+            ")",
+            params.toArray()
+        );
+        jdbcTemplate.update(
+            "DELETE FROM permission WHERE company_id = ? AND code IN (" + placeholders + ")",
+            params.toArray()
+        );
     }
 
     private void seedApprovalAndAuditData(Long companyId) {
@@ -1743,143 +1771,148 @@ public class DataInitializer implements CommandLineRunner {
         }
 
         seedRealPolicyBaselines(companyId);
-
-        Integer policyCount = jdbcTemplate.queryForObject("SELECT COUNT(1) FROM compliance_policy WHERE company_id = ?", Integer.class, companyId);
-        int targetPolicy = 24;
-        int existingPolicy = policyCount == null ? 0 : policyCount;
-        Date now = new Date();
-        for (int i = existingPolicy; i < targetPolicy; i++) {
-            Date createTime = new Date(now.getTime() - (long) (targetPolicy - i) * 86400_000L);
-            jdbcTemplate.update(
-                "INSERT INTO compliance_policy(company_id, name, rule_content, scope, status, version, create_time, update_time) VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
-                companyId,
-                "治理策略-" + (i + 1),
-                "{\"policyType\":\"MASKING\",\"keywords\":[\"身份证\",\"手机号\",\"银行卡\"],\"action\":\"mask\",\"index\":" + i + "}",
-                i % 3 == 0 ? "全局" : (i % 3 == 1 ? "业务部门" : "ai_prompt"),
-                1,
-                1 + (i % 3),
-                createTime,
-                createTime
-            );
-        }
     }
 
     private void seedRealPolicyBaselines(Long companyId) {
-        Date now = new Date();
-        ensurePolicyBaseline(
+        jdbcTemplate.update("DELETE FROM compliance_policy WHERE company_id = ?", companyId);
+
+        insertPolicySeed(
             companyId,
-            "数据外发脱敏策略",
+            1L,
+            "手机号敏感脱敏",
             "MASKING",
             10,
-            "全平台",
+            "全公司",
             "全公司",
             "数据导出岗,审计岗",
-            "手机号,身份证,银行卡",
-            "{\"policyType\":\"MASKING\",\"keywords\":[\"身份证\",\"手机号\",\"银行卡\",\"住址\"],\"action\":\"mask\",\"priority\":10,\"scenario\":\"文件外发时自动检测手机号、身份证并脱敏\",\"scopeDetail\":{\"departments\":[\"全公司\"],\"dataTypes\":[\"数据导出\",\"脱敏预览\",\"审计日志\"]}}",
+            "手机号,短信,联系人",
+            "{\"policyType\":\"MASKING\",\"description\":\"AI 交互输入时，自动识别并遮蔽手机号明文，防止隐私泄露\",\"riskLevel\":\"MEDIUM\",\"priority\":10,\"keywords\":[\"手机号\",\"电话\"],\"action\":\"mask\"}",
+            0,
+            "governance-admin",
+            policyTimestamp("2026-04-16 21:37:17")
+        );
+        insertPolicySeed(
+            companyId,
+            2L,
+            "核心数据外发管控",
+            "ACCESS_CONTROL",
+            20,
+            "全公司",
+            "数据治理部,业务创新部",
+            "数据导出岗,审计岗",
+            "核心数据,内部文档,外部平台",
+            "{\"policyType\":\"ACCESS_CONTROL\",\"description\":\"限制企业涉密、内部数据向外部 AI 平台直接传输，调用前自动脱敏\",\"riskLevel\":\"MEDIUM\",\"priority\":20,\"keywords\":[\"核心数据\",\"外发\",\"脱敏\"],\"action\":\"block\"}",
             1,
             "governance-admin",
-            now
+            policyTimestamp("2026-04-07 14:33:22")
         );
-        ensurePolicyBaseline(
+        insertPolicySeed(
             companyId,
-            "敏感词拦截策略",
+            3L,
+            "影子 AI 终端阻断",
             "ACCESS_CONTROL",
-            15,
-            "ai_prompt",
-            "数据治理部,研发部",
-            "AI安全岗,审计岗",
-            "AI对话,安全告警,审计日志",
-            "{\"policyType\":\"ACCESS_CONTROL\",\"keywords\":[\"越权导出\",\"批量下载客户\",\"泄露隐私\",\"绕过审批\"],\"action\":\"block\",\"priority\":15,\"scenario\":\"AI对话中识别违规指令并拦截，生成告警\",\"scopeDetail\":{\"departments\":[\"数据治理部\",\"研发部\"],\"dataTypes\":[\"AI对话\",\"安全告警\",\"审计日志\"]}}",
+            30,
+            "终端",
+            "安全运营中心",
+            "安全运维岗,审计岗",
+            "终端,未授权AI工具,实时告警",
+            "{\"policyType\":\"ACCESS_CONTROL\",\"description\":\"未授权 AI 工具自动扫描、实时告警，违规行为一键限制终端访问\",\"riskLevel\":\"HIGH\",\"priority\":30,\"keywords\":[\"影子AI\",\"终端阻断\",\"告警\"],\"action\":\"block\"}",
             1,
             "secops-reviewer",
-            new Date(now.getTime() - 3600_000L)
+            policyTimestamp("2026-03-29 20:55:06")
         );
-        ensurePolicyBaseline(
+        insertPolicySeed(
             companyId,
-            "导出次数管控策略",
-            "EXPORT_LIMIT",
-            20,
-            "数据治理部",
-            "数据治理部",
-            "数据导出岗",
-            "数据导出,风险预警,审计日志",
-            "{\"policyType\":\"EXPORT_LIMIT\",\"keywords\":[\"导出\",\"外发\",\"批量\"],\"action\":\"block\",\"exportLimit\":5,\"priority\":20,\"scenario\":\"限制用户单日导出次数，防止批量泄露\",\"scopeDetail\":{\"departments\":[\"数据治理部\"],\"dataTypes\":[\"数据导出\",\"风险预警\",\"审计日志\"]}}",
+            4L,
+            "AI 调用频次风控",
+            "ALERT_GOVERNANCE",
+            40,
+            "全公司",
+            "数据治理部,安全运营中心",
+            "AI安全岗,审计岗",
+            "AI调用,限流,风险评级",
+            "{\"policyType\":\"ALERT_GOVERNANCE\",\"description\":\"针对短时间高频 AI 调用行为，触发异常风险评级与限流处置\",\"riskLevel\":\"MEDIUM\",\"priority\":40,\"keywords\":[\"调用频次\",\"限流\",\"异常\"],\"action\":\"throttle\"}",
             1,
             "ops-analyst",
-            new Date(now.getTime() - 7200_000L)
+            policyTimestamp("2026-03-27 20:55:06")
         );
-        ensurePolicyBaseline(
+        insertPolicySeed(
             companyId,
-            "AI对话审计策略",
+            5L,
+            "高危模型访问隔离",
+            "ACCESS_CONTROL",
+            50,
+            "全公司",
+            "安全运营中心,研发部",
+            "AI安全岗,终端运维岗",
+            "外部大模型,白名单,高泄露风险",
+            "{\"policyType\":\"ACCESS_CONTROL\",\"description\":\"禁止终端访问未纳入企业白名单、高泄露风险的外部大模型\",\"riskLevel\":\"HIGH\",\"priority\":50,\"keywords\":[\"白名单\",\"高危模型\",\"隔离\"],\"action\":\"isolate\"}",
+            1,
+            "secops-reviewer",
+            policyTimestamp("2026-03-26 20:55:06")
+        );
+        insertPolicySeed(
+            companyId,
+            6L,
+            "违规行为自动留痕",
             "AUDIT_GOVERNANCE",
-            35,
-            "研发部",
-            "研发部",
-            "研发组,审计岗",
-            "AI对话,审计日志,AI使用合规监控",
-            "{\"policyType\":\"AUDIT_GOVERNANCE\",\"keywords\":[\"大模型\",\"提示词\",\"上下文\"],\"action\":\"audit\",\"priority\":35,\"scenario\":\"对AI对话过程留痕并生成可追溯审计记录\",\"scopeDetail\":{\"departments\":[\"研发部\"],\"dataTypes\":[\"AI对话\",\"审计日志\",\"AI使用合规监控\"]}}",
+            60,
+            "全公司",
+            "审计中心,安全运营中心",
+            "审计岗",
+            "违规操作,风险事件,审计哈希",
+            "{\"policyType\":\"AUDIT_GOVERNANCE\",\"description\":\"AI 违规操作自动生成风险事件，同步写入审计哈希证据链\",\"riskLevel\":\"LOW\",\"priority\":60,\"keywords\":[\"留痕\",\"哈希\",\"审计\"],\"action\":\"audit\"}",
             1,
             "audit-bot",
-            new Date(now.getTime() - 10_800_000L)
+            policyTimestamp("2026-03-25 20:55:06")
         );
-        ensurePolicyBaseline(
+        insertPolicySeed(
             companyId,
-            "权限变更告警策略",
-            "ALERT_GOVERNANCE",
-            45,
-            "全平台",
-            "数据治理部,研发部",
+            7L,
+            "跨租户数据防越权",
+            "ACCESS_CONTROL",
+            70,
+            "全租户",
+            "数据治理部,安全运营中心",
             "管理员,审计岗",
-            "权限管理,安全告警,审计日志",
-            "{\"policyType\":\"ALERT_GOVERNANCE\",\"keywords\":[\"角色升级\",\"越权授权\",\"高危权限\"],\"action\":\"alert\",\"priority\":45,\"scenario\":\"权限变更后触发告警并联动审计复核\",\"scopeDetail\":{\"departments\":[\"数据治理部\",\"研发部\"],\"dataTypes\":[\"权限管理\",\"安全告警\",\"审计日志\"]}}",
-            0,
+            "多租户,数据边界,越权",
+            "{\"policyType\":\"ACCESS_CONTROL\",\"description\":\"多租户环境下强制数据边界校验，杜绝横向越权与数据泄露\",\"riskLevel\":\"HIGH\",\"priority\":70,\"keywords\":[\"跨租户\",\"越权\",\"数据边界\"],\"action\":\"deny\"}",
+            1,
             "system-scheduler",
-            new Date(now.getTime() - 14_400_000L)
+            policyTimestamp("2026-03-24 20:55:06")
         );
     }
 
-    private void ensurePolicyBaseline(Long companyId,
-                                      String name,
-                                      String policyType,
-                                      int priority,
-                                      String scope,
-                                      String scopeDepartments,
-                                      String scopeUserGroups,
-                                      String scopeDataTypes,
-                                      String ruleContent,
-                                      int status,
-                                      String lastModifier,
-                                      Date updateTime) {
-        Long exists = querySingleLong(
-            "SELECT id FROM compliance_policy WHERE company_id = ? AND name = ? ORDER BY id ASC LIMIT 1",
-            companyId,
-            name
-        );
-        if (exists == null) {
-            jdbcTemplate.update(
-                "INSERT INTO compliance_policy(company_id, name, rule_content, scope, status, version, create_time, update_time) VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
-                companyId,
-                name,
-                ruleContent,
-                scope,
-                status,
-                3,
-                updateTime,
-                updateTime
-            );
-            applyPolicyOptionalColumns(exists, policyType, priority, scopeDepartments, scopeUserGroups, scopeDataTypes, lastModifier, updateTime, companyId, name);
-            return;
-        }
+    private void insertPolicySeed(Long companyId,
+                                  Long policyId,
+                                  String name,
+                                  String policyType,
+                                  int priority,
+                                  String scope,
+                                  String scopeDepartments,
+                                  String scopeUserGroups,
+                                  String scopeDataTypes,
+                                  String ruleContent,
+                                  int status,
+                                  String lastModifier,
+                                  Date updateTime) {
         jdbcTemplate.update(
-            "UPDATE compliance_policy SET name = ?, rule_content = ?, scope = ?, status = ?, version = CASE WHEN version IS NULL OR version < 3 THEN 3 ELSE version END, update_time = ? WHERE id = ?",
+            "INSERT INTO compliance_policy(id, company_id, name, rule_content, scope, status, version, create_time, update_time) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            policyId,
+            companyId,
             name,
             ruleContent,
             scope,
             status,
+            3,
             updateTime,
-            exists
+            updateTime
         );
-        applyPolicyOptionalColumns(exists, policyType, priority, scopeDepartments, scopeUserGroups, scopeDataTypes, lastModifier, updateTime, companyId, name);
+        applyPolicyOptionalColumns(policyId, policyType, priority, scopeDepartments, scopeUserGroups, scopeDataTypes, lastModifier, updateTime, companyId, name);
+    }
+
+    private Date policyTimestamp(String value) {
+        return java.sql.Timestamp.valueOf(value);
     }
 
     private void applyPolicyOptionalColumns(Long policyId,

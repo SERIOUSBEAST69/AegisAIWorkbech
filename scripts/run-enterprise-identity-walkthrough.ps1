@@ -45,7 +45,7 @@ if (-not $employeeRole) { $employeeRole = $identities | Select-Object -First 1 }
 
 Write-Host "[4/6] Register a new user with invite code"
 $stamp = Get-Date -Format "yyyyMMddHHmmss"
-$newUser = "walkthrough_$stamp"
+$newUser = "demoacct_$stamp"
 $registerResp = Invoke-JsonPost "$BaseUrl/api/auth/register" @{
     username = $newUser
     password = "Passw0rd!"

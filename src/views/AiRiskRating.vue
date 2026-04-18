@@ -60,9 +60,7 @@
     <div class="score-legend scene-block card-glass">
       <div class="legend-title">✅ 公司AI白名单</div>
       <div class="white-policy-strip">
-        <span><strong>提出者：</strong>业务负责人或AI应用开发者</span>
-        <span><strong>审批者：</strong>治理管理员（策略与合规核验）</span>
-        <span><strong>审计员：</strong>仅事后查看变更记录，不参与审批</span>
+        <span>治理管理员可发起白名单增减，提交后进入审批中心由审核员审批生效。</span>
       </div>
       <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
         <el-tag type="success">当前生效：{{ whitelistState.whitelist.length }} 项</el-tag>
@@ -78,6 +76,41 @@
         >{{ item }}</el-tag>
       </div>
       <el-empty v-else description="当前暂无生效白名单" />
+
+      <div v-if="canSubmitWhitelist" class="white-manage-panel">
+        <div class="white-manage-title">白名单增减（待提交）</div>
+        <div class="white-manage-actions">
+          <el-select
+            v-model="selectedCatalogItem"
+            filterable
+            clearable
+            placeholder="选择可加入的AI服务"
+            style="width: 320px"
+          >
+            <el-option
+              v-for="item in availableCatalogOptions"
+              :key="item"
+              :label="item"
+              :value="item"
+            />
+          </el-select>
+          <el-button @click="addWhitelistItem">加入</el-button>
+          <el-button @click="resetWhitelistDraft">重置</el-button>
+          <el-button type="primary" :loading="submittingWhitelistChange" @click="submitWhitelistChange">提交审批</el-button>
+        </div>
+        <div class="white-tag-list" v-if="draftWhitelist.length">
+          <el-tag
+            v-for="item in draftWhitelist"
+            :key="`draft-${item}`"
+            type="warning"
+            effect="plain"
+            closable
+            style="margin: 2px 6px 2px 0"
+            @close="removeWhitelistItem(item)"
+          >{{ item }}</el-tag>
+        </div>
+        <el-empty v-else description="当前待提交白名单为空" :image-size="50" />
+      </div>
     </div>
 
     <FluidGlassReactHost
@@ -122,18 +155,20 @@
           </div>
           <div class="radar-actions">
               <el-select
-              v-if="canQueryOthers"
-                v-model="profileUsername"
+                v-if="canQueryRadarOthers"
+                v-model="selectedProfileUser"
                 filterable
                 clearable
-                placeholder="选择员工查看画像"
-              style="width: 180px"
+                placeholder="选择人员画像"
+                style="width: 260px"
+                :loading="profileUsersLoading"
+                @change="loadRadarProfile"
               >
                 <el-option
-                  v-for="item in radarUsers"
-                  :key="item.username"
-                  :label="`${item.realName || item.username} (${item.username})`"
-                  :value="item.username"
+                  v-for="user in profileUsers"
+                  :key="user.username"
+                  :label="user.label"
+                  :value="user.username"
                 />
               </el-select>
             <el-button :loading="radarLoading" @click="loadRadarProfile">刷新画像</el-button>
@@ -332,7 +367,7 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
-import { ElMessage } from 'element-plus';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import { Refresh, RefreshRight } from '@element-plus/icons-vue';
 import * as echarts from 'echarts/core';
 import { RadarChart } from 'echarts/charts';
@@ -341,6 +376,7 @@ import { CanvasRenderer } from 'echarts/renderers';
 import request from '../api/request';
 import { useRouter } from 'vue-router';
 import { useUserStore } from '../store/user';
+import { hasAnyRole } from '../utils/roleBoundary';
 import FluidGlassReactHost from '../components/risk/FluidGlassReactHost.vue';
 
 echarts.use([RadarChart, TooltipComponent, LegendComponent, CanvasRenderer]);
@@ -359,14 +395,14 @@ const whitelistState = ref({
   whitelist: [],
 });
 const whitelistLoading = ref(false);
-const canQueryOthers = computed(() => {
-  const role = String(userStore.userInfo?.roleCode || '').toUpperCase();
-  return ['ADMIN', 'SECOPS', 'EXECUTIVE', 'DATA_ADMIN', 'AI_BUILDER'].includes(role);
-});
+const submittingWhitelistChange = ref(false);
+const selectedCatalogItem = ref('');
+const draftWhitelist = ref([]);
+const profileUsersLoading = ref(false);
+const profileUsers = ref([]);
+const selectedProfileUser = ref(null);
 
 const radarLoading = ref(false);
-const profileUsername = ref('');
-const radarUsers = ref([]);
 const selectedDimension = ref(null);
 const radarProfile = ref({
   totalRisk: 0,
@@ -377,6 +413,18 @@ const radarProfile = ref({
 });
 const radarChartRef = ref(null);
 let radarChart = null;
+const canQueryRadarOthers = computed(() => hasAnyRole(userStore.userInfo, ['ADMIN', 'ADMIN_REVIEWER']));
+const canSubmitWhitelist = computed(() => hasAnyRole(userStore.userInfo, ['ADMIN']));
+const availableCatalogOptions = computed(() => {
+  const catalog = Array.isArray(whitelistState.value?.catalog) ? whitelistState.value.catalog : [];
+  const serviceNames = (Array.isArray(services.value) ? services.value : [])
+    .map(item => String(item?.name || item?.id || '').trim())
+    .filter(Boolean);
+  const baselineWhitelist = Array.isArray(whitelistState.value?.whitelist) ? whitelistState.value.whitelist : [];
+  const mergedCatalog = Array.from(new Set([...catalog, ...serviceNames, ...baselineWhitelist]));
+  const draftSet = new Set(Array.isArray(draftWhitelist.value) ? draftWhitelist.value : []);
+  return mergedCatalog.filter(item => !draftSet.has(item));
+});
 
 const fluidGlassCards = computed(() => {
   return (Array.isArray(services.value) ? services.value : []).map((service, index) => normalizeFluidCard(service, index));
@@ -419,6 +467,7 @@ async function loadWhitelist() {
       catalog: Array.isArray(data?.catalog) ? data.catalog : [],
       whitelist: Array.isArray(data?.whitelist) ? data.whitelist : [],
     };
+    draftWhitelist.value = [...whitelistState.value.whitelist];
   } catch (err) {
     ElMessage.error(err?.message || '加载白名单失败');
   } finally {
@@ -426,12 +475,101 @@ async function loadWhitelist() {
   }
 }
 
+function addWhitelistItem() {
+  const value = String(selectedCatalogItem.value || '').trim();
+  if (!value) {
+    ElMessage.warning('请先选择一个AI服务');
+    return;
+  }
+  if (draftWhitelist.value.includes(value)) {
+    ElMessage.info('该服务已在待提交白名单中');
+    return;
+  }
+  draftWhitelist.value = [...draftWhitelist.value, value];
+  selectedCatalogItem.value = '';
+}
+
+function removeWhitelistItem(item) {
+  draftWhitelist.value = draftWhitelist.value.filter(entry => entry !== item);
+}
+
+function resetWhitelistDraft() {
+  draftWhitelist.value = [...(whitelistState.value?.whitelist || [])];
+  selectedCatalogItem.value = '';
+}
+
+async function submitWhitelistChange() {
+  if (!canSubmitWhitelist.value) {
+    ElMessage.error('当前身份无白名单发起权限');
+    return;
+  }
+
+  const nextWhitelist = Array.from(new Set((draftWhitelist.value || []).map(item => String(item || '').trim()).filter(Boolean)));
+  const currentWhitelist = Array.from(new Set((whitelistState.value?.whitelist || []).map(item => String(item || '').trim()).filter(Boolean)));
+  if (JSON.stringify(nextWhitelist) === JSON.stringify(currentWhitelist)) {
+    ElMessage.info('白名单无变化，无需提交审批');
+    return;
+  }
+
+  let reason = '公司AI白名单增减调整';
+  try {
+    const prompt = await ElMessageBox.prompt('请输入本次白名单变更原因', '提交审批', {
+      inputPlaceholder: '例如：新增业务模型、下线高风险模型',
+      inputValue: reason,
+      confirmButtonText: '下一步',
+      cancelButtonText: '取消',
+      inputValidator: value => (!!value && value.trim().length > 0) || '变更原因不能为空',
+    });
+    reason = String(prompt.value || '').trim();
+  } catch {
+    return;
+  }
+
+  let confirmPassword = '';
+  try {
+    const pwdPrompt = await ElMessageBox.prompt('请输入当前账号密码确认提交', '敏感操作二次校验', {
+      inputType: 'password',
+      inputAttributes: { autocomplete: 'current-password', autofocus: 'autofocus' },
+      inputPlaceholder: '请输入密码',
+      inputValidator: value => (!!value && value.trim().length > 0) || '密码不能为空',
+      confirmButtonText: '确认',
+      cancelButtonText: '取消',
+    });
+    confirmPassword = String(pwdPrompt.value || '');
+  } catch {
+    return;
+  }
+
+  submittingWhitelistChange.value = true;
+  try {
+    await request.post('/governance-change/submit', {
+      module: 'AI_WHITELIST',
+      action: 'UPDATE',
+      targetId: userStore.userInfo?.companyId || null,
+      payloadJson: JSON.stringify({
+        title: '公司AI白名单变更申请',
+        name: '公司AI白名单',
+        whitelist: nextWhitelist,
+        reason,
+        impact: '影响公司AI服务准入范围，审批通过后生效',
+      }),
+      confirmPassword,
+    });
+    ElMessage.success('白名单变更申请已提交，请在审批中心跟进');
+    await loadWhitelist();
+  } catch (err) {
+    ElMessage.error(err?.message || '提交白名单审批失败');
+  } finally {
+    submittingWhitelistChange.value = false;
+  }
+}
+
 async function loadRadarProfile() {
   radarLoading.value = true;
   try {
     const params = {};
-    if (canQueryOthers.value && String(profileUsername.value || '').trim()) {
-      params.username = String(profileUsername.value).trim();
+    if (canQueryRadarOthers.value && selectedProfileUser.value) {
+      params.username = selectedProfileUser.value;
     }
     const data = await request.get('/ai-risk/profile/radar', { params });
     radarProfile.value = {
@@ -451,21 +589,35 @@ async function loadRadarProfile() {
   }
 }
 
-async function loadRadarUsers() {
-  if (!canQueryOthers.value) {
-    radarUsers.value = [];
-    return;
-  }
+async function loadProfileUsers() {
+  profileUsersLoading.value = true;
   try {
     const data = await request.get('/ai-risk/profile/users');
-    radarUsers.value = Array.isArray(data?.users) ? data.users : [];
-    const current = String(data?.current || '').trim();
-    if (!profileUsername.value && current) {
-      profileUsername.value = current;
+    const users = Array.isArray(data?.users) ? data.users : [];
+    profileUsers.value = users.map(item => ({
+      id: item?.id,
+      username: String(item?.username || ''),
+      label: String(item?.label || item?.username || item?.realName || '-'),
+    })).filter(item => item.username);
+
+    const preferred = data?.selectedUserId;
+    const currentUsername = String(userStore.userInfo?.username || '').trim();
+    const preferredUser = profileUsers.value.find(item => String(item.id) === String(preferred));
+    if (canQueryRadarOthers.value) {
+      if (!selectedProfileUser.value) {
+        selectedProfileUser.value = preferredUser?.username || currentUsername || profileUsers.value[0]?.username || null;
+      } else if (!profileUsers.value.some(item => item.username === selectedProfileUser.value)) {
+        selectedProfileUser.value = preferredUser?.username || currentUsername || profileUsers.value[0]?.username || null;
+      }
+    } else {
+      selectedProfileUser.value = currentUsername || profileUsers.value[0]?.username || null;
     }
   } catch (err) {
-    radarUsers.value = [];
-    ElMessage.warning(err?.message || '画像用户列表加载失败，已回退为当前用户画像');
+    profileUsers.value = [];
+    selectedProfileUser.value = String(userStore.userInfo?.username || '').trim() || null;
+    ElMessage.error(err?.message || '加载画像人员列表失败');
+  } finally {
+    profileUsersLoading.value = false;
   }
 }
 
@@ -654,7 +806,7 @@ function normalizeFluidCard(service, index) {
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 onMounted(async () => {
-  await Promise.all([loadList(), loadWhitelist(), loadRadarUsers()]);
+  await Promise.all([loadList(), loadWhitelist(), loadProfileUsers()]);
   await loadRadarProfile();
   window.addEventListener('resize', resizeRadar, { passive: true });
 });
@@ -868,6 +1020,27 @@ function resizeRadar() {
 
 .white-policy-strip strong {
   color: var(--color-text-soft);
+}
+
+.white-manage-panel {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed rgba(128, 178, 242, 0.24);
+}
+
+.white-manage-title {
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-soft);
+}
+
+.white-manage-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
 }
 
 .white-tag-list {

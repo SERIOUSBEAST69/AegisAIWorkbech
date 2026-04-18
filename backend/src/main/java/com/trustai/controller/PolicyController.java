@@ -80,6 +80,7 @@ public class PolicyController {
     @PostMapping("/save")
     @PreAuthorize("@currentUserService.hasPermission('policy:structure:manage')")
     public R<?> save(@Valid @RequestBody SaveReq req) {
+        currentUserService.requireAnyRole("ADMIN");
         currentUserService.requirePermission("policy:structure:manage");
         assertPolicyTableReady();
         var operator = currentUserService.requireCurrentUser();
@@ -128,6 +129,7 @@ public class PolicyController {
     @PostMapping("/delete")
     @PreAuthorize("@currentUserService.hasPermission('policy:structure:manage')")
     public R<?> delete(@Valid @RequestBody IdReq req) {
+        currentUserService.requireAnyRole("ADMIN");
         currentUserService.requirePermission("policy:structure:manage");
         assertPolicyTableReady();
         var operator = currentUserService.requireCurrentUser();
@@ -152,6 +154,7 @@ public class PolicyController {
     @PostMapping("/toggle-status")
     @PreAuthorize("@currentUserService.hasPermission('policy:status:toggle')")
     public R<?> toggleStatus(@Valid @RequestBody ToggleReq req) {
+        currentUserService.requireAnyRole("ADMIN");
         currentUserService.requirePermission("policy:status:toggle");
         assertPolicyTableReady();
         var operator = currentUserService.requireCurrentUser();

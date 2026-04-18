@@ -21,4 +21,10 @@ mysql -h"${MYSQL_HOST}" -P"${MYSQL_PORT}" -u"${MYSQL_USER}" -p"${MYSQL_PASSWORD}
 echo "[mysql-bootstrap] applying baseline initialization..."
 mysql -h"${MYSQL_HOST}" -P"${MYSQL_PORT}" -u"${MYSQL_USER}" -p"${MYSQL_PASSWORD}" "${MYSQL_DATABASE}" < /bootstrap/002-baseline-init.sql
 
+echo "[mysql-bootstrap] ensuring simulation_events table..."
+mysql -h"${MYSQL_HOST}" -P"${MYSQL_PORT}" -u"${MYSQL_USER}" -p"${MYSQL_PASSWORD}" "${MYSQL_DATABASE}" < /bootstrap/003-simulation-events.sql
+
+echo "[mysql-bootstrap] cleaning invalid role-permission artifacts..."
+mysql -h"${MYSQL_HOST}" -P"${MYSQL_PORT}" -u"${MYSQL_USER}" -p"${MYSQL_PASSWORD}" "${MYSQL_DATABASE}" < /bootstrap/004-cleanup-invalid-rbac.sql
+
 echo "[mysql-bootstrap] completed successfully."

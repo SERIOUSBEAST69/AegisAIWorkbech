@@ -139,34 +139,39 @@ public class AiRiskRatingController {
         data.put("whitelist", resolveCompanyWhitelist(config, companyId));
         data.put("configVersion", config.getOrDefault("configVersion", 1L));
         data.put("updatedAt", config.get("updatedAt"));
-        boolean canReview = currentUserService.hasRole("ADMIN");
-        boolean canRequest = currentUserService.hasAnyRole("SECOPS", "BUSINESS_OWNER");
+        boolean canRequest = currentUserService.hasRole("ADMIN");
+        boolean canReview = currentUserService.hasRole("ADMIN_REVIEWER");
         data.put("canRequest", canRequest);
         data.put("canReview", canReview);
-        if (canRequest || canReview) {
-            data.put("pending", pendingRequests(config, companyId));
-        } else {
-            data.put("pending", List.of());
-        }
+        data.put("pending", List.of());
         return R.ok(data);
     }
 
     @GetMapping("/profile/radar")
     @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','BUSINESS_OWNER')")
-    public R<Map<String, Object>> riskRadarProfile(@RequestParam(required = false) String username) {
+    public R<Map<String, Object>> riskRadarProfile(@RequestParam(required = false) String username,
+                                                   @RequestParam(required = false) Long userId) {
         User current = currentUserService.requireCurrentUser();
         Long companyId = companyScopeService.requireCompanyId();
         boolean canQueryOthers = currentUserService.hasAnyRole("ADMIN", "ADMIN_REVIEWER", "SECOPS");
 
         User target = current;
-        if (StringUtils.hasText(username) && canQueryOthers) {
-            User hit = userService.lambdaQuery()
-                .eq(User::getCompanyId, companyId)
-                .eq(User::getUsername, username.trim())
-                .last("LIMIT 1")
-                .one();
-            if (hit != null) {
-                target = hit;
+        if (canQueryOthers) {
+            if (userId != null && userId > 0L) {
+                User byId = userService.getById(userId);
+                if (byId != null && java.util.Objects.equals(byId.getCompanyId(), companyId)) {
+                    target = byId;
+                }
+            }
+            if (target == current && StringUtils.hasText(username)) {
+                User byUsername = userService.lambdaQuery()
+                    .eq(User::getCompanyId, companyId)
+                    .eq(User::getUsername, username.trim())
+                    .last("LIMIT 1")
+                    .one();
+                if (byUsername != null) {
+                    target = byUsername;
+                }
             }
         }
 
@@ -234,7 +239,7 @@ public class AiRiskRatingController {
             "异常行为与账号画像复核",
             behaviorRisk >= 60 ? "优先" : "建议",
             "检查异常行为轨迹并确认是否需要审批升级",
-            "/ai/anomaly",
+            "/shadow-ai",
             "profile"
         ));
         recommendations.add(recommendationNode(
@@ -248,8 +253,8 @@ public class AiRiskRatingController {
             "安全事件快速阻断",
             complianceRisk >= 55 ? "优先" : "建议",
             "针对待处置安全事件执行阻断并触发攻防验证",
-            "/operations-command",
-            "pending"
+            "/threat-monitor",
+            "alertCenter"
         ));
 
         Map<String, Object> data = new LinkedHashMap<>();
@@ -275,142 +280,47 @@ public class AiRiskRatingController {
     }
 
     @GetMapping("/profile/users")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','BUSINESS_OWNER','AUDIT')")
-    public R<Map<String, Object>> riskRadarUsers() {
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','BUSINESS_OWNER')")
+    public R<Map<String, Object>> radarProfileUsers(@RequestParam(required = false, defaultValue = "120") Integer limit) {
         User current = currentUserService.requireCurrentUser();
         Long companyId = companyScopeService.requireCompanyId();
         boolean canQueryOthers = currentUserService.hasAnyRole("ADMIN", "ADMIN_REVIEWER", "SECOPS");
 
-        List<Map<String, Object>> users = jdbcTemplate.query(
-            "SELECT u.id, u.username, COALESCE(NULLIF(TRIM(u.real_name), ''), u.username) AS real_name, "
-                + "COALESCE(NULLIF(TRIM(u.department), ''), '-') AS department, COALESCE(r.code, '') AS role_code "
-                + "FROM sys_user u "
-                + "LEFT JOIN role r ON r.id = u.role_id "
-                + "WHERE u.company_id = ? AND COALESCE(u.account_status, 'active') = 'active' "
-                + "ORDER BY u.username ASC LIMIT 500",
-            (rs, rowNum) -> {
-                Map<String, Object> row = new LinkedHashMap<>();
-                row.put("id", rs.getLong("id"));
-                row.put("username", rs.getString("username"));
-                row.put("realName", rs.getString("real_name"));
-                row.put("department", rs.getString("department"));
-                row.put("roleCode", rs.getString("role_code"));
-                return row;
-            },
-            companyId
-        );
+        int max = Math.max(1, Math.min(300, limit == null ? 120 : limit));
+        List<Map<String, Object>> options = new ArrayList<>();
 
-        if (!canQueryOthers) {
-            users = users.stream()
-                .filter(item -> String.valueOf(item.get("username")).equalsIgnoreCase(String.valueOf(current.getUsername())))
-                .toList();
+        if (canQueryOthers) {
+            List<User> users = userService.lambdaQuery()
+                .eq(User::getCompanyId, companyId)
+                .eq(User::getAccountType, "real")
+                .eq(User::getAccountStatus, "active")
+                .orderByAsc(User::getUsername)
+                .last("LIMIT " + max)
+                .list();
+            for (User user : users) {
+                options.add(profileUserOption(user));
+            }
+        } else {
+            options.add(profileUserOption(current));
         }
 
         Map<String, Object> data = new LinkedHashMap<>();
-        data.put("users", users);
-        data.put("current", current.getUsername());
         data.put("canQueryOthers", canQueryOthers);
+        data.put("selectedUserId", current.getId());
+        data.put("users", options);
         return R.ok(data);
     }
 
     @PostMapping("/whitelist/request")
-    @PreAuthorize("@currentUserService.hasAnyRole('SECOPS','BUSINESS_OWNER')")
+    @PreAuthorize("@currentUserService.hasRole('ADMIN')")
     public R<Map<String, Object>> submitWhitelistRequest(@RequestBody(required = false) Map<String, Object> payload) {
-        if (payload == null) {
-            return R.error("请求体不能为空");
-        }
-        Long companyId = currentUserService.requireCurrentUser().getCompanyId();
-        List<String> requested = toStringList(payload.get("whitelist"));
-        if (requested.isEmpty()) {
-            return R.error("白名单不能为空");
-        }
-        Map<String, Object> config = new LinkedHashMap<>(privacyShieldConfigService.getOrCreateConfig());
-        Set<String> catalog = new LinkedHashSet<>(toStringList(config.get("aiCatalog")));
-        for (String item : requested) {
-            if (!catalog.contains(item)) {
-                return R.error("存在未收录的AI服务: " + item);
-            }
-        }
-
-        User requester = currentUserService.requireCurrentUser();
-        List<Map<String, Object>> pending = pendingRequests(config, null);
-        long requestId = pending.stream()
-            .mapToLong(item -> toLong(item.get("requestId"), 0L))
-            .max()
-            .orElse(0L) + 1L;
-        Map<String, Object> req = new LinkedHashMap<>();
-        req.put("requestId", requestId);
-        req.put("status", "pending");
-        req.put("requestedBy", requester.getUsername());
-        req.put("requestedById", requester.getId());
-        req.put("companyId", companyId == null ? 0L : companyId);
-        req.put("requestedAt", new Date().getTime());
-        req.put("targetWhitelist", requested);
-        req.put("note", String.valueOf(payload.getOrDefault("note", "")));
-        pending.add(req);
-        config.put("aiWhitelistPending", pending);
-        privacyShieldConfigService.updateConfig(config);
-
-        Map<String, Object> data = new LinkedHashMap<>();
-        data.put("requestId", requestId);
-        data.put("status", "pending");
-        data.put("message", "白名单变更已提交，待治理管理员审批后生效");
-        return R.ok(data);
+        return R.error("请通过治理变更流程提交公司AI白名单申请");
     }
 
     @PostMapping("/whitelist/review")
-    @PreAuthorize("@currentUserService.hasRole('ADMIN')")
+    @PreAuthorize("@currentUserService.hasRole('ADMIN_REVIEWER')")
     public R<Map<String, Object>> reviewWhitelistRequest(@RequestBody(required = false) Map<String, Object> payload) {
-        if (payload == null) {
-            return R.error("请求体不能为空");
-        }
-        long requestId = toLong(payload.get("requestId"), 0L);
-        String decision = String.valueOf(payload.getOrDefault("decision", "")).trim().toLowerCase(Locale.ROOT);
-        Long companyId = currentUserService.requireCurrentUser().getCompanyId();
-        if (requestId <= 0L) {
-            return R.error("requestId 不合法");
-        }
-        if (!"approve".equals(decision) && !"reject".equals(decision)) {
-            return R.error("decision 仅支持 approve/reject");
-        }
-
-        Map<String, Object> config = new LinkedHashMap<>(privacyShieldConfigService.getOrCreateConfig());
-        List<Map<String, Object>> pending = pendingRequests(config, null);
-        Map<String, Object> target = null;
-        for (Map<String, Object> row : pending) {
-            if (toLong(row.get("requestId"), 0L) == requestId && toLong(row.get("companyId"), 0L) == toLong(companyId, 0L)) {
-                target = row;
-                break;
-            }
-        }
-        if (target == null) {
-            return R.error("审批单不存在");
-        }
-        if (!"pending".equalsIgnoreCase(String.valueOf(target.get("status")))) {
-            return R.error("审批单已处理");
-        }
-
-        User reviewer = currentUserService.requireCurrentUser();
-        target.put("status", "approve".equals(decision) ? "approved" : "rejected");
-        target.put("reviewedBy", reviewer.getUsername());
-        target.put("reviewedById", reviewer.getId());
-        target.put("reviewedAt", new Date().getTime());
-        if (StringUtils.hasText(String.valueOf(payload.getOrDefault("note", "")))) {
-            target.put("reviewNote", String.valueOf(payload.get("note")));
-        }
-
-        if ("approve".equals(decision)) {
-            List<String> nextWhitelist = toStringList(target.get("targetWhitelist"));
-            setCompanyWhitelist(config, companyId, nextWhitelist);
-        }
-        config.put("aiWhitelistPending", pending);
-        privacyShieldConfigService.updateConfig(config);
-
-        Map<String, Object> data = new LinkedHashMap<>();
-        data.put("requestId", requestId);
-        data.put("status", target.get("status"));
-        data.put("whitelist", resolveCompanyWhitelist(config, companyId));
-        return R.ok(data);
+        return R.error("请在审批中心处理公司AI白名单审批");
     }
 
     private List<Map<String, Object>> pendingRequests(Map<String, Object> config, Long companyId) {
@@ -507,6 +417,34 @@ public class AiRiskRatingController {
         } catch (Exception ignored) {
             return defaultValue;
         }
+    }
+
+    private Map<String, Object> profileUserOption(User user) {
+        Map<String, Object> option = new LinkedHashMap<>();
+        if (user == null) {
+            option.put("id", null);
+            option.put("username", "-");
+            option.put("realName", "-");
+            option.put("department", "-");
+            option.put("label", "-");
+            return option;
+        }
+        String username = String.valueOf(user.getUsername() == null ? "" : user.getUsername()).trim();
+        String realName = String.valueOf(user.getRealName() == null ? "" : user.getRealName()).trim();
+        String department = String.valueOf(user.getDepartment() == null ? "" : user.getDepartment()).trim();
+        String label = username;
+        if (StringUtils.hasText(realName)) {
+            label = label + " / " + realName;
+        }
+        if (StringUtils.hasText(department)) {
+            label = label + " / " + department;
+        }
+        option.put("id", user.getId());
+        option.put("username", username);
+        option.put("realName", realName);
+        option.put("department", department);
+        option.put("label", label);
+        return option;
     }
 
     private Map<String, Object> buildRiskList() {

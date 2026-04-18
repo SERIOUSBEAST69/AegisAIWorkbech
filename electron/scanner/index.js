@@ -124,27 +124,6 @@ async function flushPendingReports(apiBase, headers, context = {}) {
   savePendingReports(remaining, context);
 }
 
-async function registerClient(apiBase, headers, report) {
-  if (!apiBase || !report) {
-    return;
-  }
-  const body = {
-    clientId: report.clientId,
-    hostname: report.hostname,
-    osUsername: report.osUsername,
-    osType: report.osType,
-    clientVersion: report.clientVersion,
-  };
-  try {
-    await axios.post(`${apiBase}/api/client/register`, body, {
-      timeout: 8000,
-      headers,
-    });
-  } catch {
-    // Registration failure does not block scan reporting.
-  }
-}
-
 // ── 辅助：合并去重 ──────────────────────────────────────────────────────────
 
 /**
@@ -240,7 +219,13 @@ async function scan({ clientId, backendUrl, serverUrl, clientToken, companyId, a
 
   const headers = {};
   if (clientToken) {
-    headers['X-Client-Token'] = String(clientToken);
+    const normalizedToken = String(clientToken).trim();
+    headers['Authorization'] = `Bearer ${normalizedToken}`;
+    headers['X-Client-Token'] = normalizedToken;
+  }
+  const boundUsername = normalizeBoundUsername(authenticatedUsername);
+  if (boundUsername) {
+    headers['X-Client-Username'] = boundUsername;
   }
   if (Number.isFinite(Number(companyId)) && Number(companyId) > 0) {
     headers['X-Company-Id'] = String(companyId);
@@ -282,7 +267,6 @@ async function scan({ clientId, backendUrl, serverUrl, clientToken, companyId, a
 
   // ── 上报至服务端 ────────────────────────────────────────────────────────────
   if (apiBase && clientId) {
-    const boundUsername = normalizeBoundUsername(authenticatedUsername);
     const report = {
       clientId,
       hostname:    os.hostname(),
@@ -304,9 +288,12 @@ async function scan({ clientId, backendUrl, serverUrl, clientToken, companyId, a
 
     try {
       const reportHeaders = { ...headers, 'Content-Type': 'application/json' };
-      await registerClient(apiBase, reportHeaders, report);
       await flushPendingReports(apiBase, reportHeaders, queueContext);
+      reportHeaders['X-Client-Username'] = boundUsername;
       reportHeaders['X-Client-Replay-Key'] = String(report.replayKey || '');
+      if (!reportHeaders.Authorization && clientToken) {
+        reportHeaders.Authorization = `Bearer ${String(clientToken).trim()}`;
+      }
       await axios.post(`${apiBase}/api/client/report`, report, {
         timeout: 10000,
         headers: reportHeaders,

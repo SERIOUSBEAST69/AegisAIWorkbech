@@ -1,11 +1,11 @@
 ﻿{
-    "generatedAt":  "2026-04-06T01:33:18",
+    "generatedAt":  "2026-04-16T14:32:11",
     "endpoint":  "127.0.0.1",
     "port":  3307,
     "database":  "aegisai",
     "operationTimeZone":  "+08:00",
     "companyId":  "1",
-    "totalRows":  1009,
+    "totalRows":  1556,
     "violationCount":  0,
     "passed":  true,
     "message":  "Audit hash chain verification passed.",

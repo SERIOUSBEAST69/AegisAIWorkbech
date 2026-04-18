@@ -915,8 +915,8 @@ public class HomeAiHubController {
         int compliance = intOf(findRadarValue(dims, "securityCompliance"));
 
         List<Map<String, Object>> list = new ArrayList<>();
-        list.add(recommend("隐私泄露防控加固", privacy >= 60 ? "P0" : "P1", "优先核查隐私告警并加固策略规则", "安全指挥台", "/operations-command", Map.of("status", "pending")));
-        list.add(recommend("异常行为轨迹复核", behavior >= 60 ? "P0" : "P1", "复核异常行为样本并绑定审计动作", "AI使用合规监控", "/ai/anomaly", Map.of("tab", "profile")));
+        list.add(recommend("隐私泄露防控加固", privacy >= 60 ? "P0" : "P1", "优先核查隐私告警并加固策略规则", "AI攻击实时防御", "/threat-monitor", Map.of("tab", "alertCenter")));
+        list.add(recommend("异常行为轨迹复核", behavior >= 60 ? "P0" : "P1", "复核异常行为样本并绑定审计动作", "影子AI发现", "/shadow-ai", Map.of("tab", "profile")));
         list.add(recommend("影子AI治理闭环", shadow >= 60 ? "P0" : "P1", "核查白名单外服务并执行审批", "影子AI发现", "/shadow-ai", Map.of("tab", "risk")));
         list.add(recommend("待处置告警收敛", compliance >= 55 ? "P0" : "P2", "对待处置事件执行阻断并触发验证", "AI攻击实时防御", "/threat-monitor", Map.of("tab", "alertCenter")));
         return list;

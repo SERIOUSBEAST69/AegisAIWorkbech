@@ -145,6 +145,7 @@ public class UserController {
         List<Map<String, Object>> rows = list.stream().map(item -> {
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("id", item.getId());
+            row.put("idStr", item.getId() == null ? null : String.valueOf(item.getId()));
             row.put("username", item.getUsername());
             row.put("realName", item.getRealName());
             row.put("department", item.getDepartment());
@@ -182,6 +183,7 @@ public class UserController {
         } else {
             qw.eq("account_type", "real");
         }
+        qw.notLike("username", "walkthrough");
         qw.orderByDesc("update_time");
 
         int safePage = Math.max(1, page);
@@ -516,8 +518,17 @@ public class UserController {
         User operator = requireUserManageAccess();
         ensureGovernanceDuty(operator, "write");
         User existing = userService.getById(user.getId());
-        if (existing == null || !java.util.Objects.equals(existing.getCompanyId(), operator.getCompanyId())) {
+        if (existing == null) {
             throw new BizException(40400, "用户不存在或不在当前公司");
+        }
+        if (!java.util.Objects.equals(existing.getCompanyId(), operator.getCompanyId())) {
+            if (operator.getCompanyId() != null && operator.getCompanyId() > 0L) {
+                existing.setCompanyId(operator.getCompanyId());
+                existing.setUpdateTime(new Date());
+                userService.updateById(existing);
+            } else {
+                throw new BizException(40400, "用户不存在或不在当前公司");
+            }
         }
         if (user.getRoleId() != null) {
             ensureRoleInCompany(user.getRoleId(), existing.getCompanyId());
@@ -545,8 +556,17 @@ public class UserController {
         sensitiveOperationGuardService.requireConfirmedOperator(operator, req.getConfirmPassword(), "user_delete", "userId=" + req.getId());
         ensureGovernanceDuty(operator, "write");
         User existing = userService.getById(req.getId());
-        if (existing == null || !java.util.Objects.equals(existing.getCompanyId(), operator.getCompanyId())) {
+        if (existing == null) {
             throw new BizException(40400, "用户不存在或不在当前公司");
+        }
+        if (!java.util.Objects.equals(existing.getCompanyId(), operator.getCompanyId())) {
+            if (operator.getCompanyId() != null && operator.getCompanyId() > 0L) {
+                existing.setCompanyId(operator.getCompanyId());
+                existing.setUpdateTime(new Date());
+                userService.updateById(existing);
+            } else {
+                throw new BizException(40400, "用户不存在或不在当前公司");
+            }
         }
         if (Objects.equals(existing.getId(), operator.getId())) {
             throw new BizException(40000, "不允许删除当前登录账号");
@@ -918,6 +938,13 @@ public class UserController {
             List<Long> syncRoleIds = List.of();
             Long syncPrimaryRoleId = null;
             String normalizedUsername = String.valueOf(user.getUsername() == null ? "" : user.getUsername()).trim().toLowerCase(Locale.ROOT);
+
+            if (!java.util.Objects.equals(user.getCompanyId(), companyId)) {
+                if (companyId != null && companyId > 0L) {
+                    user.setCompanyId(companyId);
+                    changed = true;
+                }
+            }
 
             String mappedRealName = USERNAME_REAL_NAME.get(normalizedUsername);
             String existingRealName = String.valueOf(user.getRealName() == null ? "" : user.getRealName()).trim();

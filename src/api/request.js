@@ -30,7 +30,17 @@ function wait(ms) {
 
 function isIdempotentRequest(config) {
   const method = String(config?.method || 'get').toLowerCase();
-  return method === 'get' || method === 'head' || method === 'options';
+  if (method === 'get' || method === 'head' || method === 'options') {
+    return true;
+  }
+  // Login-style endpoints are safe to retry on gateway transient failures.
+  if (method === 'post') {
+    const requestPath = String(config?.url || '').split('?')[0];
+    return requestPath === '/auth/login'
+      || requestPath === '/auth/login-phone'
+      || requestPath === '/auth/login-wechat';
+  }
+  return false;
 }
 
 function shouldRetryTransientError(err) {
@@ -70,9 +80,6 @@ function shouldSuppressUnauthorizedRedirect(requestPath, message) {
   const path = String(requestPath || '').toLowerCase();
   const text = String(message || '').toLowerCase();
   if (path.includes('/governance-change/')) {
-    return true;
-  }
-  if (path.includes('/client/simulation/')) {
     return true;
   }
   if (text.includes('二次密码') || text.includes('password')) {
@@ -165,6 +172,9 @@ service.interceptors.request.use(config => {
 
 service.interceptors.response.use(
   res => {
+    if (res?.config?.responseType === 'blob' || res?.config?.responseType === 'arraybuffer') {
+      return res;
+    }
     const body = res.data;
     const requestPath = String(res?.config?.url || '').split('?')[0];
     // 后端统一返回 R { code, msg, data, timestamp }
@@ -212,6 +222,12 @@ service.interceptors.response.use(
         });
       }
       return rejectWith(err.response.data?.msg || '无权限访问当前资源', { code: 40300, status: 403 });
+    }
+    if (err.response && (err.response.status === 502 || err.response.status === 503 || err.response.status === 504)) {
+      return rejectWith('服务网关暂时不可用，请等待后端服务就绪后重试', {
+        status: err.response.status,
+        transientGateway: true,
+      });
     }
     if (!err.response) {
       return rejectWith('网络连接失败，请检查后端服务、代理配置或跨域设置', { network: true });

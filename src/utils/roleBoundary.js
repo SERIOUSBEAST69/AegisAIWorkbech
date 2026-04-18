@@ -11,7 +11,7 @@ const ROLE = {
 const ROLE_FAMILY = {
   ADMIN: ['ADMIN_REVIEWER', 'ADMIN_OPS'],
   ADMIN_REVIEWER: [],
-  SECOPS: ['SECOPS_TRIAGE', 'SECOPS_RESPONDER'],
+  SECOPS: ['SECOPS_RESPONDER'],
   BUSINESS_OWNER: ['BUSINESS_OWNER_APPROVER'],
   AUDIT: [],
 };
@@ -78,11 +78,11 @@ export function isExecutive(user) {
 }
 
 export function canSubmitGovernanceChange(user) {
-  return isGovernanceOperatorAccount(user);
+  return isGovernanceOperatorAccount(user) || isSecOps(user);
 }
 
 export function canReviewGovernanceChange(user) {
-  return isGovernanceReviewerAccount(user);
+  return isGovernanceReviewerAccount(user) || isSecOps(user);
 }
 
 export function canManageSodRule(user) {

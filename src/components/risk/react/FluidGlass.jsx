@@ -1,6 +1,6 @@
 /* eslint-disable react/no-unknown-property */
 import * as THREE from 'three';
-import { useRef, useState, useEffect, memo } from 'react';
+import { useRef, useState, useEffect, useMemo, memo } from 'react';
 import { Canvas, createPortal, useFrame, useThree } from '@react-three/fiber';
 import {
   useFBO,
@@ -104,45 +104,6 @@ const deckCanvasStyle = {
   inset: 0,
   zIndex: 2,
   background: 'radial-gradient(circle at 18% 12%, rgba(124, 190, 255, 0.12), transparent 42%), radial-gradient(circle at 84% 86%, rgba(93, 146, 232, 0.1), transparent 40%)',
-};
-
-const deckTitleWrapStyle = {
-  position: 'absolute',
-  top: 0,
-  left: 0,
-  right: 0,
-  height: '100%',
-  display: 'flex',
-  alignItems: 'flex-start',
-  justifyContent: 'center',
-  pointerEvents: 'none',
-  zIndex: 4,
-};
-
-const deckTitleInnerStyle = {
-  position: 'absolute',
-  left: '50%',
-  top: '10px',
-  transformOrigin: '50% 0%',
-  pointerEvents: 'none',
-};
-
-const deckTitleStyle = {
-  padding: '0',
-  borderRadius: '0',
-  border: 'none',
-  background: 'linear-gradient(180deg, #ffffff 0%, #d9ecff 48%, #89c0ff 100%)',
-  WebkitBackgroundClip: 'text',
-  backgroundClip: 'text',
-  WebkitTextFillColor: 'transparent',
-  color: 'transparent',
-  fontSize: '20px',
-  fontWeight: 800,
-  letterSpacing: '0.18em',
-  textTransform: 'uppercase',
-  textShadow: '0 12px 28px rgba(7, 20, 38, 0.36), 0 0 20px rgba(111, 182, 255, 0.22)',
-  fontFamily: 'Space Grotesk, Sora, Segoe UI Variable Display, Bahnschrift, Microsoft YaHei UI, sans-serif',
-  whiteSpace: 'nowrap',
 };
 
 const hexToRgb = hex => {
@@ -254,36 +215,10 @@ export default function FluidGlass({ mode = 'lens', lensProps = {}, barProps = {
               <Scroll>
                 <Images cards={sceneCards} />
               </Scroll>
-              <Scroll html>
-                <FloatingDeckTitle />
-              </Scroll>
               <Preload />
             </Wrapper>
           </ScrollControls>
         </Canvas>
-      </div>
-    </div>
-  );
-}
-
-function FloatingDeckTitle() {
-  const data = useScroll();
-  const titleRef = useRef(null);
-
-  useFrame(() => {
-    if (!titleRef.current) return;
-    const progress = Math.max(0, Math.min(1, data.offset * 1.8));
-    const scale = 1.15 - progress * 0.1;
-    const translateY = 8 + progress * 120;
-    const opacity = 1 - Math.max(0, (data.offset - 0.58) * 2.6);
-    titleRef.current.style.transform = `translate3d(-50%, ${translateY}px, 0) scale(${scale})`;
-    titleRef.current.style.opacity = String(Math.max(0, Math.min(1, opacity)));
-  });
-
-  return (
-    <div style={deckTitleWrapStyle}>
-      <div ref={titleRef} style={{ ...deckTitleInnerStyle, ...deckTitleStyle }}>
-        AI服务评级
       </div>
     </div>
   );
@@ -468,6 +403,26 @@ function Images({ cards }) {
   const sceneCards = Array.isArray(cards) ? cards.filter(Boolean) : [];
   const displayCount = sceneCards.length;
   const slots = createImageSlots(displayCount, height);
+  const firstRowBand = useMemo(() => {
+    const firstRow = slots.filter(slot => slot.row === 0);
+    if (!firstRow.length) return null;
+
+    const minX = Math.min(...firstRow.map(slot => slot.position[0] - slot.scale[0] / 2));
+    const maxX = Math.max(...firstRow.map(slot => slot.position[0] + slot.scale[0] / 2));
+    const topY = Math.max(...firstRow.map(slot => slot.position[1] + slot.scale[1] / 2));
+    const maxZ = Math.max(...firstRow.map(slot => slot.position[2]));
+    const width = Math.max(2.8, maxX - minX);
+    const titleWidth = Math.max(2.6, width - 0.34);
+
+    return {
+      minX,
+      titleY: topY + 0.58,
+      titleZ: maxZ + 0.16,
+      width,
+      titleWidth,
+      textSize: Math.max(0.36, Math.min(0.6, width * 0.092)),
+    };
+  }, [slots]);
 
   useFrame(() => {
     if (!group.current || !group.current.children?.length) return;
@@ -493,6 +448,30 @@ function Images({ cards }) {
 
   return (
     <group ref={group}>
+      {firstRowBand && (
+        <group position={[firstRowBand.minX, firstRowBand.titleY, firstRowBand.titleZ]} renderOrder={11}>
+          <Text
+            position={[firstRowBand.width / 2, 0.02, 0.02]}
+            fontSize={firstRowBand.textSize}
+            maxWidth={firstRowBand.titleWidth}
+            lineHeight={1.04}
+            letterSpacing={0.028}
+            textAlign="center"
+            anchorX="center"
+            anchorY="middle"
+            color="#edf5ff"
+            fontWeight={900}
+            outlineWidth={0.012}
+            outlineBlur="44%"
+            outlineColor="#09203a"
+            outlineOpacity={0.94}
+            depthWrite={false}
+            renderOrder={12}
+          >
+            AI 服务风险评级
+          </Text>
+        </group>
+      )}
       {slots.map((slot, index) => (
         <Image
           key={`img-${index}`}
@@ -526,7 +505,7 @@ function createImageSlots(count, height) {
     const z = 7.5 + waveZ + row * 0.18;
     const sx = cardWidth + Math.sin(i * 0.49) * 0.07;
     const sy = cardHeight + Math.cos(i * 0.37) * 0.1;
-    slots.push({ position: [x, y, z], scale: [sx, sy, 1] });
+    slots.push({ row, position: [x, y, z], scale: [sx, sy, 1] });
   }
   return slots;
 }

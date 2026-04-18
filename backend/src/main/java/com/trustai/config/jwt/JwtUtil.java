@@ -38,6 +38,21 @@ public class JwtUtil {
                 .claim("uid", userId)
                 .claim("cid", companyId)
                 .claim("perms", permissions == null ? List.of() : permissions)
+                .claim("typ", "user_token")
+                .setIssuedAt(new Date())
+                .setExpiration(new Date(System.currentTimeMillis() + expireMs))
+                .signWith(key, SignatureAlgorithm.HS256)
+                .compact();
+    }
+
+    public String generateClientToken(String username, Long userId, Long companyId, String clientId, String deviceFingerprint) {
+        return Jwts.builder()
+                .setSubject(username)
+                .claim("uid", userId)
+                .claim("cid", companyId)
+                .claim("clientId", clientId)
+                .claim("fingerprint", deviceFingerprint)
+                .claim("typ", "client_token")
                 .setIssuedAt(new Date())
                 .setExpiration(new Date(System.currentTimeMillis() + expireMs))
                 .signWith(key, SignatureAlgorithm.HS256)

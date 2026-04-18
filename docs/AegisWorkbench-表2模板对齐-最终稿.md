@@ -84,7 +84,7 @@ AegisWorkbench 的建设意义在于：
 
 | 组件 | 主要职责 | 通信方式 |
 |---|---|---|
-| Electron Client（含扫描器） | 影子AI发现、终端扫描、结果上报 | HTTPS 调用 Backend `/api/client/register`、`/api/client/report` |
+| Electron Client（含扫描器） | 影子AI发现、终端扫描、结果上报 | HTTPS 调用 Backend `/api/client/report` |
 | Frontend（Vue） | 治理看板、审批交互、报表展示 | HTTPS 调用 Backend `/api/*` |
 | Backend（Spring Boot） | 鉴权、RBAC、审批/治理编排、审计、网关代理 | REST + DB + Feign（到 Python 服务） |
 | AI Inference（Python） | 分类、LSTM预测、对抗模拟、训练流水线 | Backend 内网调用（非前端直连） |
@@ -392,7 +392,7 @@ return forecast, MAE, RMSE, selected_model
 ### 3.4.5 影子 AI 发现与风险评级链路
 实现位置：backend ClientReportController 与 AiRiskRatingController。  
 
-1. 客户端接入：`/api/client/register` 完成终端注册与账号/企业绑定。  
+1. 客户端接入：登录态绑定账号与企业后调用 `/api/client/report` 上报终端结果。  
 2. 扫描上报：`/api/client/report` 上报 `client_id`、设备信息、扫描时间、服务列表。  
 3. 风险计算：服务端根据 `shadow_ai_count + discovered_services` 计算 `riskLevel`。  
 4. 治理入湖：通过 EventHub 将上报转换为治理事件（含 `governanceEventId`），进入统一处置链。  
@@ -758,9 +758,9 @@ npm run start
 - companyId（默认 1）  
 - scanIntervalMinutes（默认 30）  
 
-4. 注册与上报流程：
-- 首次调用 `/api/client/register` 绑定 clientId 与账号。  
-- 周期扫描后调用 `/api/client/report` 上报发现结果。  
+4. 上报流程：
+- 登录成功后调用 `/api/client/report` 绑定 clientId 与账号并上报结果。  
+- 周期扫描继续调用 `/api/client/report` 上报发现结果。  
 - 上报失败写入本地 pending 队列并在下次扫描自动重试。  
 
 5. 验证方式：在后台“影子AI发现”页面检查最新 `client_id`、`scan_time`、`riskLevel` 是否更新。

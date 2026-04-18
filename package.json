@@ -9,7 +9,9 @@
     "serve": "vite preview",
     "electron:dev": "electron .",
     "electron:build": "electron-builder --win --x64",
-    "dist": "npm run build && npm run electron:build"
+    "dist": "npm run build && npm run electron:build && npm run publish:client-installer",
+    "publish:client-installer": "powershell -ExecutionPolicy Bypass -File ./scripts/publish-electron-installer-to-api.ps1",
+    "dist:publish": "npm run dist && npm run publish:client-installer"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.1",

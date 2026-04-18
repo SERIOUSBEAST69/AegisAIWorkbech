@@ -197,6 +197,10 @@
           <p class="panel-subtitle">
             部署 Aegis 轻量客户端到员工电脑，实现持续监控。
           </p>
+          <div v-if="downloadInfo.windows" class="download-meta">
+            <span>当前版本：<strong>v{{ downloadInfo.windows.version }}</strong></span>
+            <span>文件：<strong>{{ downloadInfo.windows.filename }}</strong></span>
+          </div>
           <div class="download-btns">
             <el-button
               type="primary"
@@ -505,6 +509,7 @@ const clientPageSize = ref(10);
 // 本地扫描结果（Electron 客户端专属或 Web 模式下使用服务端摘要）
 const localScanResult = ref(null);
 const localClientInfo = ref(null);
+const downloadInfo = ref({ windows: null, macos: null, linux: null });
 
 // 本地扫描是否已开启（用于决定下载时是否入云端队列）
 const localScanEnabled = ref(false);
@@ -781,6 +786,15 @@ async function refresh() {
   }
 }
 
+async function loadDownloadInfo() {
+  try {
+    const data = await request.get('/download/info');
+    downloadInfo.value = data || { windows: null, macos: null, linux: null };
+  } catch (err) {
+    console.warn('[ShadowAI] 下载信息加载失败:', err?.message || err);
+  }
+}
+
 async function triggerShadowSimulation() {
   if (!canRunLocalScan.value) {
     ElMessage.warning('当前角色不可触发模拟');
@@ -907,6 +921,7 @@ function onScanComplete(result) {
 onMounted(() => {
   syncElectronAuthGate();
   refresh();
+  loadDownloadInfo();
   refreshQueue();
   if (isElectron) {
     window.aegisClient.onScanComplete(onScanComplete);
@@ -1112,6 +1127,19 @@ onUnmounted(() => {
 .risk-dist-fill.none   { background: #1bd9b4; }
 
 /* ── 下载区域 ─────────────────────────────────────────────────────────────── */
+.download-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+  margin-top: 10px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.download-meta strong {
+  color: var(--color-text);
+}
+
 .download-btns {
   display: flex;
   flex-direction: column;

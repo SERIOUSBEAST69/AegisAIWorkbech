@@ -362,6 +362,7 @@ public class AuditLogServiceImpl extends ServiceImpl<AuditLogMapper, AuditLog> i
 		doc.setId(entity.getId() == null ? null : String.valueOf(entity.getId()));
 		doc.setLogId(entity.getId());
 		doc.setUserId(entity.getUserId());
+		doc.setUserIdStr(entity.getUserId() == null ? null : String.valueOf(entity.getUserId()));
 		doc.setAssetId(entity.getAssetId());
 		doc.setPermissionId(entity.getPermissionId());
 		doc.setPermissionName(entity.getPermissionName());

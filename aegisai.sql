@@ -191,12 +191,12 @@ CREATE TABLE `compliance_policy` (
   `update_time` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   PRIMARY KEY (`id`),
   KEY `idx_policy_company` (`company_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='合规策略表';
+) ENGINE=InnoDB AUTO_INCREMENT=8 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='合规策略表';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 LOCK TABLES `compliance_policy` WRITE;
 /*!40000 ALTER TABLE `compliance_policy` DISABLE KEYS */;
-INSERT INTO `compliance_policy` VALUES (1,1,'手机号脱敏','{"mask":"****"}','全局',1,1,'2026-03-01 21:09:11','2026-03-01 21:09:11'),(2,1,'支付导出审批','{"require_approval":true}','支付流水',1,1,'2026-03-01 21:09:11','2026-03-01 21:09:11');
+INSERT INTO `compliance_policy` VALUES (1,1,'手机号敏感脱敏','{"policyType":"MASKING","description":"AI 交互输入时，自动识别并遮蔽手机号明文，防止隐私泄露","riskLevel":"MEDIUM","priority":10,"keywords":["手机号","电话"],"action":"mask"}','全公司',0,3,'2026-04-16 21:37:17','2026-04-16 21:37:17'),(2,1,'核心数据外发管控','{"policyType":"ACCESS_CONTROL","description":"限制企业涉密、内部数据向外部 AI 平台直接传输，调用前自动脱敏","riskLevel":"MEDIUM","priority":20,"keywords":["核心数据","外发","脱敏"],"action":"block"}','全公司',1,3,'2026-04-07 14:33:22','2026-04-07 14:33:22'),(3,1,'影子 AI 终端阻断','{"policyType":"ACCESS_CONTROL","description":"未授权 AI 工具自动扫描、实时告警，违规行为一键限制终端访问","riskLevel":"HIGH","priority":30,"keywords":["影子AI","终端阻断","告警"],"action":"block"}','终端',1,3,'2026-03-29 20:55:06','2026-03-29 20:55:06'),(4,1,'AI 调用频次风控','{"policyType":"ALERT_GOVERNANCE","description":"针对短时间高频 AI 调用行为，触发异常风险评级与限流处置","riskLevel":"MEDIUM","priority":40,"keywords":["调用频次","限流","异常"],"action":"throttle"}','全公司',1,3,'2026-03-27 20:55:06','2026-03-27 20:55:06'),(5,1,'高危模型访问隔离','{"policyType":"ACCESS_CONTROL","description":"禁止终端访问未纳入企业白名单、高泄露风险的外部大模型","riskLevel":"HIGH","priority":50,"keywords":["白名单","高危模型","隔离"],"action":"isolate"}','全公司',1,3,'2026-03-26 20:55:06','2026-03-26 20:55:06'),(6,1,'违规行为自动留痕','{"policyType":"AUDIT_GOVERNANCE","description":"AI 违规操作自动生成风险事件，同步写入审计哈希证据链","riskLevel":"LOW","priority":60,"keywords":["留痕","哈希","审计"],"action":"audit"}','全公司',1,3,'2026-03-25 20:55:06','2026-03-25 20:55:06'),(7,1,'跨租户数据防越权','{"policyType":"ACCESS_CONTROL","description":"多租户环境下强制数据边界校验，杜绝横向越权与数据泄露","riskLevel":"HIGH","priority":70,"keywords":["跨租户","越权","数据边界"],"action":"deny"}','全租户',1,3,'2026-03-24 20:55:06','2026-03-24 20:55:06');
 /*!40000 ALTER TABLE `compliance_policy` ENABLE KEYS */;
 UNLOCK TABLES;
 --
@@ -349,7 +349,7 @@ CREATE TABLE `permission` (
 
 LOCK TABLES `permission` WRITE;
 /*!40000 ALTER TABLE `permission` DISABLE KEYS */;
-INSERT INTO `permission` VALUES (1,'查看资产','ASSET_VIEW','menu',NULL,'2026-03-01 21:09:11','2026-03-01 21:09:11'),(2,'编辑资产','ASSET_EDIT','button',NULL,'2026-03-01 21:09:11','2026-03-01 21:09:11'),(3,'查看审计','AUDIT_VIEW','menu',NULL,'2026-03-01 21:09:11','2026-03-01 21:09:11');
+INSERT INTO `permission` VALUES (3,'查看审计','AUDIT_VIEW','menu',NULL,'2026-03-01 21:09:11','2026-03-01 21:09:11');
 /*!40000 ALTER TABLE `permission` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -428,7 +428,6 @@ CREATE TABLE `role_permission` (
 
 LOCK TABLES `role_permission` WRITE;
 /*!40000 ALTER TABLE `role_permission` DISABLE KEYS */;
-INSERT INTO `role_permission` VALUES (1,1,1),(2,1,2),(3,1,3),(4,1,4),(5,2,3),(6,2,4),(7,3,1),(8,3,2),(9,4,3);
 /*!40000 ALTER TABLE `role_permission` ENABLE KEYS */;
 UNLOCK TABLES;
 

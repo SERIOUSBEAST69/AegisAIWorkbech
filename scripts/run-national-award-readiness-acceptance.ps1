@@ -33,16 +33,29 @@ function Get-RecursivePropertyValue {
     param(
         [object]$Object,
         [string[]]$CandidateNames,
-        [int]$MaxDepth = 6
+        [int]$MaxDepth = 6,
+        [System.Collections.Generic.HashSet[string]]$Visited = $null
     )
 
     if ($null -eq $Object -or $MaxDepth -lt 0) {
         return $null
     }
 
+    if ($null -eq $Visited) {
+        $Visited = [System.Collections.Generic.HashSet[string]]::new()
+    }
+
+    $isScalar = $Object -is [string] -or $Object -is [ValueType]
+    if (-not $isScalar) {
+        $visitKey = [System.Runtime.CompilerServices.RuntimeHelpers]::GetHashCode($Object).ToString()
+        if (-not $Visited.Add($visitKey)) {
+            return $null
+        }
+    }
+
     if ($Object -is [System.Array]) {
         foreach ($item in $Object) {
-            $value = Get-RecursivePropertyValue -Object $item -CandidateNames $CandidateNames -MaxDepth ($MaxDepth - 1)
+            $value = Get-RecursivePropertyValue -Object $item -CandidateNames $CandidateNames -MaxDepth ($MaxDepth - 1) -Visited $Visited
             if ($null -ne $value) {
                 return $value
             }
@@ -63,7 +76,7 @@ function Get-RecursivePropertyValue {
 
         foreach ($key in $props) {
             $nested = $Object[$key]
-            $value = Get-RecursivePropertyValue -Object $nested -CandidateNames $CandidateNames -MaxDepth ($MaxDepth - 1)
+            $value = Get-RecursivePropertyValue -Object $nested -CandidateNames $CandidateNames -MaxDepth ($MaxDepth - 1) -Visited $Visited
             if ($null -ne $value) {
                 return $value
             }
@@ -83,7 +96,7 @@ function Get-RecursivePropertyValue {
 
         foreach ($prop in $props) {
             $nested = $prop.Value
-            $value = Get-RecursivePropertyValue -Object $nested -CandidateNames $CandidateNames -MaxDepth ($MaxDepth - 1)
+            $value = Get-RecursivePropertyValue -Object $nested -CandidateNames $CandidateNames -MaxDepth ($MaxDepth - 1) -Visited $Visited
             if ($null -ne $value) {
                 return $value
             }

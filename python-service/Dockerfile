@@ -1,5 +1,5 @@
 # 基础镜像
-FROM python:3.11-slim
+FROM docker.m.daocloud.io/library/python:3.11-slim
 
 # 配置国内源（全局生效）
 ENV PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/

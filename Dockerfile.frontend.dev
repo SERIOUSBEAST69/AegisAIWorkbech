@@ -1,5 +1,5 @@
 # 开发模式 Dockerfile
-FROM node:18-alpine
+FROM docker.m.daocloud.io/library/node:18-bookworm-slim
 WORKDIR /app
 
 # Frontend container does not run Electron; skip binary download to avoid flaky external fetches.

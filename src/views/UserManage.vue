@@ -16,7 +16,7 @@
       </el-form-item>
       <el-form-item>
         <el-button type="primary" :loading="loading" @click="fetchUsers">查询</el-button>
-        <el-button v-if="canWriteUser" @click="openAdd">新增用户</el-button>
+        <el-button :disabled="!canWriteUser" @click="openAdd">新增用户</el-button>
       </el-form-item>
     </el-form>
 
@@ -43,18 +43,18 @@
       </el-table-column>
       <el-table-column label="操作" width="420" :fixed="isNarrowScreen ? false : 'right'">
         <template #default="scope">
-          <el-button v-if="canApproveUser && scope.row.accountStatus === 'pending'" size="small" type="success" @click="approveUser(scope.row.id)">通过</el-button>
-          <el-button v-if="canApproveUser && scope.row.accountStatus === 'pending'" size="small" type="warning" @click="rejectUser(scope.row.id)">拒绝</el-button>
+          <el-button v-if="scope.row.accountStatus === 'pending'" size="small" type="success" :disabled="!canApproveUser" @click="approveUser(scope.row.id)">通过</el-button>
+          <el-button v-if="scope.row.accountStatus === 'pending'" size="small" type="warning" :disabled="!canApproveUser" @click="rejectUser(scope.row.id)">拒绝</el-button>
           <el-button
-            v-if="canWriteUser"
             size="small"
             type="primary"
             plain
+            :disabled="!canWriteUser"
             :loading="roleRecommendLoadingUserId === (scope.row.id ? String(scope.row.id) : String(scope.row.username || ''))"
             @click="viewRoleRecommend(scope.row)"
           >角色推荐</el-button>
-          <el-button v-if="canWriteUser" size="small" @click="openEdit(scope.row)">编辑</el-button>
-          <el-button v-if="canWriteUser" size="small" type="danger" @click="deleteUser(scope.row.id)">删除</el-button>
+          <el-button size="small" :disabled="!canWriteUser" @click="openEdit(scope.row)">编辑</el-button>
+          <el-button size="small" type="danger" :disabled="!canWriteUser" @click="deleteUser(scope.row.id)">删除</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -82,11 +82,15 @@
             <el-option v-for="role in roleOptions" :key="role.id" :label="`${safeRoleText(role.name, role.code)} (${String(role.code || '').trim() || 'NO_CODE'})`" :value="role.id" />
           </el-select>
         </el-form-item>
-        <el-form-item label="部门"><el-input v-model="addForm.department" /></el-form-item>
+        <el-form-item label="部门">
+          <el-select v-model="addForm.department" filterable allow-create default-first-option clearable style="width: 100%" placeholder="请选择或输入部门">
+            <el-option v-for="item in departmentOptions" :key="item" :label="item" :value="item" />
+          </el-select>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="showAdd = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="addUser">保存</el-button>
+        <el-button type="primary" :loading="saving" :disabled="!canWriteUser" @click="addUser">保存</el-button>
       </template>
     </el-dialog>
 
@@ -98,7 +102,11 @@
             <el-option v-for="role in roleOptions" :key="role.id" :label="`${safeRoleText(role.name, role.code)} (${String(role.code || '').trim() || 'NO_CODE'})`" :value="role.id" />
           </el-select>
         </el-form-item>
-        <el-form-item label="部门"><el-input v-model="editForm.department" /></el-form-item>
+        <el-form-item label="部门">
+          <el-select v-model="editForm.department" filterable allow-create default-first-option clearable style="width: 100%" placeholder="请选择或输入部门">
+            <el-option v-for="item in departmentOptions" :key="item" :label="item" :value="item" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="账号状态" prop="accountStatus">
           <el-select v-model="editForm.accountStatus" style="width: 100%">
             <el-option label="待审批" value="pending" />
@@ -110,7 +118,7 @@
       </el-form>
       <template #footer>
         <el-button @click="showEdit = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="updateUser">保存</el-button>
+        <el-button type="primary" :loading="saving" :disabled="!canWriteUser" @click="updateUser">保存</el-button>
       </template>
     </el-dialog>
 
@@ -181,7 +189,7 @@
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import request from '../api/request';
 import { getSession } from '../utils/auth';
@@ -211,7 +219,7 @@ const editFormRef = ref();
 const sessionUser = getSession()?.user || {};
 const currentUsername = String(sessionUser?.username || '').trim().toLowerCase();
 const currentRoleCode = String(sessionUser?.roleCode || sessionUser?.role || '').trim().toUpperCase();
-const canApproveUser = ['admin', 'admin_reviewer'].includes(currentUsername) || currentRoleCode === 'ADMIN_REVIEWER';
+const canApproveUser = currentUsername === 'admin' || currentRoleCode === 'ADMIN';
 const canWriteUser = ['admin', 'admin_ops'].includes(currentUsername) || currentRoleCode === 'ADMIN_OPS';
 
 const addForm = ref({
@@ -235,6 +243,17 @@ const addRules = {
   password: [{ required: true, message: '密码不能为空', trigger: 'blur' }],
   realName: [{ required: true, message: '真实姓名不能为空', trigger: 'blur' }],
 };
+const DEFAULT_DEPARTMENTS = ['治理中心', '安全运营中心', '数据治理部', '模型主管', '业务创新部', '人力资源部', '财务部', '行政部', '法务合规部'];
+const departmentOptions = computed(() => {
+  const values = new Set(DEFAULT_DEPARTMENTS);
+  users.value.forEach((user) => {
+    const department = String(user?.department || '').trim();
+    if (department) {
+      values.add(department);
+    }
+  });
+  return Array.from(values);
+});
 
 const editRules = {
   realName: [{ required: true, message: '真实姓名不能为空', trigger: 'blur' }],
@@ -333,14 +352,28 @@ function displayRealName(user) {
   return value || '待补全';
 }
 
+function isWalkthroughUser(user) {
+  const realName = String(user?.realName || user?.nickname || '').trim().toLowerCase();
+  return realName === 'walkthrough user';
+}
+
 async function fetchRoles() {
   const data = await request.get('/roles', { params: { page: 1, pageSize: 200 } });
-  const list = Array.isArray(data?.list) ? data.list : [];
+  const list = (Array.isArray(data?.list) ? data.list : [])
+    .filter(item => String(item?.code || '').trim().toUpperCase() !== 'SECOPS_TRIAGE');
   roleOptions.value = list;
   roleIndex.value = list.reduce((acc, item) => {
     acc[item.id] = item;
     return acc;
   }, {});
+}
+
+async function refreshRoleOptions() {
+  try {
+    await fetchRoles();
+  } catch (err) {
+    ElMessage.error(err?.message || '角色加载失败');
+  }
 }
 
 async function fetchUsers() {
@@ -358,7 +391,7 @@ async function fetchUsers() {
       ...item,
       realName: String(item?.realName || item?.nickname || item?.username || '').trim(),
       nickname: String(item?.nickname || item?.realName || item?.username || '').trim(),
-    }));
+    })).filter(item => !isWalkthroughUser(item));
     pagination.value.total = Number(data?.total || 0);
   } catch (err) {
     ElMessage.error(err?.message || '用户加载失败');
@@ -378,7 +411,7 @@ function onPageSizeChange(size) {
   fetchUsers();
 }
 
-function openAdd() {
+async function openAdd() {
   addForm.value = {
     username: '',
     password: '',
@@ -386,10 +419,11 @@ function openAdd() {
     roleIds: [],
     department: '',
   };
+  await refreshRoleOptions();
   showAdd.value = true;
 }
 
-function openEdit(user) {
+async function openEdit(user) {
   editForm.value = {
     id: user.id,
     realName: user.realName || '',
@@ -399,6 +433,7 @@ function openEdit(user) {
     department: user.department || '',
     accountStatus: user.accountStatus || 'active',
   };
+  await refreshRoleOptions();
   showEdit.value = true;
 }
 
@@ -449,6 +484,9 @@ async function updateUser() {
         cancelButtonText: '取消',
       });
       const payload = {
+        id: editForm.value.id,
+        userId: editForm.value.id,
+        username: editForm.value.username,
         realName: editForm.value.realName,
         department: editForm.value.department,
         accountStatus: editForm.value.accountStatus,
@@ -511,11 +549,12 @@ async function deleteUser(id) {
       confirmButtonText: '确认发起',
       cancelButtonText: '取消',
     });
+    const targetUser = users.value.find(item => item?.id === id);
     await request.post('/governance-change/submit', {
       module: 'USER',
       action: 'DELETE',
       targetId: id,
-      payloadJson: JSON.stringify({ id, deleteReason: 'governance_console_delete' }),
+      payloadJson: JSON.stringify({ id, userId: id, username: targetUser?.username || '', deleteReason: 'governance_console_delete' }),
       confirmPassword: pwdPrompt.value,
     });
     ElMessage.success('用户删除申请已提交待复核');

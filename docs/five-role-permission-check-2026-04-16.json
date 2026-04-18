@@ -1,0 +1,415 @@
+﻿{
+    "generatedAt":  "2026-04-16T14:28:10",
+    "total":  45,
+    "mismatchCount":  0,
+    "mismatch":  [
+
+                 ],
+    "rows":  [
+                 {
+                     "endpoint":  "DASHBOARD",
+                     "role":  "ADMIN",
+                     "name":  "治理管理员",
+                     "expectedAllowed":  true,
+                     "actualAllowed":  true,
+                     "http":  200,
+                     "code":  "20000"
+                 },
+                 {
+                     "endpoint":  "DASHBOARD",
+                     "role":  "ADMIN_REVIEWER",
+                     "name":  "治理复核员",
+                     "expectedAllowed":  true,
+                     "actualAllowed":  true,
+                     "http":  200,
+                     "code":  "20000"
+                 },
+                 {
+                     "endpoint":  "DASHBOARD",
+                     "role":  "SECOPS",
+                     "name":  "安全运维",
+                     "expectedAllowed":  true,
+                     "actualAllowed":  true,
+                     "http":  200,
+                     "code":  "20000"
+                 },
+                 {
+                     "endpoint":  "DASHBOARD",
+                     "role":  "BUSINESS_OWNER",
+                     "name":  "业务负责人",
+                     "expectedAllowed":  true,
+                     "actualAllowed":  true,
+                     "http":  200,
+                     "code":  "20000"
+                 },
+                 {
+                     "endpoint":  "DASHBOARD",
+                     "role":  "AUDIT",
+                     "name":  "审计员",
+                     "expectedAllowed":  true,
+                     "actualAllowed":  true,
+                     "http":  200,
+                     "code":  "20000"
+                 },
+                 {
+                     "endpoint":  "DATA_ASSET_LIST",
+                     "role":  "ADMIN",
+                     "name":  "治理管理员",
+                     "expectedAllowed":  true,
+                     "actualAllowed":  true,
+                     "http":  200,
+                     "code":  "20000"
+                 },
+                 {
+                     "endpoint":  "DATA_ASSET_LIST",
+                     "role":  "ADMIN_REVIEWER",
+                     "name":  "治理复核员",
+                     "expectedAllowed":  false,
+                     "actualAllowed":  false,
+                     "http":  403,
+                     "code":  "403"
+                 },
+                 {
+                     "endpoint":  "DATA_ASSET_LIST",
+                     "role":  "SECOPS",
+                     "name":  "安全运维",
+                     "expectedAllowed":  false,
+                     "actualAllowed":  false,
+                     "http":  403,
+                     "code":  "403"
+                 },
+                 {
+                     "endpoint":  "DATA_ASSET_LIST",
+                     "role":  "BUSINESS_OWNER",
+                     "name":  "业务负责人",
+                     "expectedAllowed":  false,
+                     "actualAllowed":  false,
+                     "http":  403,
+                     "code":  "403"
+                 },
+                 {
+                     "endpoint":  "DATA_ASSET_LIST",
+                     "role":  "AUDIT",
+                     "name":  "审计员",
+                     "expectedAllowed":  false,
+                     "actualAllowed":  false,
+                     "http":  403,
+                     "code":  "403"
+                 },
+                 {
+                     "endpoint":  "AUDIT_LOG_SEARCH",
+                     "role":  "ADMIN",
+                     "name":  "治理管理员",
+                     "expectedAllowed":  true,
+                     "actualAllowed":  true,
+                     "http":  200,
+                     "code":  "20000"
+                 },
+                 {
+                     "endpoint":  "AUDIT_LOG_SEARCH",
+                     "role":  "ADMIN_REVIEWER",
+                     "name":  "治理复核员",
+                     "expectedAllowed":  true,
+                     "actualAllowed":  true,
+                     "http":  200,
+                     "code":  "20000"
+                 },
+                 {
+                     "endpoint":  "AUDIT_LOG_SEARCH",
+                     "role":  "SECOPS",
+                     "name":  "安全运维",
+                     "expectedAllowed":  false,
+                     "actualAllowed":  false,
+                     "http":  403,
+                     "code":  "403"
+                 },
+                 {
+                     "endpoint":  "AUDIT_LOG_SEARCH",
+                     "role":  "BUSINESS_OWNER",
+                     "name":  "业务负责人",
+                     "expectedAllowed":  false,
+                     "actualAllowed":  false,
+                     "http":  403,
+                     "code":  "403"
+                 },
+                 {
+                     "endpoint":  "AUDIT_LOG_SEARCH",
+                     "role":  "AUDIT",
+                     "name":  "审计员",
+                     "expectedAllowed":  true,
+                     "actualAllowed":  true,
+                     "http":  200,
+                     "code":  "20000"
+                 },
+                 {
+                     "endpoint":  "SECURITY_EVENTS",
+                     "role":  "ADMIN",
+                     "name":  "治理管理员",
+                     "expectedAllowed":  true,
+                     "actualAllowed":  true,
+                     "http":  200,
+                     "code":  "20000"
+                 },
+                 {
+                     "endpoint":  "SECURITY_EVENTS",
+                     "role":  "ADMIN_REVIEWER",
+                     "name":  "治理复核员",
+                     "expectedAllowed":  false,
+                     "actualAllowed":  false,
+                     "http":  403,
+                     "code":  "403"
+                 },
+                 {
+                     "endpoint":  "SECURITY_EVENTS",
+                     "role":  "SECOPS",
+                     "name":  "安全运维",
+                     "expectedAllowed":  true,
+                     "actualAllowed":  true,
+                     "http":  200,
+                     "code":  "20000"
+                 },
+                 {
+                     "endpoint":  "SECURITY_EVENTS",
+                     "role":  "BUSINESS_OWNER",
+                     "name":  "业务负责人",
+                     "expectedAllowed":  false,
+                     "actualAllowed":  false,
+                     "http":  403,
+                     "code":  "403"
+                 },
+                 {
+                     "endpoint":  "SECURITY_EVENTS",
+                     "role":  "AUDIT",
+                     "name":  "审计员",
+                     "expectedAllowed":  false,
+                     "actualAllowed":  false,
+                     "http":  403,
+                     "code":  "403"
+                 },
+                 {
+                     "endpoint":  "PRIVACY_CONFIG",
+                     "role":  "ADMIN",
+                     "name":  "治理管理员",
+                     "expectedAllowed":  true,
+                     "actualAllowed":  true,
+                     "http":  200,
+                     "code":  "20000"
+                 },
+                 {
+                     "endpoint":  "PRIVACY_CONFIG",
+                     "role":  "ADMIN_REVIEWER",
+                     "name":  "治理复核员",
+                     "expectedAllowed":  false,
+                     "actualAllowed":  false,
+                     "http":  403,
+                     "code":  "403"
+                 },
+                 {
+                     "endpoint":  "PRIVACY_CONFIG",
+                     "role":  "SECOPS",
+                     "name":  "安全运维",
+                     "expectedAllowed":  true,
+                     "actualAllowed":  true,
+                     "http":  200,
+                     "code":  "20000"
+                 },
+                 {
+                     "endpoint":  "PRIVACY_CONFIG",
+                     "role":  "BUSINESS_OWNER",
+                     "name":  "业务负责人",
+                     "expectedAllowed":  false,
+                     "actualAllowed":  false,
+                     "http":  403,
+                     "code":  "403"
+                 },
+                 {
+                     "endpoint":  "PRIVACY_CONFIG",
+                     "role":  "AUDIT",
+                     "name":  "审计员",
+                     "expectedAllowed":  false,
+                     "actualAllowed":  false,
+                     "http":  403,
+                     "code":  "403"
+                 },
+                 {
+                     "endpoint":  "PRIVACY_EVENTS",
+                     "role":  "ADMIN",
+                     "name":  "治理管理员",
+                     "expectedAllowed":  true,
+                     "actualAllowed":  true,
+                     "http":  200,
+                     "code":  "20000"
+                 },
+                 {
+                     "endpoint":  "PRIVACY_EVENTS",
+                     "role":  "ADMIN_REVIEWER",
+                     "name":  "治理复核员",
+                     "expectedAllowed":  true,
+                     "actualAllowed":  true,
+                     "http":  200,
+                     "code":  "20000"
+                 },
+                 {
+                     "endpoint":  "PRIVACY_EVENTS",
+                     "role":  "SECOPS",
+                     "name":  "安全运维",
+                     "expectedAllowed":  true,
+                     "actualAllowed":  true,
+                     "http":  200,
+                     "code":  "20000"
+                 },
+                 {
+                     "endpoint":  "PRIVACY_EVENTS",
+                     "role":  "BUSINESS_OWNER",
+                     "name":  "业务负责人",
+                     "expectedAllowed":  true,
+                     "actualAllowed":  true,
+                     "http":  200,
+                     "code":  "20000"
+                 },
+                 {
+                     "endpoint":  "PRIVACY_EVENTS",
+                     "role":  "AUDIT",
+                     "name":  "审计员",
+                     "expectedAllowed":  true,
+                     "actualAllowed":  true,
+                     "http":  200,
+                     "code":  "20000"
+                 },
+                 {
+                     "endpoint":  "ANOMALY_EVENTS",
+                     "role":  "ADMIN",
+                     "name":  "治理管理员",
+                     "expectedAllowed":  true,
+                     "actualAllowed":  true,
+                     "http":  200,
+                     "code":  "20000"
+                 },
+                 {
+                     "endpoint":  "ANOMALY_EVENTS",
+                     "role":  "ADMIN_REVIEWER",
+                     "name":  "治理复核员",
+                     "expectedAllowed":  true,
+                     "actualAllowed":  true,
+                     "http":  200,
+                     "code":  "20000"
+                 },
+                 {
+                     "endpoint":  "ANOMALY_EVENTS",
+                     "role":  "SECOPS",
+                     "name":  "安全运维",
+                     "expectedAllowed":  true,
+                     "actualAllowed":  true,
+                     "http":  200,
+                     "code":  "20000"
+                 },
+                 {
+                     "endpoint":  "ANOMALY_EVENTS",
+                     "role":  "BUSINESS_OWNER",
+                     "name":  "业务负责人",
+                     "expectedAllowed":  true,
+                     "actualAllowed":  true,
+                     "http":  200,
+                     "code":  "20000"
+                 },
+                 {
+                     "endpoint":  "ANOMALY_EVENTS",
+                     "role":  "AUDIT",
+                     "name":  "审计员",
+                     "expectedAllowed":  true,
+                     "actualAllowed":  true,
+                     "http":  200,
+                     "code":  "20000"
+                 },
+                 {
+                     "endpoint":  "ADVERSARIAL_META",
+                     "role":  "ADMIN",
+                     "name":  "治理管理员",
+                     "expectedAllowed":  true,
+                     "actualAllowed":  true,
+                     "http":  200,
+                     "code":  "20000"
+                 },
+                 {
+                     "endpoint":  "ADVERSARIAL_META",
+                     "role":  "ADMIN_REVIEWER",
+                     "name":  "治理复核员",
+                     "expectedAllowed":  false,
+                     "actualAllowed":  false,
+                     "http":  403,
+                     "code":  "403"
+                 },
+                 {
+                     "endpoint":  "ADVERSARIAL_META",
+                     "role":  "SECOPS",
+                     "name":  "安全运维",
+                     "expectedAllowed":  true,
+                     "actualAllowed":  true,
+                     "http":  200,
+                     "code":  "20000"
+                 },
+                 {
+                     "endpoint":  "ADVERSARIAL_META",
+                     "role":  "BUSINESS_OWNER",
+                     "name":  "业务负责人",
+                     "expectedAllowed":  false,
+                     "actualAllowed":  false,
+                     "http":  403,
+                     "code":  "403"
+                 },
+                 {
+                     "endpoint":  "ADVERSARIAL_META",
+                     "role":  "AUDIT",
+                     "name":  "审计员",
+                     "expectedAllowed":  false,
+                     "actualAllowed":  false,
+                     "http":  403,
+                     "code":  "403"
+                 },
+                 {
+                     "endpoint":  "APPROVAL_LIST",
+                     "role":  "ADMIN",
+                     "name":  "治理管理员",
+                     "expectedAllowed":  true,
+                     "actualAllowed":  true,
+                     "http":  200,
+                     "code":  "20000"
+                 },
+                 {
+                     "endpoint":  "APPROVAL_LIST",
+                     "role":  "ADMIN_REVIEWER",
+                     "name":  "治理复核员",
+                     "expectedAllowed":  true,
+                     "actualAllowed":  true,
+                     "http":  200,
+                     "code":  "20000"
+                 },
+                 {
+                     "endpoint":  "APPROVAL_LIST",
+                     "role":  "SECOPS",
+                     "name":  "安全运维",
+                     "expectedAllowed":  false,
+                     "actualAllowed":  false,
+                     "http":  403,
+                     "code":  "403"
+                 },
+                 {
+                     "endpoint":  "APPROVAL_LIST",
+                     "role":  "BUSINESS_OWNER",
+                     "name":  "业务负责人",
+                     "expectedAllowed":  true,
+                     "actualAllowed":  true,
+                     "http":  200,
+                     "code":  "20000"
+                 },
+                 {
+                     "endpoint":  "APPROVAL_LIST",
+                     "role":  "AUDIT",
+                     "name":  "审计员",
+                     "expectedAllowed":  false,
+                     "actualAllowed":  false,
+                     "http":  403,
+                     "code":  "403"
+                 }
+             ]
+}

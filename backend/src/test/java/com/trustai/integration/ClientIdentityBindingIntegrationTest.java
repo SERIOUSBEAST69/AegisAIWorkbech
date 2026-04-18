@@ -40,14 +40,16 @@ class ClientIdentityBindingIntegrationTest {
     private CommandLineRunner awardSchemaInitializerRunner;
 
     @Test
-    void registerRejectsMissingHostname() throws Exception {
+    void reportRejectsMissingHostname() throws Exception {
         JsonNode resp = postJson(
-            "/api/client/register",
+            "/api/client/report",
             Map.of(
                 "clientId", "cid-no-host-1",
-                "osUsername", "employee1",
+                "osUsername", "employee",
                 "osType", "Windows",
-                "clientVersion", "1.0.0"
+                "clientVersion", "1.0.0",
+                "discoveredServices", "[]",
+                "shadowAiCount", 0
             ),
             status().isOk()
         );
@@ -55,34 +57,25 @@ class ClientIdentityBindingIntegrationTest {
     }
 
     @Test
-    void registerAndReportReturnDeviceFingerprint() throws Exception {
+    void reportReturnsDeviceFingerprint() throws Exception {
         String clientId = "cid-fp-" + (System.currentTimeMillis() % 100000);
-
-        JsonNode registerResp = postJson(
-            "/api/client/register",
-            Map.of(
-                "clientId", clientId,
-                "hostname", "HOST-FP-1",
-                "osUsername", "employee1",
-                "osType", "Windows",
-                "clientVersion", "1.0.0"
-            ),
-            status().isOk()
-        );
-        assertEquals(20000, registerResp.path("code").asInt(), registerResp.toString());
-        assertTrue(registerResp.path("data").path("deviceFingerprint").asText().length() >= 8);
+        JsonNode loginResp = loginBoundUserWithFallback();
+        String boundUsername = loginResp.path("data").path("user").path("username").asText("secops");
+        String boundCompanyId = loginResp.path("data").path("user").path("companyId").asText("1");
 
         JsonNode reportResp = postJson(
             "/api/client/report",
             Map.of(
                 "clientId", clientId,
                 "hostname", "HOST-FP-1",
-                "osUsername", "employee1",
+                "osUsername", boundUsername,
                 "osType", "Windows",
                 "clientVersion", "1.0.0",
                 "discoveredServices", "[]",
                 "shadowAiCount", 0
             ),
+            boundUsername,
+            boundCompanyId,
             status().isOk()
         );
         assertEquals(20000, reportResp.path("code").asInt(), reportResp.toString());
@@ -102,15 +95,22 @@ class ClientIdentityBindingIntegrationTest {
                 "discoveredServices", "[]",
                 "shadowAiCount", 0
             ),
+            "employee",
+            "1",
             status().isOk()
         );
         assertEquals(40000, resp.path("code").asInt(), resp.toString());
     }
 
     private JsonNode postJson(String path, Object body, org.springframework.test.web.servlet.ResultMatcher matcher) throws Exception {
+        return postJson(path, body, "employee", "1", matcher);
+    }
+
+    private JsonNode postJson(String path, Object body, String clientUsername, String companyId, org.springframework.test.web.servlet.ResultMatcher matcher) throws Exception {
         var builder = post(path)
             .header("X-Client-Token", "demo-client-token")
-            .header("X-Company-Id", "1")
+            .header("X-Client-Username", clientUsername)
+            .header("X-Company-Id", companyId)
             .contentType(MediaType.APPLICATION_JSON)
             .content(objectMapper.writeValueAsString(body));
 
@@ -118,5 +118,24 @@ class ClientIdentityBindingIntegrationTest {
             .andExpect(matcher)
             .andReturn();
         return objectMapper.readTree(result.getResponse().getContentAsString());
+    }
+
+    private JsonNode loginBoundUserWithFallback() throws Exception {
+        for (Map.Entry<String, String> candidate : Map.of(
+            "secops", "Passw0rd!",
+            "admin", "admin"
+        ).entrySet()) {
+            var builder = post("/api/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(Map.of("username", candidate.getKey(), "password", candidate.getValue())));
+            MvcResult result = mockMvc.perform(builder)
+                .andExpect(status().isOk())
+                .andReturn();
+            JsonNode loginResp = objectMapper.readTree(result.getResponse().getContentAsString());
+            if (loginResp.path("code").asInt() == 20000) {
+                return loginResp;
+            }
+        }
+        throw new AssertionError("bound user login failed for both secops and admin");
     }
 }

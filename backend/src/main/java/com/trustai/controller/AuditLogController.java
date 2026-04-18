@@ -29,12 +29,13 @@ public class AuditLogController {
     @Autowired private UserService userService;
 
     @GetMapping("/search")
-    @PreAuthorize("@currentUserService.hasPermission('audit:log:view')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','AUDIT','BUSINESS_OWNER')")
     public R<List<AuditLogDocument>> search(@RequestParam(required = false) Long userId,
                                             @RequestParam(required = false) Long permissionId,
                                             @RequestParam(required = false) String operation,
                                             @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss") Date from,
                                             @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss") Date to) {
+        currentUserService.requireAnyRole("ADMIN", "ADMIN_REVIEWER", "SECOPS", "AUDIT", "BUSINESS_OWNER");
         Set<Long> scopedUserIds = companyScopeService.companyUserIds().stream().collect(Collectors.toSet());
         User currentUser = currentUserService.requireCurrentUser();
         if (currentUserService.hasRole("BUSINESS_OWNER")) {
@@ -43,6 +44,11 @@ public class AuditLogController {
         List<AuditLogDocument> logs = auditLogService.search(userId, permissionId, operation, from, to)
             .stream()
             .filter(item -> item.getUserId() != null && scopedUserIds.contains(item.getUserId()))
+            .peek(item -> {
+                if ((item.getUserIdStr() == null || item.getUserIdStr().isBlank()) && item.getUserId() != null) {
+                    item.setUserIdStr(String.valueOf(item.getUserId()));
+                }
+            })
             .collect(Collectors.toList());
         return R.ok(logs);
     }

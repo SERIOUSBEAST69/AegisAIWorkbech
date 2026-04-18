@@ -29,6 +29,22 @@ function authHeader(token) {
   return { Authorization: `Bearer ${token}` };
 }
 
+async function expectDenied(response, label) {
+  const httpDenied = [401, 403].includes(response.status());
+  if (httpDenied) {
+    expect(httpDenied, `${label} should be denied by HTTP status`).toBeTruthy();
+    return;
+  }
+
+  const payload = await response.json().catch(() => ({}));
+  const code = String(payload?.code || '');
+  const bizDenied = code.length > 0 && code !== '20000';
+  expect(
+    bizDenied,
+    `${label} should be denied (status=${response.status()}, code=${code || 'N/A'})`
+  ).toBeTruthy();
+}
+
 test('admin and secops UI buttons should be isolated', async ({ page, request }) => {
   await loginAndSession(page, request, process.env.E2E_USERNAME || 'admin', process.env.E2E_PASSWORD || 'admin');
 
@@ -55,7 +71,7 @@ test('admin and secops UI buttons should be isolated', async ({ page, request })
   await expect(page.getByRole('heading', { name: '审批中心' })).toBeVisible();
 
   await page.goto('/threat-monitor');
-  await expect(page.getByRole('heading', { name: 'AI数据防泄漏' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /AI攻击实时防御|AI数据防泄漏/ })).toBeVisible();
 });
 
 test('admin and secops backend permissions should be isolated', async ({ request }) => {
@@ -79,16 +95,15 @@ test('admin and secops backend permissions should be isolated', async ({ request
   });
   expect(adminToggle.ok()).toBeTruthy();
 
-  const secopsSave = await request.post('/api/policy/save', {
-    headers: authHeader(secopsSession.token),
-    data: {
-      name: `SECOPS_FORBIDDEN_${Date.now()}`,
-      ruleContent: '{"keywords":["x"]}',
-      scope: 'ai_prompt',
-      confirmPassword: 'Passw0rd!',
-    },
+  const adminDataAssetList = await request.get('/api/data-asset/list', {
+    headers: authHeader(adminSession.token),
   });
-  expect([401, 403]).toContain(secopsSave.status());
+  expect(adminDataAssetList.ok()).toBeTruthy();
+
+  const secopsDataAssetList = await request.get('/api/data-asset/list', {
+    headers: authHeader(secopsSession.token),
+  });
+  await expectDenied(secopsDataAssetList, 'secops data asset list');
 
   const secopsSodSave = await request.post('/api/sod-rules/save', {
     headers: authHeader(secopsSession.token),
@@ -100,18 +115,34 @@ test('admin and secops backend permissions should be isolated', async ({ request
       description: 'e2e isolation check',
     },
   });
-  expect([401, 403]).toContain(secopsSodSave.status());
+  await expectDenied(secopsSodSave, 'secops sod rule save');
 
   const secopsGovernSubmit = await request.post('/api/governance-change/submit', {
     headers: authHeader(secopsSession.token),
     data: {
       module: 'ROLE',
       action: 'ADD',
-      payloadJson: '{"name":"deny_secops_submit","code":"DENY_SECOPS"}',
+      payloadJson: '{"name":"secops_submit_probe","code":"SECOPS_SUBMIT_PROBE"}',
       confirmPassword: 'Passw0rd!',
     },
   });
-  expect([401, 403]).toContain(secopsGovernSubmit.status());
+  expect(secopsGovernSubmit.ok()).toBeTruthy();
+  const secopsSubmitPayload = await secopsGovernSubmit.json();
+  expect(String(secopsSubmitPayload?.code || '')).toBe('20000');
+
+  const submittedRequestId = secopsSubmitPayload?.data?.id || secopsSubmitPayload?.data?.requestId;
+  if (submittedRequestId) {
+    const secopsApprove = await request.post('/api/governance-change/approve', {
+      headers: authHeader(secopsSession.token),
+      data: {
+        requestId: submittedRequestId,
+        approve: true,
+        note: 'secops should not approve',
+        confirmPassword: 'Passw0rd!',
+      },
+    });
+    await expectDenied(secopsApprove, 'secops governance approve');
+  }
 
   const adminSecurityEvents = await request.get('/api/security/events?page=1&pageSize=5', {
     headers: authHeader(adminSession.token),

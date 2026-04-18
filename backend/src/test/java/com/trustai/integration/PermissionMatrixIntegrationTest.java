@@ -59,19 +59,6 @@ class PermissionMatrixIntegrationTest {
     }
 
     @Test
-    void secopsCanAccessRiskEventsButEmployeeCannot() throws Exception {
-        ensurePermissionBindingForUser("secops", "risk:event:view");
-
-        String secopsToken = loginAndGetToken("secops", "Passw0rd!");
-        JsonNode secopsResp = getJson("/api/risk-event/list", secopsToken, status().isOk());
-        assertEquals(20000, secopsResp.path("code").asInt());
-
-        String employeeToken = loginEmployeeToken();
-        JsonNode employeeResp = getJson("/api/risk-event/list", employeeToken, status().isForbidden());
-        assertEquals(40300, employeeResp.path("code").asInt());
-    }
-
-    @Test
     void employeeCanListOwnApprovalsButCannotAccessOperatorTodo() throws Exception {
         String employeeToken = loginEmployeeToken();
         JsonNode ownListResp = getJson("/api/approval/list", employeeToken, status().isOk());

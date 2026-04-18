@@ -23,7 +23,9 @@ import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -132,28 +134,29 @@ public class PrivacyShieldController {
     ) {
         User currentUser = currentUserService.requireCurrentUser();
         Long companyId = currentUser.getCompanyId();
-        boolean adminOrSecops = currentUserService.hasAnyRole("ADMIN", "SECOPS", "BUSINESS_OWNER");
-        boolean executive = currentUserService.hasAnyRole("ADMIN_REVIEWER", "AUDIT");
-        String scopedUserId;
-        if (adminOrSecops) {
+        boolean companyWideViewer = currentUserService.hasAnyRole("ADMIN", "ADMIN_REVIEWER", "SECOPS", "AUDIT");
+        boolean departmentViewer = currentUserService.hasRole("BUSINESS_OWNER");
+        String scopedUserId = null;
+        Set<String> scopedUserIds = null;
+
+        if (companyWideViewer) {
             scopedUserId = resolveRequestedUserId(userId);
-        } else if (executive) {
-            scopedUserId = null;
+        } else if (departmentViewer) {
+            scopedUserIds = resolveDepartmentUserIds(currentUser);
+            String requestedUserId = resolveRequestedUserId(userId);
+            if (StringUtils.hasText(requestedUserId)) {
+                if (scopedUserIds.contains(requestedUserId)) {
+                    scopedUserId = requestedUserId;
+                } else {
+                    scopedUserIds = Set.of();
+                }
+            }
         } else {
             scopedUserId = String.valueOf(currentUser.getId());
         }
 
-        Map<String, Object> summary = buildSummary(companyId, scopedUserId, eventType, source, action, startTime, endTime);
-        if (executive) {
-            summary.put("summaryOnly", true);
-            summary.put("list", List.of());
-            summary.put("total", summary.get("total"));
-            summary.put("pages", 0);
-            summary.put("current", 1);
-            return R.ok(summary);
-        }
-
-        QueryWrapper<PrivacyEvent> query = buildQuery(companyId, scopedUserId, eventType, source, action, startTime, endTime)
+        Map<String, Object> summary = buildSummary(companyId, scopedUserId, scopedUserIds, eventType, source, action, startTime, endTime);
+        QueryWrapper<PrivacyEvent> query = buildQuery(companyId, scopedUserId, scopedUserIds, eventType, source, action, startTime, endTime)
                 .orderByDesc("event_time");
 
         long safePage = Math.max(1, page);
@@ -231,12 +234,23 @@ public class PrivacyShieldController {
 
     private QueryWrapper<PrivacyEvent> buildQuery(Long companyId, String userId, String eventType, String source, String action,
                                                   String startTime, String endTime) {
+        return buildQuery(companyId, userId, null, eventType, source, action, startTime, endTime);
+    }
+
+    private QueryWrapper<PrivacyEvent> buildQuery(Long companyId,
+                                                  String userId,
+                                                  Set<String> scopedUserIds,
+                                                  String eventType,
+                                                  String source,
+                                                  String action,
+                                                  String startTime,
+                                                  String endTime) {
         QueryWrapper<PrivacyEvent> query = new QueryWrapper<>();
         if (companyId != null) {
             query.eq("company_id", companyId);
             List<User> walkthroughUsers = userService.lambdaQuery()
                 .eq(User::getCompanyId, companyId)
-                .likeRight(User::getUsername, "walkthrough_")
+                .like(User::getUsername, "walkthrough")
                 .list();
             if (!walkthroughUsers.isEmpty()) {
                 List<String> walkthroughIds = walkthroughUsers.stream()
@@ -247,7 +261,14 @@ public class PrivacyShieldController {
                     query.notIn("user_id", walkthroughIds);
                 }
             }
-            query.notLikeRight("user_id", "walkthrough_");
+            query.notLike("user_id", "walkthrough");
+        }
+        if (scopedUserIds != null) {
+            if (scopedUserIds.isEmpty()) {
+                query.eq("user_id", "__no_match__");
+            } else {
+                query.in("user_id", scopedUserIds);
+            }
         }
         if (StringUtils.hasText(userId)) {
             query.eq("user_id", userId);
@@ -273,23 +294,23 @@ public class PrivacyShieldController {
     }
 
     private boolean isWalkthroughUsername(String value) {
-        return String.valueOf(value == null ? "" : value).trim().toLowerCase().startsWith("walkthrough_");
+        return String.valueOf(value == null ? "" : value).trim().toLowerCase().contains("walkthrough");
     }
 
-    private Map<String, Object> buildSummary(Long companyId, String userId, String eventType, String source,
+    private Map<String, Object> buildSummary(Long companyId, String userId, Set<String> scopedUserIds, String eventType, String source,
                                              String action, String startTime, String endTime) {
         Map<String, Object> summary = new LinkedHashMap<>();
 
-        long total = privacyEventService.count(buildQuery(companyId, userId, eventType, source, action, startTime, endTime));
+        long total = privacyEventService.count(buildQuery(companyId, userId, scopedUserIds, eventType, source, action, startTime, endTime));
 
         LocalDateTime dayStart = LocalDate.now().atStartOfDay();
-        long today = privacyEventService.count(buildQuery(companyId, userId, eventType, source, action, startTime, endTime)
+        long today = privacyEventService.count(buildQuery(companyId, userId, scopedUserIds, eventType, source, action, startTime, endTime)
                 .ge("event_time", Date.from(dayStart.atZone(ZoneId.systemDefault()).toInstant())));
 
-        long extensionCount = privacyEventService.count(buildQuery(companyId, userId, eventType, "extension", action, startTime, endTime));
-        long clipboardCount = privacyEventService.count(buildQuery(companyId, userId, eventType, "clipboard", action, startTime, endTime));
-        long ignoreCount = privacyEventService.count(buildQuery(companyId, userId, eventType, source, "ignore", startTime, endTime));
-        long desenseCount = privacyEventService.count(buildQuery(companyId, userId, eventType, source, "desensitize", startTime, endTime));
+        long extensionCount = privacyEventService.count(buildQuery(companyId, userId, scopedUserIds, eventType, "extension", action, startTime, endTime));
+        long clipboardCount = privacyEventService.count(buildQuery(companyId, userId, scopedUserIds, eventType, "clipboard", action, startTime, endTime));
+        long ignoreCount = privacyEventService.count(buildQuery(companyId, userId, scopedUserIds, eventType, source, "ignore", startTime, endTime));
+        long desenseCount = privacyEventService.count(buildQuery(companyId, userId, scopedUserIds, eventType, source, "desensitize", startTime, endTime));
 
         summary.put("total", total);
         summary.put("today", today);
@@ -298,6 +319,24 @@ public class PrivacyShieldController {
         summary.put("ignoreCount", ignoreCount);
         summary.put("desensitizeCount", desenseCount);
         return summary;
+    }
+
+    private Set<String> resolveDepartmentUserIds(User currentUser) {
+        if (currentUser == null || currentUser.getCompanyId() == null) {
+            return Set.of();
+        }
+        String currentDepartment = String.valueOf(currentUser.getDepartment() == null ? "" : currentUser.getDepartment()).trim();
+        if (!StringUtils.hasText(currentDepartment)) {
+            return Set.of();
+        }
+        return userService.lambdaQuery()
+            .eq(User::getCompanyId, currentUser.getCompanyId())
+            .eq(User::getDepartment, currentDepartment)
+            .list()
+            .stream()
+            .filter(item -> item != null && item.getId() != null)
+            .map(item -> String.valueOf(item.getId()))
+            .collect(Collectors.toSet());
     }
 
     private String resolveUserId(String requestUserId, User resolvedUser) {

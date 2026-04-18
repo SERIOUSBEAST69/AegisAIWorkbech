@@ -119,11 +119,11 @@ public class SubjectRequestController {
     }
 
     private boolean isWalkthrough(String value) {
-        return String.valueOf(value == null ? "" : value).trim().toLowerCase().startsWith("walkthrough_");
+        return String.valueOf(value == null ? "" : value).trim().toLowerCase().contains("walkthrough");
     }
 
     private boolean containsWalkthrough(String value) {
-        return String.valueOf(value == null ? "" : value).toLowerCase().contains("walkthrough_");
+        return String.valueOf(value == null ? "" : value).toLowerCase().contains("walkthrough");
     }
 
     @PostMapping("/create")

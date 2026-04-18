@@ -4,9 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.trustai.config.RabbitConfig;
 import com.trustai.dto.SensitiveScanReport;
 import com.trustai.entity.DataAsset;
-import com.trustai.entity.RiskEvent;
 import com.trustai.entity.SensitiveScanTask;
-import com.trustai.service.RiskEventService;
 import com.trustai.service.SensitiveScanEngine;
 import com.trustai.service.SensitiveScanTaskService;
 import com.trustai.utils.AssetContentExtractor;
@@ -29,7 +27,6 @@ import java.util.List;
  *   <li>创建扫描任务（status = running）</li>
  *   <li>调用 {@link SensitiveScanEngine} 执行 BERT + 正则扫描</li>
  *   <li>更新任务状态（status = done）并持久化报告</li>
- *   <li>根据敏感占比自动生成风险事件</li>
  * </ol>
  */
 @Component
@@ -40,7 +37,6 @@ public class AssetRegisterConsumer {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final SensitiveScanTaskService sensitiveScanTaskService;
-    private final RiskEventService riskEventService;
     private final SensitiveScanEngine sensitiveScanEngine;
     private final AssetContentExtractor assetContentExtractor;
 
@@ -96,20 +92,6 @@ public class AssetRegisterConsumer {
         task.setUpdateTime(Date.from(Instant.now()));
         sensitiveScanTaskService.updateById(task);
 
-        // 5. 自动生成风险事件
-        String level = ratio > 60 ? "critical" : (ratio > 30 ? "high" : "medium");
-        RiskEvent event = new RiskEvent();
-        event.setCompanyId(asset.getCompanyId());
-        event.setType("敏感数据扫描");
-        event.setLevel(level);
-        event.setRelatedLogId(task.getId());
-        event.setStatus("open");
-        event.setHandlerId(asset.getOwnerId());
-        event.setProcessLog("自动创建，敏感占比" + String.format("%.2f", ratio) + "%");
-        event.setCreateTime(new Date());
-        event.setUpdateTime(new Date());
-        riskEventService.save(event);
-
-        log.info("Asset {} scan completed, sensitiveRatio={}, riskLevel={}", asset.getId(), ratio, level);
+        log.info("Asset {} scan completed, sensitiveRatio={}", asset.getId(), ratio);
     }
 }

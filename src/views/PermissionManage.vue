@@ -24,7 +24,7 @@
           </el-form-item>
           <el-form-item>
             <el-button type="primary" :loading="loading" @click="fetchPermissions">查询</el-button>
-            <el-button v-if="canWritePermission" @click="openAdd">新增权限</el-button>
+            <el-button :disabled="!canWritePermission" @click="openAdd">新增权限</el-button>
           </el-form-item>
         </el-form>
         <el-table :data="permissions" style="width: 100%" v-loading="loading" @sort-change="onSortChange">
@@ -63,7 +63,6 @@
               </el-button>
               <el-button size="small" :disabled="!canWritePermission" @click="editPermission(scope.row)">编辑</el-button>
               <el-button size="small" type="danger" :disabled="!canWritePermission" @click="deletePermission(scope.row.id)">删除</el-button>
-              <el-button size="small" type="info" plain @click="viewPermissionLogs(scope.row)">日志</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -125,7 +124,7 @@
           </el-form-item>
           <el-form-item>
             <el-button type="primary" :loading="sodLoading" @click="fetchSodRules">查询</el-button>
-            <el-button v-if="canManageSod" @click="openAddSodRule">新增规则</el-button>
+            <el-button :disabled="!canManageSod" @click="openAddSodRule">新增规则</el-button>
           </el-form-item>
         </el-form>
 
@@ -142,8 +141,8 @@
           <el-table-column prop="description" label="说明" min-width="220" />
           <el-table-column label="操作" width="220" fixed="right">
             <template #default="scope">
-              <el-button v-if="canManageSod" size="small" @click="editSodRule(scope.row)">编辑</el-button>
-              <el-button v-if="canManageSod" size="small" type="danger" @click="deleteSodRule(scope.row.id)">删除</el-button>
+              <el-button size="small" :disabled="!canManageSod" @click="editSodRule(scope.row)">编辑</el-button>
+              <el-button size="small" type="danger" :disabled="!canManageSod" @click="deleteSodRule(scope.row.id)">删除</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -235,7 +234,6 @@
 </template>
 <script setup>
 import { computed, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import request from '../api/request';
 import { getSession } from '../utils/auth';
@@ -243,7 +241,6 @@ import { canManageSodRule } from '../utils/roleBoundary';
 
 const currentUsername = String(getSession()?.user?.username || '').trim().toLowerCase();
 const canWritePermission = currentUsername === 'admin';
-const router = useRouter();
 const ROOT_PARENT_VALUE = '__ROOT__';
 const ROOT_PARENT_LABEL = '无（根节点）';
 const PERMISSION_TYPE_OPTIONS = Object.freeze([
@@ -760,16 +757,6 @@ async function togglePermissionStatus(row) {
   }
 }
 
-function viewPermissionLogs(row) {
-  router.push({
-    name: 'AuditLog',
-    query: {
-      operation: 'permission',
-      permissionId: row?.id == null ? '' : String(row.id),
-      userId: '',
-    },
-  });
-}
 async function updatePermission() {
   if (!editFormRef.value) return;
   editFormRef.value.validate(async valid => {

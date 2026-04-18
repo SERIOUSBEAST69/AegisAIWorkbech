@@ -32,6 +32,14 @@ WHERE company_id = 1
   AND real_name = 'Walkthrough User'
   AND username LIKE 'walkthrough_%';
 
+-- 2b) Remove imported sample names if older exports introduced them.
+UPDATE sys_user
+SET real_name = CONCAT('Normalized User-', username),
+    nickname = CONCAT('Normalized-', username),
+    update_time = CURRENT_TIMESTAMP
+WHERE company_id = 1
+  AND real_name IN ('Isabella Miller', 'Mia Miller', 'Amelia Davis');
+
 -- 3) Pending self-registered accounts keep role empty until admin assignment.
 UPDATE sys_user
 SET role_id = NULL,

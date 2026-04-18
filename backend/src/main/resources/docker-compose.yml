@@ -73,6 +73,8 @@ services:
       dockerfile: Dockerfile
     container_name: ai-inference
     restart: always
+    profiles:
+      - ai
     ports:
       - "5000:5000"
     networks:
@@ -143,8 +145,6 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-      ai-inference:
-        condition: service_started
     networks:
       - aegisai-network
 

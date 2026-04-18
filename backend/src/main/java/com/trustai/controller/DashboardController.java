@@ -738,7 +738,7 @@ public class DashboardController {
                 "P0",
                 "优先闭环高风险事件",
                 "当前存在高风险未闭环事件，建议先处理高危告警，避免治理平台只告警不闭环。",
-                "/risk-event-manage",
+                "/threat-monitor",
                 highRiskEvents + " 个高风险事件"
             ));
         }
@@ -788,7 +788,7 @@ public class DashboardController {
                 "P2",
                 "关注 AI 成本波动",
                 "调用成本已明显增长，平台已具备成本治理基础，可进一步细化模型与业务维度归因。",
-                "/operations-command",
+                "/ops-observability",
                 "累计 ¥" + String.format("%.2f", totalCostCents / 100.0)
             ));
         }
@@ -922,10 +922,10 @@ public class DashboardController {
                                                long enabledModels) {
         List<WorkbenchOverviewDTO.TodoItem> todos = new ArrayList<>();
         if (highRiskEvents > 0) {
-            todos.add(new WorkbenchOverviewDTO.TodoItem("P0", "闭环高风险事件", "优先压降高风险事件，避免平台只监测不处置。", "/risk-event-manage", highRiskEvents + " 个高危事件"));
+            todos.add(new WorkbenchOverviewDTO.TodoItem("P0", "闭环高风险事件", "优先压降高风险事件，避免平台只监测不处置。", "/threat-monitor", highRiskEvents + " 个高危事件"));
         }
         if (openAlerts > 0) {
-            todos.add(new WorkbenchOverviewDTO.TodoItem("P0", "处理待处置风险", "仍有高优先级风险待跟进，需进入风险编排视图。", "/risk-event-manage", openAlerts + " 条待处置风险"));
+            todos.add(new WorkbenchOverviewDTO.TodoItem("P0", "处理待处置风险", "仍有高优先级风险待跟进，需进入威胁防御视图。", "/threat-monitor", openAlerts + " 条待处置风险"));
         }
         if (pendingSubjectRequests > 0) {
             todos.add(new WorkbenchOverviewDTO.TodoItem("P1", "处理治理审批积压", "治理审批事项仍在队列中，建议优先完成审批闭环。", "/approval-center", pendingSubjectRequests + " 个待处理事项"));
@@ -945,7 +945,7 @@ public class DashboardController {
                 normalizeLower(item.getLevel()),
                 "风险事件 · " + defaultText(item.getType(), "待识别类型"),
                 "状态：" + defaultText(item.getStatus(), "open") + "，处置日志：" + defaultText(item.getProcessLog(), "待跟进"),
-                "/risk-event-manage",
+                "/threat-monitor",
                 formatTime(item.getCreateTime())
             )));
         subjectRequests.stream()

@@ -1,0 +1,904 @@
+﻿{
+    "summary":  {
+                    "generatedAt":  "2026-04-16T13:50:56",
+                    "baseUrl":  "http://localhost:8080",
+                    "identitiesUnderTest":  [
+                                                "ADMIN",
+                                                "EXECUTIVE",
+                                                "SECOPS",
+                                                "DATA_ADMIN",
+                                                "AUDIT"
+                                            ],
+                    "login":  {
+                                  "total":  5,
+                                  "success":  5,
+                                  "failed":  0
+                              },
+                    "permission":  {
+                                       "totalChecks":  45,
+                                       "mismatchCount":  6
+                                   },
+                    "detection":  {
+                                      "totalCases":  22,
+                                      "passed":  20,
+                                      "failed":  2
+                                  }
+                },
+    "loginResults":  [
+                         {
+                             "role":  "ADMIN",
+                             "username":  "admin",
+                             "passwordUsed":  "admin",
+                             "ok":  true,
+                             "code":  "20000",
+                             "msg":  "success"
+                         },
+                         {
+                             "role":  "EXECUTIVE",
+                             "username":  "executive",
+                             "passwordUsed":  "Passw0rd!",
+                             "ok":  true,
+                             "code":  "20000",
+                             "msg":  "success"
+                         },
+                         {
+                             "role":  "SECOPS",
+                             "username":  "secops",
+                             "passwordUsed":  "Passw0rd!",
+                             "ok":  true,
+                             "code":  "20000",
+                             "msg":  "success"
+                         },
+                         {
+                             "role":  "DATA_ADMIN",
+                             "username":  "dataadmin",
+                             "passwordUsed":  "Passw0rd!",
+                             "ok":  true,
+                             "code":  "20000",
+                             "msg":  "success"
+                         },
+                         {
+                             "role":  "AUDIT",
+                             "username":  "audit01",
+                             "passwordUsed":  "auditpass",
+                             "ok":  true,
+                             "code":  "20000",
+                             "msg":  "success"
+                         }
+                     ],
+    "meChecks":  [
+                     {
+                         "role":  "ADMIN",
+                         "username":  "admin",
+                         "ok":  true,
+                         "code":  "20000",
+                         "msg":  "success",
+                         "roleCode":  "ADMIN",
+                         "companyId":  "1"
+                     },
+                     {
+                         "role":  "EXECUTIVE",
+                         "username":  "executive",
+                         "ok":  true,
+                         "code":  "20000",
+                         "msg":  "success",
+                         "roleCode":  "EXECUTIVE",
+                         "companyId":  "1"
+                     },
+                     {
+                         "role":  "SECOPS",
+                         "username":  "secops",
+                         "ok":  true,
+                         "code":  "20000",
+                         "msg":  "success",
+                         "roleCode":  "SECOPS",
+                         "companyId":  "1"
+                     },
+                     {
+                         "role":  "DATA_ADMIN",
+                         "username":  "dataadmin",
+                         "ok":  true,
+                         "code":  "20000",
+                         "msg":  "success",
+                         "roleCode":  "DATA_ADMIN",
+                         "companyId":  "1"
+                     },
+                     {
+                         "role":  "AUDIT",
+                         "username":  "audit01",
+                         "ok":  true,
+                         "code":  "20000",
+                         "msg":  "success",
+                         "roleCode":  "AUDIT",
+                         "companyId":  "1"
+                     }
+                 ],
+    "permissionChecks":  [
+                             {
+                                 "endpoint":  "DASHBOARD_WORKBENCH",
+                                 "method":  "GET",
+                                 "path":  "/api/dashboard/workbench",
+                                 "role":  "ADMIN",
+                                 "username":  "admin",
+                                 "expectedAllowed":  true,
+                                 "actualAllowed":  true,
+                                 "httpStatus":  200,
+                                 "responseCode":  "20000",
+                                 "message":  "success"
+                             },
+                             {
+                                 "endpoint":  "DASHBOARD_WORKBENCH",
+                                 "method":  "GET",
+                                 "path":  "/api/dashboard/workbench",
+                                 "role":  "EXECUTIVE",
+                                 "username":  "executive",
+                                 "expectedAllowed":  true,
+                                 "actualAllowed":  true,
+                                 "httpStatus":  200,
+                                 "responseCode":  "20000",
+                                 "message":  "success"
+                             },
+                             {
+                                 "endpoint":  "DASHBOARD_WORKBENCH",
+                                 "method":  "GET",
+                                 "path":  "/api/dashboard/workbench",
+                                 "role":  "SECOPS",
+                                 "username":  "secops",
+                                 "expectedAllowed":  true,
+                                 "actualAllowed":  true,
+                                 "httpStatus":  200,
+                                 "responseCode":  "20000",
+                                 "message":  "success"
+                             },
+                             {
+                                 "endpoint":  "DASHBOARD_WORKBENCH",
+                                 "method":  "GET",
+                                 "path":  "/api/dashboard/workbench",
+                                 "role":  "DATA_ADMIN",
+                                 "username":  "dataadmin",
+                                 "expectedAllowed":  true,
+                                 "actualAllowed":  true,
+                                 "httpStatus":  200,
+                                 "responseCode":  "20000",
+                                 "message":  "success"
+                             },
+                             {
+                                 "endpoint":  "DASHBOARD_WORKBENCH",
+                                 "method":  "GET",
+                                 "path":  "/api/dashboard/workbench",
+                                 "role":  "AUDIT",
+                                 "username":  "audit01",
+                                 "expectedAllowed":  true,
+                                 "actualAllowed":  true,
+                                 "httpStatus":  200,
+                                 "responseCode":  "20000",
+                                 "message":  "success"
+                             },
+                             {
+                                 "endpoint":  "USER_LIST",
+                                 "method":  "GET",
+                                 "path":  "/api/user/list",
+                                 "role":  "ADMIN",
+                                 "username":  "admin",
+                                 "expectedAllowed":  true,
+                                 "actualAllowed":  true,
+                                 "httpStatus":  200,
+                                 "responseCode":  "20000",
+                                 "message":  "success"
+                             },
+                             {
+                                 "endpoint":  "USER_LIST",
+                                 "method":  "GET",
+                                 "path":  "/api/user/list",
+                                 "role":  "EXECUTIVE",
+                                 "username":  "executive",
+                                 "expectedAllowed":  false,
+                                 "actualAllowed":  false,
+                                 "httpStatus":  403,
+                                 "responseCode":  "40300",
+                                 "message":  "无权限"
+                             },
+                             {
+                                 "endpoint":  "USER_LIST",
+                                 "method":  "GET",
+                                 "path":  "/api/user/list",
+                                 "role":  "SECOPS",
+                                 "username":  "secops",
+                                 "expectedAllowed":  false,
+                                 "actualAllowed":  false,
+                                 "httpStatus":  403,
+                                 "responseCode":  "40300",
+                                 "message":  "无权限"
+                             },
+                             {
+                                 "endpoint":  "USER_LIST",
+                                 "method":  "GET",
+                                 "path":  "/api/user/list",
+                                 "role":  "DATA_ADMIN",
+                                 "username":  "dataadmin",
+                                 "expectedAllowed":  false,
+                                 "actualAllowed":  false,
+                                 "httpStatus":  403,
+                                 "responseCode":  "40300",
+                                 "message":  "无权限"
+                             },
+                             {
+                                 "endpoint":  "USER_LIST",
+                                 "method":  "GET",
+                                 "path":  "/api/user/list",
+                                 "role":  "AUDIT",
+                                 "username":  "audit01",
+                                 "expectedAllowed":  false,
+                                 "actualAllowed":  false,
+                                 "httpStatus":  403,
+                                 "responseCode":  "40300",
+                                 "message":  "无权限"
+                             },
+                             {
+                                 "endpoint":  "DATA_ASSET_LIST",
+                                 "method":  "GET",
+                                 "path":  "/api/data-asset/list",
+                                 "role":  "ADMIN",
+                                 "username":  "admin",
+                                 "expectedAllowed":  true,
+                                 "actualAllowed":  true,
+                                 "httpStatus":  200,
+                                 "responseCode":  "20000",
+                                 "message":  "success"
+                             },
+                             {
+                                 "endpoint":  "DATA_ASSET_LIST",
+                                 "method":  "GET",
+                                 "path":  "/api/data-asset/list",
+                                 "role":  "EXECUTIVE",
+                                 "username":  "executive",
+                                 "expectedAllowed":  false,
+                                 "actualAllowed":  false,
+                                 "httpStatus":  403,
+                                 "responseCode":  "40300",
+                                 "message":  "无权限"
+                             },
+                             {
+                                 "endpoint":  "DATA_ASSET_LIST",
+                                 "method":  "GET",
+                                 "path":  "/api/data-asset/list",
+                                 "role":  "SECOPS",
+                                 "username":  "secops",
+                                 "expectedAllowed":  false,
+                                 "actualAllowed":  true,
+                                 "httpStatus":  200,
+                                 "responseCode":  "20000",
+                                 "message":  "success"
+                             },
+                             {
+                                 "endpoint":  "DATA_ASSET_LIST",
+                                 "method":  "GET",
+                                 "path":  "/api/data-asset/list",
+                                 "role":  "DATA_ADMIN",
+                                 "username":  "dataadmin",
+                                 "expectedAllowed":  true,
+                                 "actualAllowed":  false,
+                                 "httpStatus":  403,
+                                 "responseCode":  "40300",
+                                 "message":  "无权限"
+                             },
+                             {
+                                 "endpoint":  "DATA_ASSET_LIST",
+                                 "method":  "GET",
+                                 "path":  "/api/data-asset/list",
+                                 "role":  "AUDIT",
+                                 "username":  "audit01",
+                                 "expectedAllowed":  false,
+                                 "actualAllowed":  true,
+                                 "httpStatus":  200,
+                                 "responseCode":  "20000",
+                                 "message":  "success"
+                             },
+                             {
+                                 "endpoint":  "AUDIT_LOG_SEARCH",
+                                 "method":  "GET",
+                                 "path":  "/api/audit-log/search",
+                                 "role":  "ADMIN",
+                                 "username":  "admin",
+                                 "expectedAllowed":  true,
+                                 "actualAllowed":  true,
+                                 "httpStatus":  200,
+                                 "responseCode":  "20000",
+                                 "message":  "success"
+                             },
+                             {
+                                 "endpoint":  "AUDIT_LOG_SEARCH",
+                                 "method":  "GET",
+                                 "path":  "/api/audit-log/search",
+                                 "role":  "EXECUTIVE",
+                                 "username":  "executive",
+                                 "expectedAllowed":  false,
+                                 "actualAllowed":  true,
+                                 "httpStatus":  200,
+                                 "responseCode":  "20000",
+                                 "message":  "success"
+                             },
+                             {
+                                 "endpoint":  "AUDIT_LOG_SEARCH",
+                                 "method":  "GET",
+                                 "path":  "/api/audit-log/search",
+                                 "role":  "SECOPS",
+                                 "username":  "secops",
+                                 "expectedAllowed":  false,
+                                 "actualAllowed":  true,
+                                 "httpStatus":  200,
+                                 "responseCode":  "20000",
+                                 "message":  "success"
+                             },
+                             {
+                                 "endpoint":  "AUDIT_LOG_SEARCH",
+                                 "method":  "GET",
+                                 "path":  "/api/audit-log/search",
+                                 "role":  "DATA_ADMIN",
+                                 "username":  "dataadmin",
+                                 "expectedAllowed":  false,
+                                 "actualAllowed":  true,
+                                 "httpStatus":  200,
+                                 "responseCode":  "20000",
+                                 "message":  "success"
+                             },
+                             {
+                                 "endpoint":  "AUDIT_LOG_SEARCH",
+                                 "method":  "GET",
+                                 "path":  "/api/audit-log/search",
+                                 "role":  "AUDIT",
+                                 "username":  "audit01",
+                                 "expectedAllowed":  true,
+                                 "actualAllowed":  true,
+                                 "httpStatus":  200,
+                                 "responseCode":  "20000",
+                                 "message":  "success"
+                             },
+                             {
+                                 "endpoint":  "SECURITY_EVENTS",
+                                 "method":  "GET",
+                                 "path":  "/api/security/events?page=1\u0026pageSize=5",
+                                 "role":  "ADMIN",
+                                 "username":  "admin",
+                                 "expectedAllowed":  true,
+                                 "actualAllowed":  true,
+                                 "httpStatus":  200,
+                                 "responseCode":  "20000",
+                                 "message":  "success"
+                             },
+                             {
+                                 "endpoint":  "SECURITY_EVENTS",
+                                 "method":  "GET",
+                                 "path":  "/api/security/events?page=1\u0026pageSize=5",
+                                 "role":  "EXECUTIVE",
+                                 "username":  "executive",
+                                 "expectedAllowed":  false,
+                                 "actualAllowed":  false,
+                                 "httpStatus":  403,
+                                 "responseCode":  "40300",
+                                 "message":  "无权限"
+                             },
+                             {
+                                 "endpoint":  "SECURITY_EVENTS",
+                                 "method":  "GET",
+                                 "path":  "/api/security/events?page=1\u0026pageSize=5",
+                                 "role":  "SECOPS",
+                                 "username":  "secops",
+                                 "expectedAllowed":  true,
+                                 "actualAllowed":  true,
+                                 "httpStatus":  200,
+                                 "responseCode":  "20000",
+                                 "message":  "success"
+                             },
+                             {
+                                 "endpoint":  "SECURITY_EVENTS",
+                                 "method":  "GET",
+                                 "path":  "/api/security/events?page=1\u0026pageSize=5",
+                                 "role":  "DATA_ADMIN",
+                                 "username":  "dataadmin",
+                                 "expectedAllowed":  false,
+                                 "actualAllowed":  false,
+                                 "httpStatus":  403,
+                                 "responseCode":  "40300",
+                                 "message":  "无权限"
+                             },
+                             {
+                                 "endpoint":  "SECURITY_EVENTS",
+                                 "method":  "GET",
+                                 "path":  "/api/security/events?page=1\u0026pageSize=5",
+                                 "role":  "AUDIT",
+                                 "username":  "audit01",
+                                 "expectedAllowed":  false,
+                                 "actualAllowed":  false,
+                                 "httpStatus":  403,
+                                 "responseCode":  "40300",
+                                 "message":  "无权限"
+                             },
+                             {
+                                 "endpoint":  "AI_ADVERSARIAL_META",
+                                 "method":  "GET",
+                                 "path":  "/api/ai/adversarial/meta",
+                                 "role":  "ADMIN",
+                                 "username":  "admin",
+                                 "expectedAllowed":  true,
+                                 "actualAllowed":  true,
+                                 "httpStatus":  200,
+                                 "responseCode":  "20000",
+                                 "message":  "success"
+                             },
+                             {
+                                 "endpoint":  "AI_ADVERSARIAL_META",
+                                 "method":  "GET",
+                                 "path":  "/api/ai/adversarial/meta",
+                                 "role":  "EXECUTIVE",
+                                 "username":  "executive",
+                                 "expectedAllowed":  false,
+                                 "actualAllowed":  false,
+                                 "httpStatus":  403,
+                                 "responseCode":  "40300",
+                                 "message":  "无权限"
+                             },
+                             {
+                                 "endpoint":  "AI_ADVERSARIAL_META",
+                                 "method":  "GET",
+                                 "path":  "/api/ai/adversarial/meta",
+                                 "role":  "SECOPS",
+                                 "username":  "secops",
+                                 "expectedAllowed":  true,
+                                 "actualAllowed":  true,
+                                 "httpStatus":  200,
+                                 "responseCode":  "20000",
+                                 "message":  "success"
+                             },
+                             {
+                                 "endpoint":  "AI_ADVERSARIAL_META",
+                                 "method":  "GET",
+                                 "path":  "/api/ai/adversarial/meta",
+                                 "role":  "DATA_ADMIN",
+                                 "username":  "dataadmin",
+                                 "expectedAllowed":  false,
+                                 "actualAllowed":  false,
+                                 "httpStatus":  403,
+                                 "responseCode":  "40300",
+                                 "message":  "无权限"
+                             },
+                             {
+                                 "endpoint":  "AI_ADVERSARIAL_META",
+                                 "method":  "GET",
+                                 "path":  "/api/ai/adversarial/meta",
+                                 "role":  "AUDIT",
+                                 "username":  "audit01",
+                                 "expectedAllowed":  false,
+                                 "actualAllowed":  false,
+                                 "httpStatus":  403,
+                                 "responseCode":  "40300",
+                                 "message":  "无权限"
+                             },
+                             {
+                                 "endpoint":  "PRIVACY_CONFIG_GET",
+                                 "method":  "GET",
+                                 "path":  "/api/privacy/config",
+                                 "role":  "ADMIN",
+                                 "username":  "admin",
+                                 "expectedAllowed":  true,
+                                 "actualAllowed":  true,
+                                 "httpStatus":  200,
+                                 "responseCode":  "20000",
+                                 "message":  "success"
+                             },
+                             {
+                                 "endpoint":  "PRIVACY_CONFIG_GET",
+                                 "method":  "GET",
+                                 "path":  "/api/privacy/config",
+                                 "role":  "EXECUTIVE",
+                                 "username":  "executive",
+                                 "expectedAllowed":  false,
+                                 "actualAllowed":  false,
+                                 "httpStatus":  403,
+                                 "responseCode":  "40300",
+                                 "message":  "无权限"
+                             },
+                             {
+                                 "endpoint":  "PRIVACY_CONFIG_GET",
+                                 "method":  "GET",
+                                 "path":  "/api/privacy/config",
+                                 "role":  "SECOPS",
+                                 "username":  "secops",
+                                 "expectedAllowed":  true,
+                                 "actualAllowed":  true,
+                                 "httpStatus":  200,
+                                 "responseCode":  "20000",
+                                 "message":  "success"
+                             },
+                             {
+                                 "endpoint":  "PRIVACY_CONFIG_GET",
+                                 "method":  "GET",
+                                 "path":  "/api/privacy/config",
+                                 "role":  "DATA_ADMIN",
+                                 "username":  "dataadmin",
+                                 "expectedAllowed":  false,
+                                 "actualAllowed":  false,
+                                 "httpStatus":  403,
+                                 "responseCode":  "40300",
+                                 "message":  "无权限"
+                             },
+                             {
+                                 "endpoint":  "PRIVACY_CONFIG_GET",
+                                 "method":  "GET",
+                                 "path":  "/api/privacy/config",
+                                 "role":  "AUDIT",
+                                 "username":  "audit01",
+                                 "expectedAllowed":  false,
+                                 "actualAllowed":  false,
+                                 "httpStatus":  403,
+                                 "responseCode":  "40300",
+                                 "message":  "无权限"
+                             },
+                             {
+                                 "endpoint":  "PRIVACY_EVENTS",
+                                 "method":  "GET",
+                                 "path":  "/api/privacy/events?page=1\u0026pageSize=5",
+                                 "role":  "ADMIN",
+                                 "username":  "admin",
+                                 "expectedAllowed":  true,
+                                 "actualAllowed":  true,
+                                 "httpStatus":  200,
+                                 "responseCode":  "20000",
+                                 "message":  "success"
+                             },
+                             {
+                                 "endpoint":  "PRIVACY_EVENTS",
+                                 "method":  "GET",
+                                 "path":  "/api/privacy/events?page=1\u0026pageSize=5",
+                                 "role":  "EXECUTIVE",
+                                 "username":  "executive",
+                                 "expectedAllowed":  false,
+                                 "actualAllowed":  false,
+                                 "httpStatus":  403,
+                                 "responseCode":  "40300",
+                                 "message":  "无权限"
+                             },
+                             {
+                                 "endpoint":  "PRIVACY_EVENTS",
+                                 "method":  "GET",
+                                 "path":  "/api/privacy/events?page=1\u0026pageSize=5",
+                                 "role":  "SECOPS",
+                                 "username":  "secops",
+                                 "expectedAllowed":  true,
+                                 "actualAllowed":  true,
+                                 "httpStatus":  200,
+                                 "responseCode":  "20000",
+                                 "message":  "success"
+                             },
+                             {
+                                 "endpoint":  "PRIVACY_EVENTS",
+                                 "method":  "GET",
+                                 "path":  "/api/privacy/events?page=1\u0026pageSize=5",
+                                 "role":  "DATA_ADMIN",
+                                 "username":  "dataadmin",
+                                 "expectedAllowed":  false,
+                                 "actualAllowed":  false,
+                                 "httpStatus":  403,
+                                 "responseCode":  "40300",
+                                 "message":  "无权限"
+                             },
+                             {
+                                 "endpoint":  "PRIVACY_EVENTS",
+                                 "method":  "GET",
+                                 "path":  "/api/privacy/events?page=1\u0026pageSize=5",
+                                 "role":  "AUDIT",
+                                 "username":  "audit01",
+                                 "expectedAllowed":  true,
+                                 "actualAllowed":  true,
+                                 "httpStatus":  200,
+                                 "responseCode":  "20000",
+                                 "message":  "success"
+                             },
+                             {
+                                 "endpoint":  "ANOMALY_STATUS",
+                                 "method":  "GET",
+                                 "path":  "/api/anomaly/status",
+                                 "role":  "ADMIN",
+                                 "username":  "admin",
+                                 "expectedAllowed":  true,
+                                 "actualAllowed":  true,
+                                 "httpStatus":  200,
+                                 "responseCode":  "20000",
+                                 "message":  "success"
+                             },
+                             {
+                                 "endpoint":  "ANOMALY_STATUS",
+                                 "method":  "GET",
+                                 "path":  "/api/anomaly/status",
+                                 "role":  "EXECUTIVE",
+                                 "username":  "executive",
+                                 "expectedAllowed":  false,
+                                 "actualAllowed":  false,
+                                 "httpStatus":  403,
+                                 "responseCode":  "40300",
+                                 "message":  "无权限"
+                             },
+                             {
+                                 "endpoint":  "ANOMALY_STATUS",
+                                 "method":  "GET",
+                                 "path":  "/api/anomaly/status",
+                                 "role":  "SECOPS",
+                                 "username":  "secops",
+                                 "expectedAllowed":  true,
+                                 "actualAllowed":  true,
+                                 "httpStatus":  200,
+                                 "responseCode":  "20000",
+                                 "message":  "success"
+                             },
+                             {
+                                 "endpoint":  "ANOMALY_STATUS",
+                                 "method":  "GET",
+                                 "path":  "/api/anomaly/status",
+                                 "role":  "DATA_ADMIN",
+                                 "username":  "dataadmin",
+                                 "expectedAllowed":  false,
+                                 "actualAllowed":  false,
+                                 "httpStatus":  403,
+                                 "responseCode":  "40300",
+                                 "message":  "无权限"
+                             },
+                             {
+                                 "endpoint":  "ANOMALY_STATUS",
+                                 "method":  "GET",
+                                 "path":  "/api/anomaly/status",
+                                 "role":  "AUDIT",
+                                 "username":  "audit01",
+                                 "expectedAllowed":  true,
+                                 "actualAllowed":  true,
+                                 "httpStatus":  200,
+                                 "responseCode":  "20000",
+                                 "message":  "success"
+                             }
+                         ],
+    "permissionMismatches":  [
+                                 {
+                                     "endpoint":  "DATA_ASSET_LIST",
+                                     "method":  "GET",
+                                     "path":  "/api/data-asset/list",
+                                     "role":  "SECOPS",
+                                     "username":  "secops",
+                                     "expectedAllowed":  false,
+                                     "actualAllowed":  true,
+                                     "httpStatus":  200,
+                                     "responseCode":  "20000",
+                                     "message":  "success"
+                                 },
+                                 {
+                                     "endpoint":  "DATA_ASSET_LIST",
+                                     "method":  "GET",
+                                     "path":  "/api/data-asset/list",
+                                     "role":  "DATA_ADMIN",
+                                     "username":  "dataadmin",
+                                     "expectedAllowed":  true,
+                                     "actualAllowed":  false,
+                                     "httpStatus":  403,
+                                     "responseCode":  "40300",
+                                     "message":  "无权限"
+                                 },
+                                 {
+                                     "endpoint":  "DATA_ASSET_LIST",
+                                     "method":  "GET",
+                                     "path":  "/api/data-asset/list",
+                                     "role":  "AUDIT",
+                                     "username":  "audit01",
+                                     "expectedAllowed":  false,
+                                     "actualAllowed":  true,
+                                     "httpStatus":  200,
+                                     "responseCode":  "20000",
+                                     "message":  "success"
+                                 },
+                                 {
+                                     "endpoint":  "AUDIT_LOG_SEARCH",
+                                     "method":  "GET",
+                                     "path":  "/api/audit-log/search",
+                                     "role":  "EXECUTIVE",
+                                     "username":  "executive",
+                                     "expectedAllowed":  false,
+                                     "actualAllowed":  true,
+                                     "httpStatus":  200,
+                                     "responseCode":  "20000",
+                                     "message":  "success"
+                                 },
+                                 {
+                                     "endpoint":  "AUDIT_LOG_SEARCH",
+                                     "method":  "GET",
+                                     "path":  "/api/audit-log/search",
+                                     "role":  "SECOPS",
+                                     "username":  "secops",
+                                     "expectedAllowed":  false,
+                                     "actualAllowed":  true,
+                                     "httpStatus":  200,
+                                     "responseCode":  "20000",
+                                     "message":  "success"
+                                 },
+                                 {
+                                     "endpoint":  "AUDIT_LOG_SEARCH",
+                                     "method":  "GET",
+                                     "path":  "/api/audit-log/search",
+                                     "role":  "DATA_ADMIN",
+                                     "username":  "dataadmin",
+                                     "expectedAllowed":  false,
+                                     "actualAllowed":  true,
+                                     "httpStatus":  200,
+                                     "responseCode":  "20000",
+                                     "message":  "success"
+                                 }
+                             ],
+    "detectionChecks":  [
+                            {
+                                "name":  "AI_MONITOR_SUMMARY",
+                                "ok":  true,
+                                "httpStatus":  200,
+                                "responseCode":  "20000",
+                                "message":  "success"
+                            },
+                            {
+                                "name":  "AI_MONITOR_TREND",
+                                "ok":  true,
+                                "httpStatus":  200,
+                                "responseCode":  "20000",
+                                "message":  "success"
+                            },
+                            {
+                                "name":  "AI_MONITOR_BOOTSTRAP_TRACE",
+                                "ok":  true,
+                                "httpStatus":  200,
+                                "responseCode":  "20000",
+                                "message":  "success"
+                            },
+                            {
+                                "name":  "AI_MONITOR_VERIFY_CHAIN",
+                                "ok":  true,
+                                "httpStatus":  200,
+                                "responseCode":  "20000",
+                                "message":  "success"
+                            },
+                            {
+                                "name":  "AI_RISK_LIST",
+                                "ok":  true,
+                                "httpStatus":  200,
+                                "responseCode":  "20000",
+                                "message":  "success"
+                            },
+                            {
+                                "name":  "AI_ADVERSARIAL_META_ADMIN",
+                                "ok":  true,
+                                "httpStatus":  200,
+                                "responseCode":  "20000",
+                                "message":  "success"
+                            },
+                            {
+                                "name":  "AI_ADVERSARIAL_RUN_ADMIN",
+                                "ok":  true,
+                                "httpStatus":  200,
+                                "responseCode":  "20000",
+                                "message":  "success"
+                            },
+                            {
+                                "name":  "ANOMALY_STATUS_ADMIN",
+                                "ok":  true,
+                                "httpStatus":  200,
+                                "responseCode":  "20000",
+                                "message":  "success"
+                            },
+                            {
+                                "name":  "ANOMALY_CHECK_ADMIN",
+                                "ok":  true,
+                                "httpStatus":  200,
+                                "responseCode":  "20000",
+                                "message":  "success"
+                            },
+                            {
+                                "name":  "ANOMALY_EVENTS_ADMIN",
+                                "ok":  true,
+                                "httpStatus":  200,
+                                "responseCode":  "20000",
+                                "message":  "success"
+                            },
+                            {
+                                "name":  "PRIVACY_EVENTS_ADMIN",
+                                "ok":  true,
+                                "httpStatus":  200,
+                                "responseCode":  "20000",
+                                "message":  "success"
+                            },
+                            {
+                                "name":  "PRIVACY_CONFIG_GET_ADMIN",
+                                "ok":  true,
+                                "httpStatus":  200,
+                                "responseCode":  "20000",
+                                "message":  "success"
+                            },
+                            {
+                                "name":  "PRIVACY_CONFIG_UPDATE_ADMIN",
+                                "ok":  true,
+                                "httpStatus":  200,
+                                "responseCode":  "20000",
+                                "message":  "success"
+                            },
+                            {
+                                "name":  "SECURITY_EVENTS_ADMIN",
+                                "ok":  true,
+                                "httpStatus":  200,
+                                "responseCode":  "20000",
+                                "message":  "success"
+                            },
+                            {
+                                "name":  "SECURITY_STATS_ADMIN",
+                                "ok":  true,
+                                "httpStatus":  200,
+                                "responseCode":  "20000",
+                                "message":  "success"
+                            },
+                            {
+                                "name":  "SECURITY_RULES_ADMIN",
+                                "ok":  true,
+                                "httpStatus":  200,
+                                "responseCode":  "20000",
+                                "message":  "success"
+                            },
+                            {
+                                "name":  "CLIENT_LIST_ADMIN",
+                                "ok":  true,
+                                "httpStatus":  200,
+                                "responseCode":  "20000",
+                                "message":  "success"
+                            },
+                            {
+                                "name":  "CLIENT_HISTORY_ADMIN",
+                                "ok":  false,
+                                "httpStatus":  200,
+                                "responseCode":  "50000",
+                                "message":  "ç³»ç»å¼å¸¸ï¼è¯·ç¨åéè¯"
+                            },
+                            {
+                                "name":  "CLIENT_STATS_ADMIN",
+                                "ok":  true,
+                                "httpStatus":  200,
+                                "responseCode":  "20000",
+                                "message":  "success"
+                            },
+                            {
+                                "name":  "RELIABILITY_DRILL_ADMIN",
+                                "ok":  true,
+                                "httpStatus":  200,
+                                "responseCode":  "20000",
+                                "message":  "success"
+                            },
+                            {
+                                "name":  "AI_ADVERSARIAL_META_SECOPS",
+                                "ok":  true,
+                                "httpStatus":  200,
+                                "responseCode":  "20000",
+                                "message":  "success"
+                            },
+                            {
+                                "name":  "AI_ADVERSARIAL_META_EXECUTIVE_EXPECT_DENY",
+                                "ok":  false,
+                                "httpStatus":  403,
+                                "responseCode":  "40300",
+                                "message":  "无权限"
+                            }
+                        ],
+    "detectionFailures":  [
+                              {
+                                  "name":  "CLIENT_HISTORY_ADMIN",
+                                  "ok":  false,
+                                  "httpStatus":  200,
+                                  "responseCode":  "50000",
+                                  "message":  "ç³»ç»å¼å¸¸ï¼è¯·ç¨åéè¯"
+                              },
+                              {
+                                  "name":  "AI_ADVERSARIAL_META_EXECUTIVE_EXPECT_DENY",
+                                  "ok":  false,
+                                  "httpStatus":  403,
+                                  "responseCode":  "40300",
+                                  "message":  "无权限"
+                              }
+                          ]
+}

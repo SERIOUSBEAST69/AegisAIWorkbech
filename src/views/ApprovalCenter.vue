@@ -1,8 +1,17 @@
 <template>
   <el-card class="approval-center-card">
     <template v-if="hasVisibleTab">
+    <div class="card-header">
+      <div class="headline-block">
+        <h2>审批中心</h2>
+        <p>处理待办审批并跟进我发起的治理变更</p>
+      </div>
+      <el-button v-if="canSubmit" type="primary" @click="showSubmitHint">发起治理变更</el-button>
+    </div>
+
     <el-tabs v-model="activeTab" @tab-change="onTabChange" class="approval-tabs">
-      <el-tab-pane v-if="showTodoTab" name="todo" label="待我审批" />
+      <el-tab-pane v-if="showTodoTab" name="todo" label="待审批" />
+      <el-tab-pane v-if="showProcessedTab" name="processed" label="已处理" />
       <el-tab-pane v-if="showMineTab" name="mine" label="我发起" />
     </el-tabs>
 
@@ -18,10 +27,6 @@
       <div class="metric-card">
         <span>已完成</span>
         <strong>{{ doneCount }}</strong>
-      </div>
-      <div v-if="activeTab === 'todo'" class="metric-card">
-        <span>当前页去重折叠</span>
-        <strong>{{ duplicateCollapsed }}</strong>
       </div>
     </div>
 
@@ -40,6 +45,7 @@
           <el-option label="角色" value="ROLE" />
           <el-option label="权限" value="PERMISSION" />
           <el-option label="策略" value="POLICY" />
+          <el-option label="公司AI白名单" value="AI_WHITELIST" />
           <el-option label="用户" value="USER" />
         </el-select>
       </el-form-item>
@@ -55,11 +61,13 @@
     <div class="table-wrap">
     <el-table :data="rows" v-loading="loading" style="width: 100%" empty-text="暂无记录" class="approval-table" table-layout="fixed">
       <el-table-column prop="id" label="申请ID" width="110" />
-      <el-table-column prop="title" label="申请标题" min-width="280" show-overflow-tooltip />
-      <el-table-column prop="requestTypeLabel" label="类型" min-width="180" show-overflow-tooltip>
-        <template #default="scope">{{ scope.row.requestTypeLabel || scope.row.requestType || '-' }}</template>
+      <el-table-column label="申请标题" min-width="280" show-overflow-tooltip>
+        <template #default="scope">{{ requestNameText(scope.row) }}</template>
       </el-table-column>
-      <el-table-column v-if="activeTab === 'todo'" prop="requesterName" label="申请人" min-width="140" show-overflow-tooltip>
+      <el-table-column prop="requestTypeLabel" label="类型" min-width="180" show-overflow-tooltip>
+        <template #default="scope">{{ requestTypeText(scope.row) }}</template>
+      </el-table-column>
+      <el-table-column v-if="activeTab !== 'mine'" prop="requesterName" label="申请人" min-width="140" show-overflow-tooltip>
         <template #default="scope">{{ scope.row.requesterName || scope.row.requesterId || '-' }}</template>
       </el-table-column>
       <el-table-column v-else prop="currentApproverName" label="当前审批人" min-width="140" show-overflow-tooltip>
@@ -129,11 +137,13 @@
       <div v-else-if="detail" class="detail-wrap">
         <el-descriptions :column="2" border>
           <el-descriptions-item label="申请ID">{{ detail.id }}</el-descriptions-item>
-          <el-descriptions-item label="申请标题">{{ detail.title }}</el-descriptions-item>
-          <el-descriptions-item label="类型">{{ detail.requestTypeLabel || detail.requestType }}</el-descriptions-item>
+          <el-descriptions-item label="申请标题">{{ requestNameText(detail) }}</el-descriptions-item>
+          <el-descriptions-item label="类型">{{ requestTypeText(detail) }}</el-descriptions-item>
           <el-descriptions-item label="状态">{{ statusText(detail.status) }}</el-descriptions-item>
           <el-descriptions-item label="申请人">{{ detail.requesterName || detail.requesterId || '-' }}</el-descriptions-item>
           <el-descriptions-item label="当前审批人">{{ currentApproverDisplay(detail) }}</el-descriptions-item>
+          <el-descriptions-item label="变更对象">{{ targetDisplayText(detail) }}</el-descriptions-item>
+          <el-descriptions-item label="目标ID">{{ detail.targetId || '-' }}</el-descriptions-item>
           <el-descriptions-item label="提交时间">{{ formatTime(detail.createTime) }}</el-descriptions-item>
           <el-descriptions-item label="审批时间">{{ formatTime(detail.approvedAt) }}</el-descriptions-item>
           <el-descriptions-item label="变更理由" :span="2">{{ detail.reason || '-' }}</el-descriptions-item>
@@ -186,8 +196,6 @@ const rows = ref([]);
 const loading = ref(false);
 const pagination = ref({ current: 1, pageSize: 10, total: 0 });
 const isNarrowScreen = ref(false);
-const duplicateCollapsed = ref(0);
-
 const showDetail = ref(false);
 const detailLoading = ref(false);
 const detail = ref(null);
@@ -196,8 +204,9 @@ const diffData = ref({ before: {}, after: {} });
 const canSubmit = computed(() => canSubmitGovernanceChange(getSession()?.user));
 const canReview = computed(() => canReviewGovernanceChange(getSession()?.user));
 const showTodoTab = computed(() => canReview.value);
+const showProcessedTab = computed(() => canReview.value);
 const showMineTab = computed(() => canSubmit.value);
-const hasVisibleTab = computed(() => showTodoTab.value || showMineTab.value);
+const hasVisibleTab = computed(() => showTodoTab.value || showProcessedTab.value || showMineTab.value);
 const pendingCount = computed(() => rows.value.filter(item => String(item?.status || '').toLowerCase() === 'pending').length);
 const doneCount = computed(() => rows.value.filter(item => {
   const status = String(item?.status || '').toLowerCase();
@@ -227,6 +236,12 @@ function normalizedStatus(status) {
 
 function canShowTodoActions(row) {
   return activeTab.value === 'todo' && normalizedStatus(row?.status) === 'pending';
+}
+
+function defaultStatusForTab(tabName) {
+  if (tabName === 'todo') return 'pending';
+  if (tabName === 'processed') return 'processed';
+  return '';
 }
 
 function canShowRevokeAction(row) {
@@ -283,17 +298,20 @@ function onTabChange() {
   if (activeTab.value === 'todo' && !showTodoTab.value && showMineTab.value) {
     activeTab.value = 'mine';
   }
+  if (activeTab.value === 'processed' && !showProcessedTab.value && showTodoTab.value) {
+    activeTab.value = 'todo';
+  }
   if (activeTab.value === 'mine' && !showMineTab.value && showTodoTab.value) {
     activeTab.value = 'todo';
   }
   pagination.value.current = 1;
-  query.value.status = activeTab.value === 'todo' ? 'pending' : '';
+  query.value.status = defaultStatusForTab(activeTab.value);
   fetchList();
 }
 
 function resetFilter() {
   query.value = {
-    status: activeTab.value === 'todo' ? 'pending' : '',
+    status: defaultStatusForTab(activeTab.value),
     module: '',
     keyword: '',
   };
@@ -310,6 +328,10 @@ function onPageSizeChange(size) {
   pagination.value.pageSize = size;
   pagination.value.current = 1;
   fetchList();
+}
+
+function showSubmitHint() {
+  ElMessage.info('请前往角色/权限/策略管理页发起治理变更，审批结果会同步到本中心。');
 }
 
 function getListParams() {
@@ -335,6 +357,90 @@ function parsePayload(source) {
   } catch {
     return {};
   }
+}
+
+const MODULE_TEXT_MAP = {
+  ROLE: '角色',
+  PERMISSION: '权限',
+  POLICY: '策略',
+  AI_WHITELIST: '公司AI白名单',
+  USER: '用户',
+};
+
+const ACTION_TEXT_MAP = {
+  ADD: '新增',
+  CREATE: '新增',
+  UPDATE: '变更',
+  EDIT: '变更',
+  DELETE: '删除',
+  REMOVE: '删除',
+  GRANT: '授权',
+  REVOKE: '撤销',
+};
+
+function toUpperText(value) {
+  return String(value || '').trim().toUpperCase();
+}
+
+function moduleText(value) {
+  const upper = toUpperText(value);
+  return MODULE_TEXT_MAP[upper] || String(value || '').trim();
+}
+
+function actionText(value) {
+  const upper = toUpperText(value);
+  return ACTION_TEXT_MAP[upper] || String(value || '').trim();
+}
+
+function requestTypeText(row) {
+  if (!row) return '-';
+  const label = String(row.requestTypeLabel || '').trim();
+  if (label && /[\u4e00-\u9fa5]/.test(label)) {
+    return label;
+  }
+  const requestType = String(row.requestType || '').trim();
+  if (requestType && /[\u4e00-\u9fa5]/.test(requestType)) {
+    return requestType;
+  }
+  const modText = moduleText(row.module);
+  const actText = actionText(row.action);
+  if (modText && actText) {
+    return `${modText}${actText}请求`;
+  }
+  if (label) return label;
+  if (requestType) return requestType;
+  return '治理变更请求';
+}
+
+function requestNameText(row) {
+  if (!row) return '-';
+  const raw = String(row.title || '').trim();
+  if (raw && /[\u4e00-\u9fa5]/.test(raw)) {
+    return raw;
+  }
+
+  const payload = parsePayload(row.payload || row.payloadJson);
+  const targetName = String(payload?.name || row.targetName || '').trim();
+  const typeText = requestTypeText(row);
+
+  if (/^governance\s*change\s*request/i.test(raw) || /^request\s*#/i.test(raw) || !raw) {
+    return targetName ? `${typeText}（${targetName}）` : typeText;
+  }
+
+  return targetName ? `${typeText}（${targetName}）` : raw;
+}
+
+function targetDisplayText(row) {
+  if (!row) return '-';
+  const payload = parsePayload(row.payload || row.payloadJson);
+  return (
+    safeText(row.targetName)
+    || safeText(payload?.name)
+    || safeText(payload?.roleName)
+    || safeText(payload?.code)
+    || safeText(payload?.username)
+    || (row.targetId ? `ID:${row.targetId}` : '-')
+  );
 }
 
 function simpleHash(input) {
@@ -373,6 +479,8 @@ function normalizeTodoRow(raw) {
   return {
     ...raw,
     payload,
+    requestTypeLabel: requestTypeText({ ...raw, payload }),
+    title: requestNameText({ ...raw, payload }),
     traceActor,
     tracePath,
     dedupeKey,
@@ -402,11 +510,10 @@ async function fetchList() {
     if (!hasVisibleTab.value) {
       rows.value = [];
       pagination.value.total = 0;
-      duplicateCollapsed.value = 0;
       return;
     }
     let data;
-    if (activeTab.value === 'todo') {
+    if (activeTab.value === 'todo' || activeTab.value === 'processed') {
       if (!showTodoTab.value) {
         rows.value = [];
         pagination.value.total = 0;
@@ -416,8 +523,8 @@ async function fetchList() {
       if ((!Array.isArray(data?.list) || data.list.length === 0) && query.value.status === 'pending') {
         data = await fetchTodoPage({ ...getListParams(), status: '待审批' });
       }
-      const sourceList = data?.list || [];
-      rows.value = dedupeTodoRows(sourceList);
+      const sourceList = Array.isArray(data?.list) ? data.list : [];
+      rows.value = sourceList.map(item => normalizeTodoRow(item));
       pagination.value.total = Number(data?.total || sourceList.length);
     } else {
       if (!showMineTab.value) {
@@ -426,9 +533,8 @@ async function fetchList() {
         return;
       }
       data = await fetchMyPage(getListParams());
-      rows.value = data?.list || [];
+      rows.value = (data?.list || []).map(item => normalizeTodoRow(item));
       pagination.value.total = Number(data?.total || 0);
-      duplicateCollapsed.value = 0;
     }
   } catch (err) {
     ElMessage.error(err?.message || '加载审批列表失败');
@@ -447,7 +553,10 @@ async function openDetail(row) {
       fetchApprovalDetail(row.id),
       fetchApprovalDiff(row.id),
     ]);
-    detail.value = detailRes;
+    detail.value = {
+      ...detailRes,
+      payload: parsePayload(detailRes?.payload || detailRes?.payloadJson),
+    };
     diffData.value = {
       before: diffRes?.before || {},
       after: diffRes?.after || {},
@@ -584,10 +693,14 @@ onMounted(() => {
   window.addEventListener('resize', syncViewport, { passive: true });
   if (showTodoTab.value) {
     activeTab.value = 'todo';
+  } else if (showProcessedTab.value) {
+    activeTab.value = 'processed';
   } else if (showMineTab.value) {
     activeTab.value = 'mine';
+  } else {
+    activeTab.value = 'mine';
   }
-  query.value.status = activeTab.value === 'todo' ? 'pending' : '';
+  query.value.status = defaultStatusForTab(activeTab.value);
   fetchList();
 });
 
@@ -610,13 +723,35 @@ onBeforeUnmount(() => {
 .card-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 16px;
+  text-align: left;
 }
 
 .headline-block {
   display: grid;
   gap: 6px;
+  text-align: left;
+}
+
+.card-header .el-button {
+  margin-left: auto;
+}
+
+.approval-center-card :deep(.el-card__body) {
+  text-align: left;
+}
+
+.headline-block h2 {
+  margin: 0;
+  font-size: 24px;
+  color: #f3f6ff;
+}
+
+.headline-block p {
+  margin: 0;
+  color: rgba(223, 231, 255, 0.82);
+  font-size: 13px;
 }
 
 .headline-kicker {

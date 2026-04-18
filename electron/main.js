@@ -11,7 +11,7 @@
 
 'use strict';
 
-const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, dialog, shell } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, dialog, shell, safeStorage } = require('electron');
 const path = require('path');
 const fs   = require('fs');
 const os   = require('os');
@@ -19,6 +19,14 @@ const cron = require('node-cron');
 const { v4: uuidv4 } = require('uuid');
 const scanner = require('./scanner/index');
 const { createClipboardMonitor } = require('./scanner/clipboardMonitor');
+
+process.on('uncaughtException', (err) => {
+  console.error('[Aegis][main] uncaughtException:', err);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[Aegis][main] unhandledRejection:', reason);
+});
 
 // Some Windows devices render a black window with GPU acceleration enabled.
 // Prefer stability for distributed installers.
@@ -40,6 +48,7 @@ function loadConfig() {
     serverUrl: DEFAULT_SERVER_URL,
     backendUrl: DEFAULT_API_URL,
     clientIngressToken: '',
+    clientTokenEncrypted: '',
     companyId: 1,
     scanIntervalMinutes: 30,
     autoStart: true,
@@ -78,6 +87,24 @@ function loadConfig() {
         saved.backendUrl = saved.apiUrl;
       }
       delete saved.apiUrl;
+
+      // 打包版客户端应默认连接 3000 端口的前端容器。
+      // 若用户沿用了开发模式的 5173，本地工作台会直接连接失败。
+      const migratePackagedWorkbenchUrl = (url) => {
+        if (!url || !app.isPackaged) return url;
+        try {
+          const u = new URL(url);
+          const isLocalHost = u.hostname === 'localhost' || u.hostname === '127.0.0.1';
+          if (isLocalHost && u.port === '5173') {
+            return defaults.serverUrl;
+          }
+        } catch { /* ignore invalid URLs */ }
+        return url;
+      };
+
+      if (saved.serverUrl) {
+        saved.serverUrl = migratePackagedWorkbenchUrl(saved.serverUrl);
+      }
 
       const merged = { ...defaults, ...saved };
       // Persist the corrected config so the fix survives next launch
@@ -171,6 +198,61 @@ function withClientLiteFlag(rawUrl) {
   }
 }
 
+function encryptClientToken(token) {
+  const text = String(token || '').trim();
+  if (!text) return '';
+  if (safeStorage && typeof safeStorage.isEncryptionAvailable === 'function' && safeStorage.isEncryptionAvailable()) {
+    try {
+      return safeStorage.encryptString(text).toString('base64');
+    } catch {
+      return text;
+    }
+  }
+  return text;
+}
+
+function decryptClientToken(encoded) {
+  const text = String(encoded || '').trim();
+  if (!text) return '';
+  if (safeStorage && typeof safeStorage.isEncryptionAvailable === 'function' && safeStorage.isEncryptionAvailable()) {
+    try {
+      return safeStorage.decryptString(Buffer.from(text, 'base64'));
+    } catch {
+      return '';
+    }
+  }
+  return text;
+}
+
+function resolveWorkbenchUrl() {
+  // AEGIS_DEV_URL is only for local development. Packaged installers must
+  // always use persisted settings/defaults to avoid being forced back to 5173.
+  const devOverride = !app.isPackaged ? process.env.AEGIS_DEV_URL : '';
+  const normalized = normalizePackagedWorkbenchUrl(devOverride || config.serverUrl || DEFAULT_SERVER_URL);
+  return withClientLiteFlag(normalized);
+}
+
+function normalizePackagedWorkbenchUrl(rawUrl) {
+  const input = String(rawUrl || '').trim();
+  if (!input || !app.isPackaged) return input;
+  try {
+    const u = new URL(input);
+    const isLocalHost = u.hostname === 'localhost' || u.hostname === '127.0.0.1';
+    if (!isLocalHost) return input;
+    if (u.port === '5173' || u.port === '') {
+      u.port = '3000';
+      return u.toString();
+    }
+    return input;
+  } catch {
+    // If malformed but contains old local dev port, fallback to packaged default.
+    if (input.includes('localhost:5173') || input.includes('127.0.0.1:5173')) {
+      return DEFAULT_SERVER_URL;
+    }
+    return input;
+  }
+}
+
 function saveConfig(cfg) {
   try {
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2));
@@ -239,9 +321,6 @@ function policyCapability(name, fallback = true) {
 }
 
 function canRunScan() {
-  if (config.requirePolicySync !== false && !policyIsFresh()) {
-    return false;
-  }
   if (config.requireLoginBeforeScan && !authState.authenticated) {
     return false;
   }
@@ -264,6 +343,10 @@ function resolveReportCompanyId() {
 }
 
 function resolveClientIngressToken() {
+  const clientToken = decryptClientToken(config.clientTokenEncrypted);
+  if (clientToken) {
+    return clientToken;
+  }
   return String(config.clientIngressToken || process.env.AEGIS_CLIENT_TOKEN || '').trim();
 }
 
@@ -379,14 +462,36 @@ function createWindow() {
     show: false, // 先隐藏，等内容加载好再显示
   });
 
+  if (process.env.AEGIS_CLIENT_DEBUG === '1') {
+    mainWindow.webContents.openDevTools({ mode: 'detach' });
+  }
+
   const ensureWindowVisible = () => {
     if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
       mainWindow.show();
     }
   };
 
+  const safeReloadMainWindow = (delayMs = 0) => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      return;
+    }
+    const run = () => {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      const url = resolveWorkbenchUrl();
+      mainWindow.loadURL(url).catch((err) => {
+        loadOfflineFallback(err?.message || 'reload-failed');
+      });
+    };
+    if (delayMs > 0) {
+      setTimeout(run, delayMs);
+      return;
+    }
+    run();
+  };
+
   // 加载工作台（安装版默认连接 3000；失败时一定回退到可见的离线提示页）
-  const workbenchUrl = withClientLiteFlag(process.env.AEGIS_DEV_URL || config.serverUrl || DEFAULT_SERVER_URL);
+  const workbenchUrl = resolveWorkbenchUrl();
   let mainLoadDone = false;
   let loadWatchdog = null;
   const loadOfflineFallback = (reason) => {
@@ -409,6 +514,34 @@ function createWindow() {
     if (!validatedURL || !validatedURL.startsWith('data:text/html')) {
       loadOfflineFallback(`${errorDescription || 'load-failed'} (${errorCode})`);
     }
+  });
+
+  // If subresources (JS/CSS chunks) fail repeatedly after main frame success,
+  // surface the issue instead of leaving a blank/black shell.
+  mainWindow.webContents.on('console-message', (_event, _level, message) => {
+    if (!message) return;
+    const text = String(message).toLowerCase();
+    const looksLikeChunkError = (
+      text.includes('failed to load resource')
+      || text.includes('loading chunk')
+      || text.includes('chunkloaderror')
+      || text.includes('unexpected token <')
+    );
+    if (!looksLikeChunkError) return;
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    loadOfflineFallback(`renderer-resource-error: ${String(message).slice(0, 220)}`);
+  });
+
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    const reason = details?.reason || 'unknown';
+    const exitCode = details?.exitCode ?? 0;
+    loadOfflineFallback(`render-process-gone(${reason}, exit=${exitCode})`);
+    safeReloadMainWindow(1200);
+  });
+
+  mainWindow.on('unresponsive', () => {
+    loadOfflineFallback('window-unresponsive');
+    safeReloadMainWindow(800);
   });
 
   mainWindow.webContents.on('did-finish-load', () => {
@@ -591,7 +724,7 @@ async function showServerSettings() {
       <label style="${labelStyle}">前端工作台地址（Workbench URL）</label>
       <input id="serverUrl" value="${config.serverUrl}"
         style="${inputStyle}"/>
-      <p style="${hintStyle}">Vue 前端地址，如 http://localhost:5173（开发模式）</p>
+      <p style="${hintStyle}">开发模式通常为 http://localhost:5173；Docker/打包版工作台通常为 http://localhost:3000。</p>
       <label style="${labelStyle}">后端 API 地址（Backend API URL）</label>
       <input id="backendUrl" value="${config.backendUrl || 'http://localhost:8080'}"
         style="${inputStyle}"/>
@@ -635,9 +768,7 @@ async function showServerSettings() {
 
 async function runScan() {
   if (!canRunScan()) {
-    const reason = !policyIsFresh()
-      ? '策略尚未同步，请先登录并连接云端策略。'
-      : '请先登录后再开始检测。';
+    const reason = '请先登录后再开始检测。';
     return {
       time: new Date().toISOString(),
       shadowAiCount: 0,
@@ -650,6 +781,17 @@ async function runScan() {
 
   console.log('[Aegis] 开始影子AI扫描…');
   try {
+    // Policy sync is best-effort: keep local scan available even when
+    // remote policy endpoint is temporarily unreachable.
+    const hasClientToken = Boolean(resolveClientIngressToken());
+    if (config.requirePolicySync !== false && hasClientToken && !policyIsFresh()) {
+      try {
+        await syncClientPolicy(true);
+      } catch (syncErr) {
+        console.warn('[Aegis] 策略同步失败，使用本地默认策略继续扫描:', syncErr?.message || syncErr);
+      }
+    }
+
     const result = await scanner.scan({
       clientId: CLIENT_ID,
       backendUrl: config.backendUrl || config.serverUrl,
@@ -756,22 +898,34 @@ ipcMain.handle('set-auth-state', async (event, state) => {
 ipcMain.handle('get-auth-state', () => authState);
 
 ipcMain.on('save-server-url', (event, url) => {
-  config.serverUrl = url;
+  config.serverUrl = normalizePackagedWorkbenchUrl(url);
   saveConfig(config);
-  if (mainWindow) mainWindow.loadURL(url).catch(console.error);
+  if (mainWindow) {
+    const nextUrl = withClientLiteFlag(config.serverUrl);
+    mainWindow.loadURL(nextUrl).catch(console.error);
+  }
   updateTrayMenu();
 });
 
 ipcMain.handle('get-config', () => config);
 ipcMain.handle('save-config', (event, newConfig) => {
   const prevServerUrl = config.serverUrl;
-  config = { ...config, ...newConfig };
+  const nextConfig = { ...newConfig };
+  if (Object.prototype.hasOwnProperty.call(nextConfig, 'serverUrl')) {
+    nextConfig.serverUrl = normalizePackagedWorkbenchUrl(nextConfig.serverUrl);
+  }
+  config = { ...config, ...nextConfig };
   config.requireLoginBeforeScan = Boolean(config.requireLoginBeforeScan);
   saveConfig(config);
   startScheduledScan();
   // Reload the workbench if server URL changed
-  if (newConfig.serverUrl && newConfig.serverUrl !== prevServerUrl && mainWindow) {
-    mainWindow.loadURL(newConfig.serverUrl).catch(console.error);
+  if (config.serverUrl && config.serverUrl !== prevServerUrl && mainWindow) {
+    const nextUrl = withClientLiteFlag(config.serverUrl);
+    mainWindow.loadURL(nextUrl).catch((err) => {
+      const html = buildOfflineHtml(nextUrl, err?.message || 'load-url-failed');
+      const dataUrl = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+      mainWindow.loadURL(dataUrl).catch(() => {});
+    });
   }
   if (clipboardMonitor) {
     if (config.enableClipboardMonitor === false) {
@@ -794,6 +948,20 @@ ipcMain.handle('save-config', (event, newConfig) => {
   syncClientPolicy(true).catch(() => {});
   updateTrayMenu();
   return config;
+});
+
+ipcMain.handle('save-client-token', (event, token) => {
+  config.clientTokenEncrypted = encryptClientToken(token);
+  saveConfig(config);
+  updateTrayMenu();
+  return { saved: Boolean(String(token || '').trim()) };
+});
+
+ipcMain.handle('clear-client-token', () => {
+  config.clientTokenEncrypted = '';
+  saveConfig(config);
+  updateTrayMenu();
+  return { cleared: true };
 });
 
 // ── 应用生命周期 ──────────────────────────────────────────────────────────────

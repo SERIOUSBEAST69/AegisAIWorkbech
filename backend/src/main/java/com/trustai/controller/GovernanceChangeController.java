@@ -18,6 +18,7 @@ import com.trustai.service.CompliancePolicyService;
 import com.trustai.service.CurrentUserService;
 import com.trustai.service.GovernanceChangeRequestService;
 import com.trustai.service.PermissionService;
+import com.trustai.service.PrivacyShieldConfigService;
 import com.trustai.service.RoleService;
 import com.trustai.service.RolePermissionService;
 import com.trustai.service.SensitiveOperationGuardService;
@@ -70,6 +71,7 @@ public class GovernanceChangeController {
     private final RoleService roleService;
     private final RolePermissionService rolePermissionService;
     private final PermissionService permissionService;
+    private final PrivacyShieldConfigService privacyShieldConfigService;
     private final CompliancePolicyService compliancePolicyService;
     private final UserService userService;
     private final AuditLogService auditLogService;
@@ -83,6 +85,7 @@ public class GovernanceChangeController {
                                       RoleService roleService,
                                       RolePermissionService rolePermissionService,
                                       PermissionService permissionService,
+                                      PrivacyShieldConfigService privacyShieldConfigService,
                                       CompliancePolicyService compliancePolicyService,
                                       UserService userService,
                                       AuditLogService auditLogService,
@@ -95,6 +98,7 @@ public class GovernanceChangeController {
         this.roleService = roleService;
         this.rolePermissionService = rolePermissionService;
         this.permissionService = permissionService;
+        this.privacyShieldConfigService = privacyShieldConfigService;
         this.compliancePolicyService = compliancePolicyService;
         this.userService = userService;
         this.auditLogService = auditLogService;
@@ -108,18 +112,28 @@ public class GovernanceChangeController {
         enforceGovernanceDuty(requester, "submit");
         sensitiveOperationGuardService.requireConfirmedOperator(requester, req.getConfirmPassword(), "governance_change_submit", req.getModule() + ":" + req.getAction());
         Long companyId = companyScopeService.requireCompanyId();
-        User approver = resolveDefaultApprover(requester, companyId);
+        String requesterRoleCode = resolveRoleCode(requester);
         Long normalizedTargetId = normalizeTargetIdForSubmit(req, companyId);
+        boolean aiWhitelistChange = isAiWhitelistModule(req.getModule());
+        if (aiWhitelistChange && !"ADMIN".equalsIgnoreCase(requesterRoleCode)) {
+            throw new BizException(40300, "公司AI白名单仅支持治理管理员发起");
+        }
+        User approver = aiWhitelistChange
+            ? resolveAiWhitelistReviewer(requester, companyId)
+            : resolveDefaultApprover(requester, companyId);
+        if (aiWhitelistChange && approver == null) {
+            throw new BizException(40000, "未找到可用审核员，请先配置 ADMIN_REVIEWER 账号");
+        }
         GovernanceChangeRequest request = new GovernanceChangeRequest();
         request.setCompanyId(companyId);
         request.setModule(normalize(req.getModule()));
         request.setAction(normalize(req.getAction()));
         request.setTargetId(normalizedTargetId);
-        request.setPayloadJson(enrichPayloadWithTrace(req.getPayloadJson(), requester, request.getRequesterRoleCode()));
+        request.setPayloadJson(enrichPayloadWithTrace(req.getPayloadJson(), requester, requesterRoleCode));
         request.setStatus(STATUS_PENDING);
         request.setRiskLevel(resolveRiskLevel(request.getModule(), request.getAction()));
         request.setRequesterId(requester.getId());
-        request.setRequesterRoleCode(resolveRoleCode(requester));
+        request.setRequesterRoleCode(requesterRoleCode);
         if (approver != null) {
             request.setApproverId(approver.getId());
             request.setApproverRoleCode(resolveRoleCode(approver));
@@ -147,6 +161,10 @@ public class GovernanceChangeController {
         String action = normalize(req == null ? null : req.getAction());
         Long targetId = req == null ? null : req.getTargetId();
 
+        if ("AI_WHITELIST".equalsIgnoreCase(module)) {
+            return companyId;
+        }
+
         if ("ROLE".equalsIgnoreCase(module) && ("UPDATE".equalsIgnoreCase(action) || "DELETE".equalsIgnoreCase(action))) {
             if (targetId == null || targetId <= 0L) {
                 Map<String, Object> payload = parsePayloadMap(req == null ? null : req.getPayloadJson());
@@ -168,15 +186,39 @@ public class GovernanceChangeController {
             Role resolvedRole = requireCompanyRole(targetId, companyId, "角色不存在或不在当前公司");
             return resolvedRole.getId();
         }
+
+        if ("USER".equalsIgnoreCase(module) && ("UPDATE".equalsIgnoreCase(action) || "DELETE".equalsIgnoreCase(action))) {
+            Map<String, Object> payload = parsePayloadMap(req == null ? null : req.getPayloadJson());
+            if (targetId == null || targetId <= 0L) {
+                targetId = parseLong(payload.get("id"));
+            }
+            if (targetId == null || targetId <= 0L) {
+                targetId = parseLong(payload.get("userId"));
+            }
+            if (targetId == null || targetId <= 0L) {
+                targetId = parseLong(payload.get("targetId"));
+            }
+            if (targetId != null && targetId > 0L) {
+                User resolvedUser = requireCompanyUser(targetId, companyId, "用户不存在或不在当前公司");
+                return resolvedUser.getId();
+            }
+            String username = stringValue(payload.get("username"));
+            User compatible = findCompatibleUserInCompany(companyId, username, stringValue(payload.get("realName")));
+            if (compatible == null) {
+                throw new BizException(40000, "用户变更缺少目标ID");
+            }
+            return compatible.getId();
+        }
         return targetId;
     }
 
     @GetMapping("/page")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','ADMIN_OPS','SECOPS') || @currentUserService.hasAnyPermission('govern:change:view','govern:change:review')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','BUSINESS_OWNER') || @currentUserService.hasAnyPermission('govern:change:view','govern:change:review')")
     public R<Map<String, Object>> page(@RequestParam(defaultValue = "1") int page,
                                        @RequestParam(defaultValue = "10") int pageSize,
                                        @RequestParam(required = false) String status,
                                        @RequestParam(required = false) String module) {
+        currentUserService.requireAnyRole("ADMIN", "ADMIN_REVIEWER", "BUSINESS_OWNER");
         Long companyId = companyScopeService.requireCompanyId();
         QueryWrapper<GovernanceChangeRequest> qw = new QueryWrapper<GovernanceChangeRequest>().eq("company_id", companyId);
         if (isBusinessOwnerScopeUser()) {
@@ -201,7 +243,7 @@ public class GovernanceChangeController {
     }
 
     @GetMapping("/todo-page")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','ADMIN_OPS','SECOPS') || @currentUserService.hasPermission('govern:change:review')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS') || @currentUserService.hasPermission('govern:change:review')")
     public R<Map<String, Object>> todoPage(@RequestParam(defaultValue = "1") int page,
                                            @RequestParam(defaultValue = "10") int pageSize,
                                            @RequestParam(required = false) String status,
@@ -209,6 +251,7 @@ public class GovernanceChangeController {
                                            @RequestParam(required = false) String keyword,
                                            @RequestParam(required = false) Long startTime,
                                            @RequestParam(required = false) Long endTime) {
+        currentUserService.requireAnyRole("ADMIN", "ADMIN_REVIEWER", "SECOPS");
         Long companyId = companyScopeService.requireCompanyId();
         User reviewer = currentUserService.requireCurrentUser();
         Long reviewerId = reviewer == null ? null : reviewer.getId();
@@ -222,8 +265,19 @@ public class GovernanceChangeController {
         }
         QueryWrapper<GovernanceChangeRequest> qw = new QueryWrapper<GovernanceChangeRequest>()
             .eq("company_id", companyId)
-            .eq("approver_id", reviewerId)
-            .eq("status", STATUS_PENDING);
+            .isNotNull("requester_id");
+        String statusFilter = normalizeListStatus(status);
+        if ("processed".equals(statusFilter)) {
+            qw.in("status", List.of(STATUS_APPROVED, STATUS_REJECTED, "revoked"));
+        } else if (StringUtils.hasText(statusFilter)) {
+            qw.eq("status", statusFilter);
+        }
+        if (!canReviewAllPending(reviewer)) {
+            qw.eq("approver_id", reviewerId);
+        }
+        if ("ADMIN_REVIEWER".equalsIgnoreCase(resolveRoleCode(reviewer))) {
+            qw.eq("requester_role_code", "ADMIN");
+        }
         if (isBusinessOwnerScopeUser()) {
             qw.eq("module", "USER");
         }
@@ -262,7 +316,7 @@ public class GovernanceChangeController {
     }
 
     @GetMapping("/my-page")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_OPS','SECOPS') || @currentUserService.hasPermission('govern:change:create')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','BUSINESS_OWNER','AUDIT') || @currentUserService.hasPermission('govern:change:create')")
     public R<Map<String, Object>> myPage(@RequestParam(defaultValue = "1") int page,
                                          @RequestParam(defaultValue = "10") int pageSize,
                                          @RequestParam(required = false) String status,
@@ -270,6 +324,10 @@ public class GovernanceChangeController {
                                          @RequestParam(required = false) String keyword,
                                          @RequestParam(required = false) Long startTime,
                                          @RequestParam(required = false) Long endTime) {
+        if (!currentUserService.hasAnyRole("ADMIN", "ADMIN_REVIEWER", "SECOPS", "BUSINESS_OWNER", "AUDIT")
+            && !currentUserService.hasPermission("govern:change:create")) {
+            throw new org.springframework.security.access.AccessDeniedException("当前身份无权查看我发起审批");
+        }
         Long companyId = companyScopeService.requireCompanyId();
         User requester = currentUserService.requireCurrentUser();
         QueryWrapper<GovernanceChangeRequest> qw = new QueryWrapper<GovernanceChangeRequest>()
@@ -403,26 +461,45 @@ public class GovernanceChangeController {
             if (request == null) {
                 throw new BizException(40400, "变更申请不存在");
             }
+            if (isAiWhitelistModule(request.getModule())) {
+                String approverRoleCode = resolveRoleCode(approver);
+                if (!"ADMIN_REVIEWER".equalsIgnoreCase(approverRoleCode)) {
+                    throw new BizException(40300, "公司AI白名单仅支持审核员审批");
+                }
+            }
+            if ("ADMIN_REVIEWER".equalsIgnoreCase(resolveRoleCode(approver)) && !"ADMIN".equalsIgnoreCase(request.getRequesterRoleCode())) {
+                throw new BizException(40300, "复核员仅可审批治理管理员发起的申请");
+            }
             if (!STATUS_PENDING.equalsIgnoreCase(request.getStatus())) {
                 throw new BizException(40000, "仅待复核申请可审批");
             }
             Map<String, Object> payload = parsePayloadMap(request.getPayloadJson());
             Map<String, Object> beforeSnapshot = buildBeforeSnapshot(request);
-            User requester = null;
-            if (request.getRequesterId() != null) {
-                requester = findRequester(request.getRequesterId());
-                if (requester.getId() != null && requester.getId().equals(approver.getId())) {
-                    throw new BizException(40000, "SoD冲突：发起人与审批人不能是同一账号");
-                }
+            boolean approving = Boolean.TRUE.equals(req.getApprove());
+            User requester = resolveRequesterForApproval(request, approving);
+            if (requester != null && requester.getId() != null && requester.getId().equals(approver.getId())) {
+                throw new BizException(40000, "SoD冲突：发起人与审批人不能是同一账号");
+            }
+            if (requester != null) {
                 sodEnforcementService.enforceReviewerSeparation(requester, approver, "PRIVILEGE_CHANGE_REVIEW");
             }
 
-            if (Boolean.TRUE.equals(req.getApprove())) {
+            if (approving) {
                 if (requester == null) {
                     throw new BizException(40000, "申请人信息缺失，无法通过该变更");
                 }
-                applyChangeRequest(request, approver);
-                request.setStatus(STATUS_APPROVED);
+                try {
+                    applyChangeRequest(request, approver);
+                    request.setStatus(STATUS_APPROVED);
+                } catch (BizException ex) {
+                    String message = String.valueOf(ex.getMessage() == null ? "" : ex.getMessage());
+                    if (message.contains("不存在") || message.contains("不在当前公司")) {
+                        request.setStatus(STATUS_REJECTED);
+                        req.setNote(req.getNote() + "；系统自动驳回：目标对象已失效，请发起新申请");
+                    } else {
+                        throw ex;
+                    }
+                }
             } else {
                 request.setStatus(STATUS_REJECTED);
             }
@@ -447,18 +524,58 @@ public class GovernanceChangeController {
         }
     }
 
-    private User findRequester(Long requesterId) {
-        if (requesterId == null) {
-            throw new BizException(40000, "申请人信息缺失");
+    private User resolveRequesterForApproval(GovernanceChangeRequest request, boolean strictForApprove) {
+        if (request == null) {
+            return null;
         }
-        User requester = userService.getById(requesterId);
-        if (requester == null) {
-            throw new BizException(40400, "申请人不存在");
+        Long companyId = companyScopeService.requireCompanyId();
+
+        Long requesterId = request.getRequesterId();
+        if (requesterId != null) {
+            User requesterById = userService.getById(requesterId);
+            if (requesterById != null && java.util.Objects.equals(requesterById.getCompanyId(), companyId)) {
+                return requesterById;
+            }
         }
-        if (!java.util.Objects.equals(requester.getCompanyId(), companyScopeService.requireCompanyId())) {
-            throw new BizException(40300, "申请人不在当前公司范围");
+
+        User requesterByTrace = resolveRequesterFromTrace(request.getPayloadJson(), companyId);
+        if (requesterByTrace != null) {
+            return requesterByTrace;
         }
-        return requester;
+
+        if (strictForApprove) {
+            if (requesterId == null) {
+                throw new BizException(40000, "申请人信息缺失");
+            }
+            throw new BizException(40400, "申请人不存在或不在当前公司");
+        }
+        return null;
+    }
+
+    private User resolveRequesterFromTrace(String payloadJson, Long companyId) {
+        Map<String, Object> payload = parsePayloadMap(payloadJson);
+        Object traceObject = payload.get("trace");
+        if (!(traceObject instanceof Map<?, ?> traceMap)) {
+            return null;
+        }
+
+        Long traceUserId = parseLong(traceMap.get("userId"));
+        if (traceUserId != null) {
+            User byId = userService.getById(traceUserId);
+            if (byId != null && java.util.Objects.equals(byId.getCompanyId(), companyId)) {
+                return byId;
+            }
+        }
+
+        String traceUsername = stringValue(traceMap.get("username")).trim();
+        if (!StringUtils.hasText(traceUsername) || "-".equals(traceUsername)) {
+            return null;
+        }
+        return userService.lambdaQuery()
+            .eq(User::getCompanyId, companyId)
+            .eq(User::getUsername, traceUsername)
+            .last("LIMIT 1")
+            .one();
     }
 
     private void applyChangeRequest(GovernanceChangeRequest request, User approver) {
@@ -477,6 +594,10 @@ public class GovernanceChangeController {
             }
             if ("POLICY".equalsIgnoreCase(request.getModule())) {
                 applyPolicyChange(request, payload, approver);
+                return;
+            }
+            if (isAiWhitelistModule(request.getModule())) {
+                applyAiWhitelistChange(request, payload, approver);
                 return;
             }
             if ("USER".equalsIgnoreCase(request.getModule())) {
@@ -740,10 +861,12 @@ public class GovernanceChangeController {
 
     private void applyUserChange(GovernanceChangeRequest request, Map<String, Object> payload, User approver) {
         String action = request.getAction();
-        User existing = userService.getById(request.getTargetId());
-        if (existing == null || !java.util.Objects.equals(existing.getCompanyId(), companyScopeService.requireCompanyId())) {
+        Long companyId = companyScopeService.requireCompanyId();
+        User existing = resolveTargetUserForRequest(request, payload, companyId);
+        if (existing == null || !java.util.Objects.equals(existing.getCompanyId(), companyId)) {
             throw new BizException(40400, "用户不存在或不在当前公司");
         }
+        request.setTargetId(existing.getId());
         String username = String.valueOf(existing.getUsername() == null ? "" : existing.getUsername()).trim().toLowerCase(Locale.ROOT);
         if (PROTECTED_USERNAMES.contains(username)) {
             throw new BizException(40000, "系统治理内置账号不允许通过该流程改动");
@@ -769,8 +892,29 @@ public class GovernanceChangeController {
                 Long roleId = parseLong(payload.get("roleId"));
                 if (roleId != null) {
                     Long roleCompanyId = existing.getCompanyId() == null ? companyScopeService.requireCompanyId() : existing.getCompanyId();
-                    Role role = requireCompanyRole(roleId, roleCompanyId, "目标角色不存在或不在当前公司");
-                    existing.setRoleId(role.getId());
+                    Role resolvedRole = null;
+                    try {
+                        resolvedRole = requireCompanyRole(roleId, roleCompanyId, "目标角色不存在或不在当前公司");
+                    } catch (BizException ignored) {
+                        // Fallback 1: keep current role if still valid for current company.
+                        Long currentRoleId = existing.getRoleId();
+                        if (currentRoleId != null && currentRoleId > 0L) {
+                            try {
+                                resolvedRole = requireCompanyRole(currentRoleId, roleCompanyId, "目标角色不存在或不在当前公司");
+                            } catch (BizException ignored2) {
+                                resolvedRole = null;
+                            }
+                        }
+                        // Fallback 2: find by payload role code/name in current company.
+                        if (resolvedRole == null) {
+                            String payloadRoleCode = stringValue(payload.get("roleCode"));
+                            String payloadRoleName = stringValue(payload.get("roleName"));
+                            resolvedRole = findCompatibleRoleInCompany(roleCompanyId, payloadRoleCode, payloadRoleName);
+                        }
+                    }
+                    if (resolvedRole != null) {
+                        existing.setRoleId(resolvedRole.getId());
+                    }
                 }
             }
             existing.setUpdateTime(new Date());
@@ -780,6 +924,27 @@ public class GovernanceChangeController {
         throw new BizException(40000, "不支持的用户变更动作");
     }
 
+    private void applyAiWhitelistChange(GovernanceChangeRequest request, Map<String, Object> payload, User approver) {
+        String action = request == null ? "" : request.getAction();
+        if (!"UPDATE".equalsIgnoreCase(action)) {
+            throw new BizException(40000, "公司AI白名单仅支持 UPDATE 变更动作");
+        }
+
+        Long companyId = companyScopeService.requireCompanyId();
+        Map<String, Object> config = new LinkedHashMap<>(privacyShieldConfigService.getOrCreateConfig());
+        List<String> catalog = toDistinctStringList(config.get("aiCatalog"));
+        List<String> nextWhitelist = toDistinctStringList(payload == null ? null : payload.get("whitelist"));
+
+        for (String item : nextWhitelist) {
+            if (!catalog.contains(item)) {
+                throw new BizException(40000, "存在未收录的AI服务: " + item);
+            }
+        }
+
+        setCompanyWhitelist(config, companyId, nextWhitelist);
+        privacyShieldConfigService.updateConfig(config);
+    }
+
     private String resolveRiskLevel(String module, String action) {
         if ("DELETE".equalsIgnoreCase(action)) {
             return "CRITICAL";
@@ -787,6 +952,7 @@ public class GovernanceChangeController {
         if ("ROLE".equalsIgnoreCase(module)
             || "PERMISSION".equalsIgnoreCase(module)
             || "POLICY".equalsIgnoreCase(module)
+            || "AI_WHITELIST".equalsIgnoreCase(module)
             || "USER".equalsIgnoreCase(module)) {
             return "HIGH";
         }
@@ -852,6 +1018,116 @@ public class GovernanceChangeController {
         return null;
     }
 
+    private User requireCompanyUser(Long userId, Long companyId, String notFoundMessage) {
+        User user = userService.getById(userId);
+        if (user == null) {
+            throw new BizException(40400, notFoundMessage);
+        }
+        
+        if (java.util.Objects.equals(user.getCompanyId(), companyId)) {
+            return user;
+        }
+
+        if ((user.getCompanyId() == null || user.getCompanyId() <= 0L) && companyId != null && companyId > 0L) {
+            user.setCompanyId(companyId);
+            user.setUpdateTime(new Date());
+            userService.updateById(user);
+            user.setCompanyId(companyId);
+            return user;
+        }
+
+        if (companyId != null && companyId > 0L && StringUtils.hasText(user.getUsername())) {
+            User compatible = findCompatibleUserInCompany(companyId, user.getUsername(), user.getRealName());
+            if (compatible != null) {
+                return compatible;
+            }
+        }
+        
+        if (companyId != null && companyId > 0L) {
+            user.setCompanyId(companyId);
+            user.setUpdateTime(new Date());
+            userService.updateById(user);
+            return user;
+        }
+        
+        throw new BizException(40400, notFoundMessage);
+    }
+
+    private User findCompatibleUserInCompany(Long companyId, String username, String realName) {
+        if (companyId == null || companyId <= 0L) {
+            return null;
+        }
+        String normalizedUsername = String.valueOf(username == null ? "" : username).trim();
+        if (StringUtils.hasText(normalizedUsername)) {
+            User byUsername = userService.lambdaQuery()
+                .eq(User::getCompanyId, companyId)
+                .eq(User::getUsername, normalizedUsername)
+                .last("LIMIT 1")
+                .one();
+            if (byUsername != null) {
+                return byUsername;
+            }
+        }
+        String normalizedRealName = String.valueOf(realName == null ? "" : realName).trim();
+        if (StringUtils.hasText(normalizedRealName)) {
+            return userService.lambdaQuery()
+                .eq(User::getCompanyId, companyId)
+                .eq(User::getRealName, normalizedRealName)
+                .last("LIMIT 1")
+                .one();
+        }
+        return null;
+    }
+
+    private User resolveTargetUserForRequest(GovernanceChangeRequest request, Map<String, Object> payload, Long companyId) {
+        Long requestTargetId = request == null ? null : request.getTargetId();
+        if (requestTargetId != null && requestTargetId > 0L) {
+            try {
+                return requireCompanyUser(requestTargetId, companyId, "用户不存在或不在当前公司");
+            } catch (BizException ignored) {
+                // Fall through to payload-based recovery for legacy requests.
+            }
+        }
+
+        Long payloadUserId = extractFirstLong(payload, "id", "userId", "targetId", "targetUserId", "uid");
+        if (payloadUserId != null && payloadUserId > 0L) {
+            try {
+                return requireCompanyUser(payloadUserId, companyId, "用户不存在或不在当前公司");
+            } catch (BizException ignored) {
+                // Continue resolving by username/realName.
+            }
+        }
+
+        String payloadUsername = extractFirstString(payload, "username", "targetUsername", "account", "userName");
+        String payloadRealName = extractFirstString(payload, "realName", "targetRealName", "name");
+        User compatible = findCompatibleUserInCompany(companyId, payloadUsername, payloadRealName);
+        if (compatible != null) {
+            return compatible;
+        }
+
+        Map<String, Object> trace = asMap(payload == null ? null : payload.get("trace"));
+        compatible = findCompatibleUserInCompany(companyId, extractFirstString(trace, "username"), extractFirstString(trace, "realName", "name"));
+        if (compatible != null) {
+            return compatible;
+        }
+
+        Map<String, Object> target = asMap(payload == null ? null : payload.get("target"));
+        compatible = findCompatibleUserInCompany(companyId, extractFirstString(target, "username", "userName"), extractFirstString(target, "realName", "name"));
+        if (compatible != null) {
+            return compatible;
+        }
+
+        Map<String, Object> userNode = asMap(payload == null ? null : payload.get("user"));
+        compatible = findCompatibleUserInCompany(companyId, extractFirstString(userNode, "username", "userName"), extractFirstString(userNode, "realName", "name"));
+        if (compatible != null) {
+            return compatible;
+        }
+
+        Map<String, Object> before = asMap(payload == null ? null : payload.get("before"));
+        compatible = findCompatibleUserInCompany(companyId, extractFirstString(before, "username", "userName"), extractFirstString(before, "realName", "name"));
+        return compatible;
+    }
+
     private GovernanceChangeRequest requireScopedRequest(Long requestId) {
         GovernanceChangeRequest request = governanceChangeRequestService.getOne(
             new QueryWrapper<GovernanceChangeRequest>()
@@ -888,6 +1164,7 @@ public class GovernanceChangeController {
 
     private Map<String, Object> toApprovalView(GovernanceChangeRequest request, User viewer, boolean todoView) {
         Map<String, Object> payload = parsePayloadMap(request == null ? null : request.getPayloadJson());
+        String targetName = resolveTargetName(request, payload);
         Map<String, Object> view = new LinkedHashMap<>();
         view.put("id", request == null ? null : request.getId());
         view.put("companyId", request == null ? null : request.getCompanyId());
@@ -909,6 +1186,7 @@ public class GovernanceChangeController {
         view.put("createTime", request == null ? null : request.getCreateTime());
         view.put("updateTime", request == null ? null : request.getUpdateTime());
         view.put("targetId", request == null ? null : request.getTargetId());
+        view.put("targetName", targetName);
         view.put("payloadJson", request == null ? null : request.getPayloadJson());
         view.put("title", resolveTitle(request, payload));
         view.put("requestType", resolveRequestType(request));
@@ -917,6 +1195,127 @@ public class GovernanceChangeController {
         view.put("impact", stringValue(payload.get("impact")));
         view.put("payload", payload);
         return view;
+    }
+
+    private String resolveTargetName(GovernanceChangeRequest request, Map<String, Object> payload) {
+        if (request == null) {
+            return "-";
+        }
+        String module = String.valueOf(request.getModule() == null ? "" : request.getModule()).trim().toUpperCase(Locale.ROOT);
+        Long requestCompanyId = request.getCompanyId();
+        Long requestTargetId = request.getTargetId();
+
+        if ("ROLE".equals(module)) {
+            Role role = requestTargetId == null ? null : roleService.getById(requestTargetId);
+            if (role != null && java.util.Objects.equals(role.getCompanyId(), requestCompanyId)) {
+                return firstNonEmpty(role.getName(), role.getCode(), String.valueOf(role.getId()));
+            }
+            Long payloadRoleId = parseLong(payload == null ? null : payload.get("roleId"));
+            if (payloadRoleId != null && payloadRoleId > 0L) {
+                Role payloadRole = roleService.getById(payloadRoleId);
+                if (payloadRole != null && java.util.Objects.equals(payloadRole.getCompanyId(), requestCompanyId)) {
+                    return firstNonEmpty(payloadRole.getName(), payloadRole.getCode(), String.valueOf(payloadRole.getId()));
+                }
+            }
+            return firstNonEmpty(
+                stringValue(payload == null ? null : payload.get("name")),
+                stringValue(payload == null ? null : payload.get("roleName")),
+                stringValue(payload == null ? null : payload.get("code")),
+                stringValue(payload == null ? null : payload.get("roleCode")),
+                requestTargetId == null ? "" : "ID:" + requestTargetId
+            );
+        }
+
+        if ("PERMISSION".equals(module)) {
+            Permission permission = requestTargetId == null ? null : permissionService.getById(requestTargetId);
+            if (permission != null && java.util.Objects.equals(permission.getCompanyId(), requestCompanyId)) {
+                return firstNonEmpty(permission.getName(), permission.getCode(), String.valueOf(permission.getId()));
+            }
+            return firstNonEmpty(
+                stringValue(payload == null ? null : payload.get("name")),
+                stringValue(payload == null ? null : payload.get("code")),
+                requestTargetId == null ? "" : "ID:" + requestTargetId
+            );
+        }
+
+        if ("POLICY".equals(module)) {
+            CompliancePolicy policy = requestTargetId == null ? null : compliancePolicyService.getById(requestTargetId);
+            if (policy != null && java.util.Objects.equals(policy.getCompanyId(), requestCompanyId)) {
+                return firstNonEmpty(policy.getName(), policy.getPolicyType(), String.valueOf(policy.getId()));
+            }
+            return firstNonEmpty(
+                stringValue(payload == null ? null : payload.get("name")),
+                stringValue(payload == null ? null : payload.get("policyType")),
+                requestTargetId == null ? "" : "ID:" + requestTargetId
+            );
+        }
+
+        if ("AI_WHITELIST".equals(module)) {
+            return firstNonEmpty(
+                stringValue(payload == null ? null : payload.get("name")),
+                "公司AI白名单",
+                requestCompanyId == null ? "" : "公司ID:" + requestCompanyId
+            );
+        }
+
+        if ("USER".equals(module)) {
+            User user = requestTargetId == null ? null : userService.getById(requestTargetId);
+            if (user != null && java.util.Objects.equals(user.getCompanyId(), requestCompanyId)) {
+                return firstNonEmpty(user.getRealName(), user.getNickname(), user.getUsername(), String.valueOf(user.getId()));
+            }
+            Long payloadUserId = parseLong(payload == null ? null : payload.get("id"));
+            if (payloadUserId == null) {
+                payloadUserId = parseLong(payload == null ? null : payload.get("userId"));
+            }
+            if (payloadUserId != null && payloadUserId > 0L) {
+                User payloadUser = userService.getById(payloadUserId);
+                if (payloadUser != null && java.util.Objects.equals(payloadUser.getCompanyId(), requestCompanyId)) {
+                    return firstNonEmpty(payloadUser.getRealName(), payloadUser.getNickname(), payloadUser.getUsername(), String.valueOf(payloadUser.getId()));
+                }
+            }
+            return firstNonEmpty(
+                stringValue(payload == null ? null : payload.get("realName")),
+                stringValue(payload == null ? null : payload.get("username")),
+                requestTargetId == null ? "" : "ID:" + requestTargetId
+            );
+        }
+
+        return firstNonEmpty(
+            stringValue(payload == null ? null : payload.get("name")),
+            stringValue(payload == null ? null : payload.get("code")),
+            requestTargetId == null ? "" : "ID:" + requestTargetId,
+            "-"
+        );
+    }
+
+    private String firstNonEmpty(String... candidates) {
+        if (candidates == null || candidates.length == 0) {
+            return "-";
+        }
+        for (String candidate : candidates) {
+            String value = String.valueOf(candidate == null ? "" : candidate).trim();
+            if (StringUtils.hasText(value) && !"-".equals(value)) {
+                return value;
+            }
+        }
+        return "-";
+    }
+
+    private String normalizeListStatus(String rawStatus) {
+        String value = String.valueOf(rawStatus == null ? "" : rawStatus).trim().toLowerCase(Locale.ROOT);
+        if (!StringUtils.hasText(value)) {
+            return "";
+        }
+        return switch (value) {
+            case "pending", "待审批", "审批中" -> STATUS_PENDING;
+            case "approved", "通过", "已通过" -> STATUS_APPROVED;
+            case "rejected", "reject", "拒绝", "已拒绝", "已驳回" -> STATUS_REJECTED;
+            case "revoked", "撤回", "已撤回" -> "revoked";
+            case "draft", "草稿" -> "draft";
+            case "processed", "done", "handled", "已处理" -> "processed";
+            case "all", "全部" -> "";
+            default -> value;
+        };
     }
 
     private String resolveRequestType(GovernanceChangeRequest request) {
@@ -936,6 +1335,7 @@ public class GovernanceChangeController {
             case "ROLE" -> "角色";
             case "PERMISSION" -> "权限";
             case "POLICY" -> "策略";
+            case "AI_WHITELIST" -> "公司AI白名单";
             case "USER" -> "用户";
             default -> StringUtils.hasText(request.getModule()) ? request.getModule().trim() : "未知";
         };
@@ -1011,10 +1411,21 @@ public class GovernanceChangeController {
 
     private Map<String, Object> buildBeforeSnapshot(GovernanceChangeRequest request) {
         Map<String, Object> before = new LinkedHashMap<>();
-        if (request == null || request.getTargetId() == null) {
+        if (request == null) {
             return before;
         }
         String module = stringValue(request.getModule()).toUpperCase(Locale.ROOT);
+        if ("AI_WHITELIST".equals(module)) {
+            Long companyId = request.getCompanyId() == null ? companyScopeService.requireCompanyId() : request.getCompanyId();
+            Map<String, Object> config = privacyShieldConfigService.getOrCreateConfig();
+            before.put("companyId", companyId);
+            before.put("whitelist", resolveCompanyWhitelist(config, companyId));
+            before.put("catalog", toDistinctStringList(config.get("aiCatalog")));
+            return before;
+        }
+        if (request.getTargetId() == null) {
+            return before;
+        }
         if ("ROLE".equals(module)) {
             Role role = roleService.getById(request.getTargetId());
             if (role != null) {
@@ -1088,16 +1499,60 @@ public class GovernanceChangeController {
     }
 
     private User resolveDefaultApprover(User requester, Long companyId) {
-        List<User> users = userService.lambdaQuery().eq(User::getCompanyId, companyId).list();
+        List<User> users = userService.lambdaQuery()
+            .eq(User::getCompanyId, companyId)
+            .eq(User::getAccountType, "real")
+            .eq(User::getAccountStatus, "active")
+            .list();
         if (users == null || users.isEmpty()) {
             return null;
         }
         return users.stream()
             .filter(item -> item != null && item.getId() != null)
             .filter(item -> requester == null || !java.util.Objects.equals(item.getId(), requester.getId()))
+            .filter(item -> isReviewerCandidate(resolveRoleCode(item)))
             .sorted((a, b) -> Integer.compare(reviewerPriority(a), reviewerPriority(b)))
             .findFirst()
             .orElse(null);
+    }
+
+    private User resolveAiWhitelistReviewer(User requester, Long companyId) {
+        List<User> users = userService.lambdaQuery()
+            .eq(User::getCompanyId, companyId)
+            .eq(User::getAccountType, "real")
+            .eq(User::getAccountStatus, "active")
+            .list();
+        if (users == null || users.isEmpty()) {
+            return null;
+        }
+        return users.stream()
+            .filter(item -> item != null && item.getId() != null)
+            .filter(item -> requester == null || !java.util.Objects.equals(item.getId(), requester.getId()))
+            .filter(item -> "ADMIN_REVIEWER".equalsIgnoreCase(resolveRoleCode(item)))
+            .findFirst()
+            .orElse(null);
+    }
+
+    private boolean isAiWhitelistModule(String module) {
+        return "AI_WHITELIST".equalsIgnoreCase(String.valueOf(module == null ? "" : module).trim());
+    }
+
+    private boolean isReviewerCandidate(String roleCode) {
+        String normalized = normalize(roleCode);
+        return "ADMIN_REVIEWER".equals(normalized)
+            || "ADMIN".equals(normalized)
+            || "SECOPS".equals(normalized)
+            || "BUSINESS_OWNER_APPROVER".equals(normalized)
+            || "BUSINESS_OWNER_REVIEWER".equals(normalized)
+            || "BUSINESS_OWNER".equals(normalized);
+    }
+
+    private boolean canReviewAllPending(User reviewer) {
+        if (reviewer == null) {
+            return false;
+        }
+        String roleCode = resolveRoleCode(reviewer);
+        return "ADMIN".equalsIgnoreCase(roleCode) || "ADMIN_REVIEWER".equalsIgnoreCase(roleCode);
     }
 
     private int reviewerPriority(User user) {
@@ -1264,6 +1719,105 @@ public class GovernanceChangeController {
         } catch (Exception ignored) {
             return null;
         }
+    }
+
+    private List<String> toDistinctStringList(Object value) {
+        if (!(value instanceof List<?> list)) {
+            return List.of();
+        }
+        List<String> result = new java.util.ArrayList<>();
+        for (Object item : list) {
+            String text = String.valueOf(item == null ? "" : item).trim();
+            if (StringUtils.hasText(text) && !result.contains(text)) {
+                result.add(text);
+            }
+        }
+        return result;
+    }
+
+    private List<String> resolveCompanyWhitelist(Map<String, Object> config, Long companyId) {
+        Object raw = config.get("aiWhitelistByCompany");
+        if (raw instanceof Map<?, ?> map) {
+            Object companyList = map.get(String.valueOf(companyId == null ? 0L : companyId));
+            List<String> list = toDistinctStringList(companyList);
+            if (!list.isEmpty()) {
+                return list;
+            }
+        }
+        return toDistinctStringList(config.get("aiWhitelist"));
+    }
+
+    private void setCompanyWhitelist(Map<String, Object> config, Long companyId, List<String> whitelist) {
+        Map<String, Object> bucket;
+        Object raw = config.get("aiWhitelistByCompany");
+        if (raw instanceof Map<?, ?> map) {
+            bucket = new LinkedHashMap<>();
+            map.forEach((k, v) -> bucket.put(String.valueOf(k), v));
+        } else {
+            bucket = new LinkedHashMap<>();
+        }
+        bucket.put(String.valueOf(companyId == null ? 0L : companyId), whitelist == null ? List.of() : whitelist);
+        config.put("aiWhitelistByCompany", bucket);
+    }
+
+    private Long extractFirstLong(Map<String, Object> payload, String... keys) {
+        if (payload == null || keys == null) {
+            return null;
+        }
+        for (String key : keys) {
+            Long parsed = parseLong(payload.get(key));
+            if (parsed != null && parsed > 0L) {
+                return parsed;
+            }
+        }
+
+        Map<String, Object> target = asMap(payload.get("target"));
+        for (String key : keys) {
+            Long parsed = parseLong(target.get(key));
+            if (parsed != null && parsed > 0L) {
+                return parsed;
+            }
+        }
+
+        Map<String, Object> user = asMap(payload.get("user"));
+        for (String key : keys) {
+            Long parsed = parseLong(user.get(key));
+            if (parsed != null && parsed > 0L) {
+                return parsed;
+            }
+        }
+
+        Map<String, Object> before = asMap(payload.get("before"));
+        for (String key : keys) {
+            Long parsed = parseLong(before.get(key));
+            if (parsed != null && parsed > 0L) {
+                return parsed;
+            }
+        }
+
+        return null;
+    }
+
+    private String extractFirstString(Map<String, Object> payload, String... keys) {
+        if (payload == null || keys == null) {
+            return "";
+        }
+        for (String key : keys) {
+            String value = stringValue(payload.get(key)).trim();
+            if (StringUtils.hasText(value)) {
+                return value;
+            }
+        }
+        return "";
+    }
+
+    private Map<String, Object> asMap(Object value) {
+        if (value instanceof Map<?, ?> raw) {
+            Map<String, Object> normalized = new LinkedHashMap<>();
+            raw.forEach((k, v) -> normalized.put(String.valueOf(k), v));
+            return normalized;
+        }
+        return java.util.Collections.emptyMap();
     }
 
     private void replaceRolePermissionsByCodes(Long roleId, Object payloadCodes) {

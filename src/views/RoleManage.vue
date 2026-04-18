@@ -8,7 +8,7 @@
       </el-form-item>
       <el-form-item>
         <el-button type="primary" :loading="loading" @click="fetchRoles">查询</el-button>
-        <el-button v-if="canWriteRole()" @click="openCreate">新增角色</el-button>
+        <el-button :disabled="!canWriteRole()" @click="openCreate">新增角色</el-button>
       </el-form-item>
     </el-form>
 
@@ -102,7 +102,7 @@
       </el-form>
       <template #footer>
         <el-button @click="showEditor = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="saveRole">保存</el-button>
+        <el-button type="primary" :loading="saving" :disabled="!canWriteRole()" @click="saveRole">保存</el-button>
       </template>
     </el-dialog>
 
@@ -122,7 +122,7 @@
       </el-tree>
       <template #footer>
         <el-button @click="showPermissionOnly = false">取消</el-button>
-        <el-button type="primary" :loading="savingPermission" @click="saveRolePermissions">保存</el-button>
+        <el-button type="primary" :loading="savingPermission" :disabled="!canAssignRolePermission()" @click="saveRolePermissions">保存</el-button>
       </template>
     </el-dialog>
   </el-card>
@@ -146,12 +146,23 @@ function isPlatformAdmin() {
   return currentRoleCode === 'ADMIN' || currentUsername === 'admin';
 }
 
+function isGovernanceReviewer() {
+  const user = currentUserSnapshot();
+  return String(user?.roleCode || '').trim().toUpperCase() === 'ADMIN_REVIEWER';
+}
+
 function canWriteRole() {
+  if (isGovernanceReviewer()) {
+    return false;
+  }
   const user = currentUserSnapshot();
   return isPlatformAdmin() || hasPermissionByUser(user, 'role:manage');
 }
 
 function canAssignRolePermission() {
+  if (isGovernanceReviewer()) {
+    return false;
+  }
   const user = currentUserSnapshot();
   return canWriteRole() || hasPermissionByUser(user, 'role:permission:assign');
 }
@@ -366,6 +377,7 @@ async function fetchRoles() {
     });
     roles.value = Array.isArray(data?.list) ? data.list : [];
     roles.value = roles.value.map(normalizeRoleRow);
+    roles.value = roles.value.filter(item => String(item?.code || '').trim().toUpperCase() !== 'SECOPS_TRIAGE');
     pagination.value.total = Number(data?.total || 0);
   } catch (err) {
     ElMessage.error(err?.message || '角色加载失败');

@@ -8,7 +8,7 @@
       <el-tab-pane label="审计日志" name="log" lazy>
         <AuditLog />
       </el-tab-pane>
-      <el-tab-pane label="审计报告" name="report" lazy>
+      <el-tab-pane v-if="canViewAuditReport" label="审计报告" name="report" lazy>
         <AuditReport />
       </el-tab-pane>
     </el-tabs>
@@ -19,8 +19,11 @@
 import { ref } from 'vue';
 import AuditLog from './AuditLog.vue';
 import AuditReport from './AuditReport.vue';
+import { getSession } from '../utils/auth';
 
 const activeTab = ref('log');
+const roleCode = String(getSession()?.user?.roleCode || '').trim().toUpperCase();
+const canViewAuditReport = roleCode === 'AUDIT';
 </script>
 
 <style scoped>

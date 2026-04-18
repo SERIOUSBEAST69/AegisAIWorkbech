@@ -138,15 +138,6 @@ const quickActions = [
     action: () => router.push('/threat-monitor')
   },
   {
-    id: 7,
-    title: '合规风险记录',
-    description: '管理合规风险记录',
-    icon: Warning,
-    color: 'warning',
-    shortcut: 'Ctrl+E',
-    action: () => router.push('/risk-event-manage')
-  },
-  {
     id: 8,
     title: '导出数据',
     description: '导出系统数据',

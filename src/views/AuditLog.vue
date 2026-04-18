@@ -35,7 +35,7 @@
       </el-form-item>
     </el-form>
     <div class="dedupe-hint">
-      原始 {{ rawLogCount }} 条，合并后 {{ logs.length }} 条，折叠 {{ nearDuplicateCollapsedCount }} 条（近似窗口 {{ NEAR_DUP_WINDOW_SECONDS }} 秒）
+      原始 {{ rawLogCount }} 条，过滤乱码 {{ garbledLogCount }} 条，合并后 {{ logs.length }} 条，折叠 {{ nearDuplicateCollapsedCount }} 条（近似窗口 {{ NEAR_DUP_WINDOW_SECONDS }} 秒）
     </div>
     <el-table :data="pagedLogs" style="width: 100%; margin-top:12px" v-loading="loading">
       <el-table-column prop="id" label="ID" width="250">
@@ -43,19 +43,12 @@
           <div class="cell nowrap">{{ scope.row.id }}</div>
         </template>
       </el-table-column>
-      <el-table-column prop="userId" label="用户ID" width="90" />
-      <el-table-column label="操作者类型" width="110">
-        <template #default="scope">
-          <el-tag :type="scope.row.actorType === 'system' ? 'warning' : 'info'">
-            {{ scope.row.actorType === 'system' ? '系统任务' : '普通用户' }}
-          </el-tag>
-        </template>
-      </el-table-column>
+      <el-table-column prop="userIdText" label="用户ID" width="190" />
       <el-table-column label="账号 / 角色" width="240" show-overflow-tooltip>
         <template #default="scope">{{ actorDisplayByRow(scope.row) }}</template>
       </el-table-column>
       <el-table-column label="公司" width="100">
-        <template #default="scope">{{ userCompanyById(scope.row.userId) }}</template>
+        <template #default="scope">{{ userCompanyById(scope.row.userIdStr || scope.row.userId) }}</template>
       </el-table-column>
       <el-table-column prop="operation" label="操作类型" width="130" />
       <el-table-column prop="operationTime" label="操作时间" width="190" />
@@ -105,6 +98,7 @@ const canExport = hasPermission('audit:export');
 const NEAR_DUP_WINDOW_SECONDS = 90;
 const NEAR_DUP_WINDOW_MS = NEAR_DUP_WINDOW_SECONDS * 1000;
 const rawLogCount = ref(0);
+const garbledLogCount = ref(0);
 const nearDuplicateCollapsedCount = ref(0);
 const pagination = ref({ current: 1, pageSize: 10, total: 0 });
 const pagedLogs = computed(() => {
@@ -137,14 +131,17 @@ async function fetchLogs() {
     // 后端使用 GET /api/audit-log/search，ES CriteriaQuery 按 userId/operation/时间段检索
     const res = await request.get('/audit-log/search', { params: buildParams() });
     rawLogCount.value = Array.isArray(res) ? res.length : 0;
-    logs.value = normalizeAuditLogs(Array.isArray(res) ? res : []);
-    nearDuplicateCollapsedCount.value = Math.max(0, rawLogCount.value - logs.value.length);
+    const normalized = normalizeAuditLogs(Array.isArray(res) ? res : []);
+    logs.value = normalized.rows;
+    garbledLogCount.value = normalized.garbledCount;
+    nearDuplicateCollapsedCount.value = Math.max(0, rawLogCount.value - garbledLogCount.value - logs.value.length);
     pagination.value.total = logs.value.length;
     pagination.value.current = 1;
   } catch (err) {
     ElMessage.error(err?.message || '查询失败');
     logs.value = [];
     rawLogCount.value = 0;
+    garbledLogCount.value = 0;
     nearDuplicateCollapsedCount.value = 0;
     pagination.value.total = 0;
   } finally {
@@ -153,11 +150,9 @@ async function fetchLogs() {
 }
 
 async function ensureUserDirectory() {
-  if (userDirectory.value.size > 0) {
-    return;
-  }
   try {
-    userDirectory.value = await getUserDirectory();
+    // Audit role display must reflect latest bindings, so we skip stale cache snapshots.
+    userDirectory.value = await getUserDirectory({ force: true });
   } catch {
     userDirectory.value = new Map();
   }
@@ -171,6 +166,18 @@ function normalizeOperation(value) {
   if (/(update|edit|modify)/.test(raw)) return '修改';
   if (/(delete|remove)/.test(raw)) return '删除';
   if (/(approve|review)/.test(raw)) return '审批';
+  if (/alert_handle|handle_alert|deal_alert/.test(raw)) return '处置告警';
+  if (/policy_publish|policy_update/.test(raw)) return '修改策略';
+  if (/approval_launch|submit_approval|approval_submit/.test(raw)) return '发起审批';
+  if (/risk_event_mark|event_mark|mark_event/.test(raw)) return '标记事件状态';
+  if (/business_change_submit|change_submit/.test(raw)) return '提交业务变更申请';
+  if (/event_note_add|note_add|add_note/.test(raw)) return '添加事件备注';
+  if (/audit_log_view|log_view/.test(raw)) return '查看日志';
+  if (/audit_chain_verify|chain_verify|audit_verify/.test(raw)) return '发起验真';
+  if (/evidence_export|evidence_package|report_export/.test(raw)) return '导出证据包';
+  if (/lstm_forecast|forecast_job|risk_forecast/.test(raw)) return 'LSTM预测任务';
+  if (/adversarial_round|adversarial_drill|battle_round/.test(raw)) return '攻防演练轮次';
+  if (/data_aggregation|aggregation_job|aggregate_job/.test(raw)) return '数据聚合调度';
   return String(value || '访问');
 }
 
@@ -197,9 +204,25 @@ function normalizeRiskLevel(value, operation, result) {
   return '低';
 }
 
+function looksGarbledLog(item) {
+  const text = [
+    item?.operation,
+    item?.result,
+    item?.inputOverview,
+    item?.requestSummary,
+    item?.input,
+    item?.detail,
+    item?.assetId,
+  ]
+    .map(value => String(value == null ? '' : value))
+    .join(' ');
+  return /�|Ã|Â|ï»¿/.test(text);
+}
+
 function normalizeAuditLogs(rows) {
   const normalized = [];
   const nearestBySignature = new Map();
+  let garbledCount = 0;
   const signatureText = (value) => String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
   const toMs = (value) => {
     const text = String(value == null ? '' : value).trim();
@@ -209,12 +232,19 @@ function normalizeAuditLogs(rows) {
   };
 
   for (const item of rows) {
+    if (looksGarbledLog(item)) {
+      garbledCount += 1;
+      continue;
+    }
+    const userIdStr = normalizeIdText(item?.userIdStr || item?.userId);
     const operation = normalizeOperation(item?.operation);
     const result = normalizeResult(item?.result);
     const riskLevel = normalizeRiskLevel(item?.riskLevel, operation, result);
     const operationTime = item?.operationTime || item?.createTime || item?.updateTime || '-';
     const normalizedItem = {
       ...item,
+      userIdStr,
+      userIdText: userIdStr || '-',
       operation,
       result,
       riskLevel,
@@ -225,7 +255,7 @@ function normalizeAuditLogs(rows) {
     };
 
     const signature = [
-      signatureText(normalizedItem.userId),
+      signatureText(normalizedItem.userIdStr || normalizedItem.userId),
       signatureText(normalizedItem.operation).toLowerCase(),
       signatureText(normalizedItem.result),
       signatureText(normalizedItem.assetId),
@@ -255,19 +285,20 @@ function normalizeAuditLogs(rows) {
     normalized.push(normalizedItem);
     nearestBySignature.set(signature, { index: normalized.length - 1, ts: currentMs, operationTime });
   }
-  return normalized;
+  return { rows: normalized, garbledCount };
 }
 
 function userById(id) {
-  if (id == null) return null;
-  return userDirectory.value.get(String(id)) || null;
+  const idText = normalizeIdText(id);
+  if (!idText) return null;
+  return userDirectory.value.get(idText) || userDirectory.value.get(String(id)) || null;
 }
 
 function actorDisplayByRow(row) {
   if (row?.actorType === 'system') {
     return '系统任务 / 系统';
   }
-  const user = userById(row?.userId);
+  const user = userById(row?.userIdStr || row?.userId);
   if (!user) return '-';
   const username = user.username || '-';
   const role = user.roleCode || '-';
@@ -297,6 +328,13 @@ function userDepartmentById(id) {
 function userCompanyById(id) {
   const companyId = userById(id)?.companyId;
   return companyId != null ? String(companyId) : '-';
+}
+
+function normalizeIdText(id) {
+  if (id == null) return '';
+  const text = String(id).trim();
+  if (!text || text === 'undefined' || text === 'null') return '';
+  return text;
 }
 
 function resultTagType(value) {

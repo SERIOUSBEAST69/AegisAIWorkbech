@@ -355,7 +355,7 @@ python python-service/openclaw_simulator.py --count 600 --batch 50 --delay 0.05
 
 ### Runtime binding model
 - Client scan report now binds to the authenticated web account first (`authenticatedUsername`), and falls back to OS account only when no authenticated session exists.
-- Scanner performs register handshake before report (`POST /api/client/register`) to keep server-side binding metadata aligned.
+- Scanner uploads directly through `POST /api/client/report` using authenticated binding metadata.
 - Clipboard security events now require authenticated subject account and will not upload with anonymous/unknown identity.
 
 ### Offline resilience
@@ -366,7 +366,7 @@ python python-service/openclaw_simulator.py --count 600 --batch 50 --delay 0.05
 
 ### Code evidence
 - `electron/main.js`: passes authenticated username into scanner runtime context.
-- `electron/scanner/index.js`: adds authenticated-account binding, register handshake, pending-report persistence, and flush-on-next-scan.
+- `electron/scanner/index.js`: adds authenticated-account binding, pending-report persistence, and flush-on-next-scan.
 
 ### Security and traceability impact
 - Prevents traceability break caused by mismatched OS username vs logged-in employee account.
@@ -423,18 +423,17 @@ python python-service/openclaw_simulator.py --count 600 --batch 50 --delay 0.05
 ## 15) Client Identity Binding Hardening (E1)
 
 ### Binding controls
-- `/api/client/register` and `/api/client/report` now require `clientId + hostname + osUsername + osType`.
+- `/api/client/report` requires `clientId + hostname + osUsername + osType`.
 - Reporter identity must resolve to existing `sys_user` in current tenant; unresolved identity returns `40000`.
 - APIs return deterministic `deviceFingerprint` derived from machine tuple (`clientId|hostname|osUsername`) for host-level traceability.
 
 ### Evidence fields
-- Register response includes `deviceFingerprint`.
 - Report response includes `deviceFingerprint`.
 - `/api/client/list` entries include `deviceFingerprint` for governance-side correlation.
 
 ### Automated evidence
-- `ClientIdentityBindingIntegrationTest.registerRejectsMissingHostname`
-- `ClientIdentityBindingIntegrationTest.registerAndReportReturnDeviceFingerprint`
+- `ClientIdentityBindingIntegrationTest.reportRejectsMissingHostname`
+- `ClientIdentityBindingIntegrationTest.reportReturnsDeviceFingerprint`
 - `ClientIdentityBindingIntegrationTest.reportRejectsUnknownUsername`
 - Combined regression with `EmployeeDutySegregationIntegrationTest` and `TraceabilityAndObservabilityIntegrationTest`: `13 passed, 0 failed`.
 

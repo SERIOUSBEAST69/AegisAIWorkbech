@@ -12,7 +12,7 @@ SET
   u.real_name = CONCAT(
     ELT(1 + MOD(ranked.rn, 20),
       'Liam','Noah','Oliver','Elijah','James','Lucas','Mason','Ethan','Logan','Jacob',
-      'Ava','Emma','Sophia','Isabella','Mia','Amelia','Harper','Evelyn','Abigail','Emily'
+      'Ava','Emma','Sophia','Harper','Evelyn','Abigail','Emily','Lily','Chloe','Grace'
     ),
     ' ',
     ELT(1 + MOD(FLOOR(ranked.rn / 20), 24),
@@ -23,7 +23,7 @@ SET
   u.nickname = CONCAT(
     ELT(1 + MOD(ranked.rn, 20),
       'Liam','Noah','Oliver','Elijah','James','Lucas','Mason','Ethan','Logan','Jacob',
-      'Ava','Emma','Sophia','Isabella','Mia','Amelia','Harper','Evelyn','Abigail','Emily'
+      'Ava','Emma','Sophia','Harper','Evelyn','Abigail','Emily','Lily','Chloe','Grace'
     ),
     ' ',
     ELT(1 + MOD(FLOOR(ranked.rn / 20), 24),

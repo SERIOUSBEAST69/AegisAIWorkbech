@@ -56,9 +56,9 @@ public class DataAssetController {
     @Autowired private PrivacyEventService privacyEventService;
 
     @GetMapping("/list")
-    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','ADMIN_REVIEWER','SECOPS','BUSINESS_OWNER','AUDIT')")
+    @PreAuthorize("@currentUserService.hasAnyRole('ADMIN','DATA_ADMIN')")
     public R<List<DataAsset>> list(@RequestParam(required = false) String name) {
-        currentUserService.requireAnyRole("ADMIN", "ADMIN_REVIEWER", "SECOPS", "BUSINESS_OWNER", "AUDIT");
+        currentUserService.requireAnyRole("ADMIN", "DATA_ADMIN");
         QueryWrapper<DataAsset> qw = new QueryWrapper<>();
         companyScopeService.withCompany(qw);
         if (name != null && !name.isEmpty()) qw.like("name", name);

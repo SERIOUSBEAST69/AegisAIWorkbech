@@ -74,11 +74,9 @@ public class SecurityConfig {
                         "/api/auth/registration-options",
                         "/api/public/roles",
                         "/api/security/cross-site/status",
-                        // 轻量级客户端上报接口（无需登录，客户端用 clientId 标识）
-                        "/api/client/register",
+                        // 轻量级客户端上报接口（无需登录）
                         "/api/client/report",
                         "/api/client/policy/snapshot",
-                        "/api/client/simulation/**",
                         // 云端扫描队列（下载触发时写入，前端查询）
                         "/api/client/queue",
                         "/api/client/queue/**",
@@ -120,6 +118,7 @@ public class SecurityConfig {
             "X-Requested-With",
             "Accept",
             "X-Company-Id",
+            "X-Client-Username",
             "X-Client-Token"
         ));
         configuration.setExposedHeaders(Arrays.asList("Authorization"));

@@ -156,14 +156,12 @@ const iconByName = {
 
 const routeMeta = {
   '/': { description: '回到首页总控视图', icon: HomeFilled },
-  '/operations-command': { description: '查看运营治理动作入口', icon: Operation },
+  '/operations-command': { description: '进入安全指挥台执行统一处置', icon: Operation },
   '/shadow-ai': { description: '快速进入影子AI治理页面', icon: Aim },
   '/threat-monitor': { description: '实时监测并处置AI攻击威胁', icon: Monitor },
-  '/ai/anomaly': { description: '查看员工AI使用合规异常事件', icon: AlarmClock },
   '/audit-log': { description: '追踪关键审计证据链', icon: Histogram },
   '/audit-report': { description: '查看和导出审计报告', icon: Document },
   '/approval-center': { description: '处理共享与治理审批卡点', icon: DocumentChecked },
-  '/risk-event-manage': { description: '优先处理高风险告警事件', icon: Warning },
   '/policy-manage': { description: '配置平台策略与门禁', icon: Document },
   '/user-manage': { description: '管理组织成员与账号', icon: UserFilled },
   '/role-manage': { description: '配置角色和权限边界', icon: Avatar },
@@ -173,7 +171,6 @@ const routeMeta = {
 };
 
 const actionTemplates = [
-  { id: 'action-risk', title: '进入风险编排', route: '/risk-event-manage', icon: Warning, description: '优先处理高风险告警事件' },
   { id: 'action-approval', title: '处理审批积压', route: '/approval-center', icon: DocumentChecked, description: '进入审批中心待办列表' },
   { id: 'action-threat', title: '打开AI攻击防御', route: '/threat-monitor', icon: Monitor, description: '关注AI攻击实时变化' },
   { id: 'action-audit', title: '查看审计证据链', route: '/audit-log', icon: Histogram, description: '进入审计日志快速回放' },
@@ -545,7 +542,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKeydown));
 
 .palette-list {
   max-height: 52vh;
-  overflow: visible;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding: 0 10px 10px;
 }
 

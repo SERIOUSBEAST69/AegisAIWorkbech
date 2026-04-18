@@ -81,7 +81,7 @@
         </div>
         <div class="download-row">
           <span>下载链接：</span>
-          <a :href="resolvedDownloadUrl" target="_blank" rel="noopener noreferrer">{{ resolvedDownloadUrl }}</a>
+          <a href="#" @click.prevent="downloadReport">{{ resolvedDownloadUrl }}</a>
         </div>
       </el-alert>
     </el-card>
@@ -107,6 +107,7 @@ const compareData = ref(null);
 const reportRange = ref('');
 const generating = ref(false);
 const generated = ref(null);
+const downloading = ref(false);
 const canGenerate = hasPermission('audit:report:generate');
 
 const resolvedDownloadUrl = computed(() => normalizeDownloadUrl(generated.value?.downloadUrl));
@@ -153,6 +154,36 @@ async function generateReport() {
     ElMessage.error(error?.message || '审计报告生成失败');
   } finally {
     generating.value = false;
+  }
+}
+
+async function downloadReport() {
+  if (!generated.value?.downloadUrl || downloading.value) {
+    return;
+  }
+  downloading.value = true;
+  try {
+    const url = new URL(normalizeDownloadUrl(generated.value.downloadUrl), window.location.origin);
+    const response = await request.get(url.pathname + url.search, {
+      responseType: 'blob',
+    });
+    const blob = response?.data instanceof Blob ? response.data : new Blob([response?.data || ''], { type: 'application/json;charset=utf-8' });
+    const contentDisposition = String(response?.headers?.['content-disposition'] || '');
+    const filenameMatch = contentDisposition.match(/filename=\"?([^\";]+)\"?/i);
+    const filename = filenameMatch?.[1] || `audit-report-${Date.now()}.json`;
+    const downloadUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(downloadUrl);
+    ElMessage.success('审计报告已下载');
+  } catch (error) {
+    ElMessage.error(error?.message || '审计报告下载失败');
+  } finally {
+    downloading.value = false;
   }
 }
 </script>

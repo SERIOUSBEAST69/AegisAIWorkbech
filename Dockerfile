@@ -1,5 +1,5 @@
 # 单阶段构建，使用稳定的 Maven 镜像版本
-FROM maven:3.9.11-eclipse-temurin-17
+FROM docker.m.daocloud.io/library/maven:3.9.11-eclipse-temurin-17
 WORKDIR /app
 
 # 先复制 pom.xml 预热依赖层，减少后续改代码时的重复下载

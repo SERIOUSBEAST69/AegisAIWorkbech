@@ -138,14 +138,12 @@ const personaHighlights = computed(() => personaExperience.value.benefits.slice(
 const menuLayerColors = ['#08101b', '#12315f', '#274f97', '#88bfff'];
 const menuDescriptions = {
   '/': '总控视窗',
-  '/operations-command': '治理关键动作',
+  '/operations-command': '安全指挥台',
   '/shadow-ai': '影子AI发现与风险评级',
   '/threat-monitor': 'AI攻击实时防御',
   '/ai/risk-rating': '已并入影子AI发现与风险评级',
-  '/ai/anomaly': 'AI使用合规监控',
   '/audit-center': '审计日志与报告中枢',
   '/approval-center': '待办审批与我发起',
-  '/risk-event-manage': '合规风险记录',
   '/policy-manage': '治理规则配置',
   '/user-manage': '组织与账号',
   '/role-manage': '角色能力边界',
@@ -223,6 +221,9 @@ async function syncElectronAuthState() {
       authenticated: Boolean(userStore.token && userStore.userInfo),
       user: userStore.userInfo || null,
     });
+    if (!userStore.token && window.aegisClient?.clearClientToken) {
+      await window.aegisClient.clearClientToken();
+    }
   } catch {
     // Ignore bridge failures to keep web flow unaffected.
   }

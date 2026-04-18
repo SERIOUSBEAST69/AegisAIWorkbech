@@ -59,7 +59,7 @@ public class AuditReportController {
     private UserService userService;
 
     @GetMapping("/compare")
-    @PreAuthorize("@currentUserService.hasAnyPermission('audit:report:view','ops:metrics:view')")
+    @PreAuthorize("@currentUserService.hasRole('AUDIT')")
     public R<Map<String, Object>> compare(@RequestParam String from, @RequestParam String to) {
         LocalDate fromDate = parseDate(from, LocalDate.now(ZONE).minusDays(30));
         LocalDate toDate = parseDate(to, LocalDate.now(ZONE));
@@ -67,7 +67,7 @@ public class AuditReportController {
     }
 
     @GetMapping("/generate")
-    @PreAuthorize("@currentUserService.hasRole('ADMIN') || @currentUserService.hasPermission('audit:report:generate')")
+    @PreAuthorize("@currentUserService.hasRole('AUDIT')")
     public R<Map<String, Object>> generate(@RequestParam(required = false) String range,
                                            @RequestParam(required = false) String from,
                                            @RequestParam(required = false) String to) {
@@ -80,7 +80,7 @@ public class AuditReportController {
     }
 
     @GetMapping("/download")
-    @PreAuthorize("@currentUserService.hasAnyPermission('audit:report:view','audit:report:generate')")
+    @PreAuthorize("@currentUserService.hasRole('AUDIT')")
     public ResponseEntity<byte[]> download(@RequestParam(required = false) String range,
                                            @RequestParam(required = false) String from,
                                            @RequestParam(required = false) String to,
@@ -107,10 +107,8 @@ public class AuditReportController {
         Date from = Date.from(fromDate.atStartOfDay(ZONE).toInstant());
         Date to = Date.from(toDate.plusDays(1).atStartOfDay(ZONE).minusNanos(1).toInstant());
 
-        List<Long> userIds = companyScopeService.companyUserIds();
-        List<AuditLog> logs = auditLogService.list(
-            companyScopeService.withCompany(new QueryWrapper<AuditLog>().between("operation_time", from, to))
-        );
+        List<Long> userIds = safeCompanyUserIds();
+        List<AuditLog> logs = safeAuditLogs(from, to);
         if (!userIds.isEmpty()) {
             Set<Long> allowedIds = userIds.stream().collect(Collectors.toSet());
             logs = logs.stream()
@@ -150,9 +148,7 @@ public class AuditReportController {
             .collect(Collectors.toSet());
         double coverage = userIds.isEmpty() ? 0d : auditedUsers.size() * 100.0d / userIds.size();
 
-        List<GovernanceEvent> governanceEvents = governanceEventService.list(
-            companyScopeService.withCompany(new QueryWrapper<GovernanceEvent>().between("event_time", from, to))
-        );
+        List<GovernanceEvent> governanceEvents = safeGovernanceEvents(from, to);
         long disposed = governanceEvents.stream()
             .filter(item -> "blocked".equalsIgnoreCase(item.getStatus()) || "ignored".equalsIgnoreCase(item.getStatus()))
             .count();
@@ -163,9 +159,7 @@ public class AuditReportController {
             eventTypeDistribution.put(key, eventTypeDistribution.getOrDefault(key, 0L) + 1);
         }
 
-        long adversarialRuns = adversarialRecordService.count(
-            companyScopeService.withCompany(new QueryWrapper<AdversarialRecord>().between("create_time", from, to))
-        );
+        long adversarialRuns = safeAdversarialRuns(from, to);
 
         List<Map<String, Object>> recentLogs = logs.stream()
             .limit(20)
@@ -339,7 +333,52 @@ public class AuditReportController {
         if (userId == null) {
             return false;
         }
-        return userService.getById(userId) != null && "system".equalsIgnoreCase(userService.getById(userId).getUsername());
+        try {
+            com.trustai.entity.User user = userService.getById(userId);
+            return user != null && "system".equalsIgnoreCase(String.valueOf(user.getUsername()));
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
+    private List<Long> safeCompanyUserIds() {
+        try {
+            List<Long> ids = companyScopeService.companyUserIds();
+            return ids == null ? List.of() : ids;
+        } catch (Exception ex) {
+            return List.of();
+        }
+    }
+
+    private List<AuditLog> safeAuditLogs(Date from, Date to) {
+        try {
+            List<AuditLog> logs = auditLogService.list(new QueryWrapper<AuditLog>().between("operation_time", from, to));
+            return logs == null ? List.of() : logs;
+        } catch (Exception ex) {
+            return List.of();
+        }
+    }
+
+    private List<GovernanceEvent> safeGovernanceEvents(Date from, Date to) {
+        try {
+            List<GovernanceEvent> events = governanceEventService.list(
+                companyScopeService.withCompany(new QueryWrapper<GovernanceEvent>().between("event_time", from, to))
+            );
+            return events == null ? List.of() : events;
+        } catch (Exception ex) {
+            return List.of();
+        }
+    }
+
+    private long safeAdversarialRuns(Date from, Date to) {
+        try {
+            Long count = adversarialRecordService.count(
+                companyScopeService.withCompany(new QueryWrapper<AdversarialRecord>().between("create_time", from, to))
+            );
+            return count == null ? 0L : count;
+        } catch (Exception ex) {
+            return 0L;
+        }
     }
 
     private int compareDates(Date left, Date right) {

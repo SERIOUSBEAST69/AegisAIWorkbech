@@ -220,11 +220,6 @@
                         </div>
                       </div>
 
-                      <div class="field-group">
-                        <label for="register-department">部门 / 团队</label>
-                        <input id="register-department" v-model.trim="registerForm.department" class="field-input" type="text" placeholder="例如：安全运营中心 / AI研发部 / 教务处" />
-                      </div>
-
                       <div class="compact-grid">
                         <div class="field-group">
                           <label for="register-username">用户名</label>
@@ -244,6 +239,13 @@
                       <div class="field-group">
                         <label for="register-email">邮箱（可选）</label>
                         <input id="register-email" v-model.trim="registerForm.email" class="field-input" type="email" placeholder="用于接收治理通知" />
+                      </div>
+                    </template>
+
+                    <template v-else>
+                      <div class="review-note">
+                        <em>资料步骤未就绪</em>
+                        <span>请先在上一步选择认证方式，再返回此页填写资料。</span>
                       </div>
                     </template>
 
@@ -302,6 +304,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { UserFilled } from '@element-plus/icons-vue';
 import { authApi } from '../api/auth';
+import request from '../api/request';
 import { useUserStore } from '../store/user';
 import LiquidChrome from '../components/LiquidChrome.vue';
 import { canAccessPath, resolveDefaultLandingPath } from '../utils/persona';
@@ -311,6 +314,7 @@ const router = useRouter();
 const route = useRoute();
 const userStore = useUserStore();
 const clientLiteMode = isClientLiteMode();
+const isElectronEnv = typeof window !== 'undefined' && Boolean(window.aegisClient);
 let gsapLib = null;
 
 async function ensureGsap() {
@@ -340,21 +344,24 @@ const wizardSteps = [
   { id: 4, label: '确认' },
 ];
 
-const accessFlows = [
-  { value: 'login', accent: 'RETURNING ACCESS', title: '登录工作台', description: '已有账号时，从这里直接进入。' },
-  { value: 'register', accent: 'NEW GOVERNANCE ID', title: '创建治理身份', description: '第一次进入时按步骤建立工作台身份，不再把注册表单堆到页面侧边。' },
-];
+const accessFlows = computed(() => (clientLiteMode
+  ? [{ value: 'login', accent: 'RETURNING ACCESS', title: '登录工作台', description: '已有账号时，从这里直接进入。' }]
+  : [
+      { value: 'login', accent: 'RETURNING ACCESS', title: '登录工作台', description: '已有账号时，从这里直接进入。' },
+      { value: 'register', accent: 'NEW GOVERNANCE ID', title: '创建治理身份', description: '第一次进入时按步骤建立工作台身份，不再把注册表单堆到页面侧边。' },
+    ]));
 
 const accessModes = [
   { value: 'password', label: '账号密码', icon: UserFilled, loginHint: '通过账号与密码建立安全会话。', registerHint: '创建一组适合长期使用的工作台凭据。' },
 ];
+const DEFAULT_MODE = accessModes[0]?.value || 'password';
 const CAPTCHA_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 
 const currentStep = ref(1);
 const stepDirection = ref(1);
 const flowType = ref('login');
-const activeMode = ref('');
-const modeChosen = ref(false);
+const activeMode = ref(DEFAULT_MODE);
+const modeChosen = ref(Boolean(DEFAULT_MODE));
 const isLoading = ref(false);
 const globalError = ref('');
 const showPwd = ref(false);
@@ -438,6 +445,7 @@ const registrationOptions = reactive({
   identities: [...DEFAULT_IDENTITIES],
   organizations: [...DEFAULT_ORGANIZATIONS],
 });
+const inviteLookupTimer = ref(null);
 
 const selectedDemoRole = ref('');
 const selectedDemoAccount = ref('');
@@ -465,8 +473,12 @@ const demoAccountsForRole = computed(() => {
   return DEMO_LOGIN_ACCOUNTS.filter(item => String(item.roleCode || '').toUpperCase() === roleCode);
 });
 
-const currentFlowMeta = computed(() => accessFlows.find(item => item.value === flowType.value) || accessFlows[0]);
-const currentModeMeta = computed(() => accessModes.find(item => item.value === activeMode.value) || accessModes[0]);
+const currentFlowMeta = computed(() => accessFlows.value.find(item => item.value === flowType.value)
+  || accessFlows.value[0]
+  || { value: 'login', title: '登录工作台', description: '' });
+const currentModeMeta = computed(() => accessModes.find(item => item.value === activeMode.value)
+  || accessModes[0]
+  || { value: 'password', label: '账号密码', loginHint: '', registerHint: '' });
 const isPortalLifted = computed(() => currentStep.value >= 3 || (currentStep.value === 2 && modeChosen.value));
 
 const formStageTitle = computed(() => {
@@ -532,7 +544,7 @@ const reviewOrganization = computed(() => {
 });
 
 const reviewDepartment = computed(() => {
-  if (flowType.value === 'register') return registerForm.department || '进入后补充';
+  if (flowType.value === 'register') return '进入后补充';
   return '当前已有身份';
 });
 
@@ -581,7 +593,8 @@ function setActiveStepEl(el) {
 
 function syncStepHeight(immediate = false) {
   if (!stepViewportEl.value || !activeStepEl.value) return;
-  const nextHeight = activeStepEl.value.offsetHeight;
+  const nextHeight = Math.max(activeStepEl.value.offsetHeight || 0, activeStepEl.value.scrollHeight || 0);
+  if (!nextHeight) return;
   if (clientLiteMode) {
     stepViewportEl.value.style.height = `${nextHeight}px`;
     return;
@@ -682,9 +695,6 @@ function ensureRegistrationBasics() {
   if (!registerForm.inviteCode) {
     throw new Error('请输入企业邀请码');
   }
-  if (!registerForm.department) {
-    throw new Error('请填写部门或团队');
-  }
 }
 
 function getFormValidationError() {
@@ -732,6 +742,10 @@ function canJumpToStep(step) {
 
 function goToStep(step) {
   if (step === currentStep.value || !canJumpToStep(step)) return;
+  if (step >= 3 && !activeMode.value) {
+    activeMode.value = DEFAULT_MODE;
+    modeChosen.value = true;
+  }
   stepDirection.value = step > currentStep.value ? 1 : -1;
   currentStep.value = step;
   globalError.value = '';
@@ -748,9 +762,12 @@ function goBack() {
 }
 
 function selectFlow(value) {
+  if (clientLiteMode && value !== 'login') {
+    return;
+  }
   flowType.value = value;
-  activeMode.value = '';
-  modeChosen.value = false;
+  activeMode.value = DEFAULT_MODE;
+  modeChosen.value = Boolean(DEFAULT_MODE);
   registerForm.loginType = 'password';
   globalError.value = '';
 }
@@ -760,6 +777,34 @@ function selectMode(value) {
   modeChosen.value = true;
   registerForm.loginType = value;
   globalError.value = '';
+}
+
+function clearInviteLookupTimer() {
+  if (inviteLookupTimer.value) {
+    window.clearTimeout(inviteLookupTimer.value);
+    inviteLookupTimer.value = null;
+  }
+}
+
+async function syncRegistrationOptionsByInviteCode(inviteCode) {
+  const trimmedCode = String(inviteCode || '').trim();
+  if (!trimmedCode) {
+    registerForm.companyName = '';
+    return;
+  }
+  try {
+    const result = await authApi.getRegistrationOptions(undefined, trimmedCode);
+    if (registerForm.inviteCode === trimmedCode && result?.companyName) {
+      registerForm.companyName = result.companyName;
+    }
+    if (registerForm.inviteCode === trimmedCode && Array.isArray(result?.identities) && result.identities.length > 0) {
+      registrationOptions.identities = normalizeOptions(result.identities, registrationOptions.identities);
+    }
+  } catch {
+    if (registerForm.inviteCode === trimmedCode) {
+      registerForm.companyName = '';
+    }
+  }
 }
 
 function applyDemoAccountSelection() {
@@ -777,13 +822,29 @@ function applyDemoAccountSelection() {
 
 async function establishAndRoute(response) {
   const user = await userStore.establishSession(response);
+  if (isElectronEnv && window.aegisClient?.getClientInfo) {
+    try {
+      const clientInfo = await window.aegisClient.getClientInfo();
+      const registration = await request.post('/client/register', {
+        clientId: clientInfo?.clientId || '',
+        hostname: clientInfo?.hostname || '',
+        osUsername: clientInfo?.osUsername || user?.username || '',
+        osType: clientInfo?.osType || 'Windows',
+        clientVersion: '1.0.0',
+      });
+      const clientToken = registration?.clientToken || registration?.data?.clientToken;
+      if (clientToken && window.aegisClient?.saveClientToken) {
+        await window.aegisClient.saveClientToken(clientToken);
+      }
+    } catch (error) {
+      // Do not block login if client token registration is temporarily unavailable.
+      ElMessage.warning(error?.message || '客户端连接异常，已进入离线模式，稍后会自动重试连接');
+    }
+  }
   await playCinematicSuccess();
   sessionStorage.setItem('aegis.transition.origin', 'login');
-  const requestedRedirect = String(route.query?.redirect || '').trim();
-  const fallbackRedirect = resolveDefaultLandingPath(user);
-  const redirect = requestedRedirect && canAccessPath(requestedRedirect, user)
-    ? requestedRedirect
-    : fallbackRedirect;
+  // Always land on home first after login, regardless of role/account.
+  const redirect = '/';
   const normalizedRedirectPath = String(redirect || '').split('?')[0].split('#')[0];
   const isHomeLanding = normalizedRedirectPath === '/' || normalizedRedirectPath === '/home';
 
@@ -1114,6 +1175,10 @@ async function handlePrimaryAction() {
   }
 
   if (currentStep.value === 2) {
+    if (!activeMode.value) {
+      activeMode.value = DEFAULT_MODE;
+      modeChosen.value = true;
+    }
     goToStep(3);
     return;
   }
@@ -1148,6 +1213,11 @@ watch([flowType, activeMode], async () => {
   syncStepHeight();
 });
 
+watch(currentStep, async () => {
+  await nextTick();
+  syncStepHeight(true);
+});
+
 watch(selectedDemoRole, (nextRole) => {
   selectedDemoAccount.value = '';
   const roleCode = String(nextRole || '').toUpperCase();
@@ -1161,6 +1231,20 @@ watch(selectedDemoRole, (nextRole) => {
     passwordForm.password = '';
   }
 });
+
+watch(
+  () => registerForm.inviteCode,
+  (nextInviteCode) => {
+    if (flowType.value !== 'register') {
+      return;
+    }
+    clearInviteLookupTimer();
+    inviteLookupTimer.value = window.setTimeout(() => {
+      void syncRegistrationOptionsByInviteCode(nextInviteCode);
+      inviteLookupTimer.value = null;
+    }, 250);
+  }
+);
 
 watch(isPortalLifted, async () => {
   await nextTick();
@@ -1335,6 +1419,7 @@ onBeforeUnmount(() => {
     window.cancelAnimationFrame(viewportFrame);
     viewportFrame = 0;
   }
+  clearInviteLookupTimer();
 });
 </script>
 

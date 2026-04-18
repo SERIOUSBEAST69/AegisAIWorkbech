@@ -1,5 +1,5 @@
 ﻿{
-    "generatedAt":  "2026-04-05T22:11:10",
+    "generatedAt":  "2026-04-16T14:36:58",
     "baseUrl":  "http://localhost:8080",
     "operator":  "admin",
     "totalChecks":  6,
@@ -15,7 +15,7 @@
                        "httpStatus":  200,
                        "code":  20000,
                        "msg":  "success",
-                       "durationMs":  6048,
+                       "durationMs":  2273,
                        "extract":  {
                                        "implemented":  8,
                                        "total":  8,
@@ -32,41 +32,41 @@
                        "httpStatus":  200,
                        "code":  20000,
                        "msg":  "success",
-                       "durationMs":  35,
+                       "durationMs":  49,
                        "extract":  {
                                        "runId":  null,
                                        "dryRun":  true,
-                                       "actionsCount":  72,
+                                       "actionsCount":  100,
                                        "actionsSample":  [
                                                              {
+                                                                 "action":  "BLOCK_AND_TICKET",
                                                                  "notification":  "SECOPS + ADMIN auto-notified",
                                                                  "eventType":  "PRIVACY_ALERT",
-                                                                 "eventId":  136,
-                                                                 "action":  "BLOCK_AND_TICKET"
+                                                                 "eventId":  527
                                                              },
                                                              {
+                                                                 "action":  "BLOCK_AND_TICKET",
                                                                  "notification":  "SECOPS + ADMIN auto-notified",
                                                                  "eventType":  "PRIVACY_ALERT",
-                                                                 "eventId":  149,
-                                                                 "action":  "BLOCK_AND_TICKET"
+                                                                 "eventId":  538
                                                              },
                                                              {
+                                                                 "action":  "BLOCK_AND_TICKET",
                                                                  "notification":  "SECOPS + ADMIN auto-notified",
                                                                  "eventType":  "PRIVACY_ALERT",
-                                                                 "eventId":  194,
-                                                                 "action":  "BLOCK_AND_TICKET"
+                                                                 "eventId":  1171
                                                              },
                                                              {
+                                                                 "action":  "BLOCK_AND_TICKET",
                                                                  "notification":  "SECOPS + ADMIN auto-notified",
-                                                                 "eventType":  "PRIVACY_ALERT",
-                                                                 "eventId":  217,
-                                                                 "action":  "BLOCK_AND_TICKET"
+                                                                 "eventType":  "MODEL_RISK_ALERT",
+                                                                 "eventId":  91
                                                              },
                                                              {
+                                                                 "action":  "BLOCK_AND_TICKET",
                                                                  "notification":  "SECOPS + ADMIN auto-notified",
-                                                                 "eventType":  "PRIVACY_ALERT",
-                                                                 "eventId":  306,
-                                                                 "action":  "BLOCK_AND_TICKET"
+                                                                 "eventType":  "MODEL_RISK_ALERT",
+                                                                 "eventId":  111
                                                              }
                                                          ],
                                        "blockersCount":  0
@@ -80,7 +80,7 @@
                        "httpStatus":  200,
                        "code":  20000,
                        "msg":  "success",
-                       "durationMs":  15,
+                       "durationMs":  18,
                        "extract":  {
                                        "runId":  null,
                                        "status":  null,
@@ -96,7 +96,7 @@
                        "httpStatus":  200,
                        "code":  20000,
                        "msg":  "success",
-                       "durationMs":  20,
+                       "durationMs":  23,
                        "extract":  {
                                        "fairness":  {
                                                         "accuracyDisparity":  0.0,
@@ -116,7 +116,7 @@
                        "httpStatus":  200,
                        "code":  20000,
                        "msg":  "success",
-                       "durationMs":  16,
+                       "durationMs":  28,
                        "extract":  {
                                        "totalRequests":  0
                                    }
@@ -129,7 +129,7 @@
                        "httpStatus":  200,
                        "code":  20000,
                        "msg":  "success",
-                       "durationMs":  51,
+                       "durationMs":  108,
                        "extract":  {
                                        "total":  9
                                    }

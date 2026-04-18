@@ -71,6 +71,8 @@ services:
       dockerfile: Dockerfile
     container_name: ai-inference
     restart: always
+    profiles:
+      - ai
     environment:
       HF_ENDPOINT: https://hf-mirror.com
     ports:
@@ -165,8 +167,6 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-      ai-inference:
-        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8080/api/auth/registration-options >/dev/null || exit 1"]
       interval: 10s

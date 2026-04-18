@@ -402,10 +402,13 @@ INSERT INTO data_asset (company_id, name, type, sensitivity_level, location, dis
 
 -- Default compliance policies
 INSERT INTO compliance_policy (company_id, name, rule_content, scope, status, version, create_time, update_time) VALUES
-(1, '数据分类分级规范', '所有数据必须按照敏感程度分为高、中、低三级', '全公司', 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-(1, '个人信息保护政策', '收集个人信息需获得用户明确同意', '业务部门', 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-(1, '提示词敏感词拦截策略', '{"keywords":["身份证号","银行卡号","工资条","病历","家庭住址","private key"],"mode":"contains"}', 'ai_prompt', 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-(1, '数据出境安全评估', '涉及跨境数据传输需进行安全评估', '技术部门', 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+(1, '手机号敏感脱敏', '{"policyType":"MASKING","description":"AI 交互输入时，自动识别并遮蔽手机号明文，防止隐私泄露","riskLevel":"MEDIUM","priority":10,"keywords":["手机号","电话"],"action":"mask"}', '全公司', 0, 3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(1, '核心数据外发管控', '{"policyType":"ACCESS_CONTROL","description":"限制企业涉密、内部数据向外部 AI 平台直接传输，调用前自动脱敏","riskLevel":"MEDIUM","priority":20,"keywords":["核心数据","外发","脱敏"],"action":"block"}', '全公司', 1, 3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(1, '影子 AI 终端阻断', '{"policyType":"ACCESS_CONTROL","description":"未授权 AI 工具自动扫描、实时告警，违规行为一键限制终端访问","riskLevel":"HIGH","priority":30,"keywords":["影子AI","终端阻断","告警"],"action":"block"}', '终端', 1, 3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(1, 'AI 调用频次风控', '{"policyType":"ALERT_GOVERNANCE","description":"针对短时间高频 AI 调用行为，触发异常风险评级与限流处置","riskLevel":"MEDIUM","priority":40,"keywords":["调用频次","限流","异常"],"action":"throttle"}', '全公司', 1, 3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(1, '高危模型访问隔离', '{"policyType":"ACCESS_CONTROL","description":"禁止终端访问未纳入企业白名单、高泄露风险的外部大模型","riskLevel":"HIGH","priority":50,"keywords":["白名单","高危模型","隔离"],"action":"isolate"}', '全公司', 1, 3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(1, '违规行为自动留痕', '{"policyType":"AUDIT_GOVERNANCE","description":"AI 违规操作自动生成风险事件，同步写入审计哈希证据链","riskLevel":"LOW","priority":60,"keywords":["留痕","哈希","审计"],"action":"audit"}', '全公司', 1, 3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+(1, '跨租户数据防越权', '{"policyType":"ACCESS_CONTROL","description":"多租户环境下强制数据边界校验，杜绝横向越权与数据泄露","riskLevel":"HIGH","priority":70,"keywords":["跨租户","越权","数据边界"],"action":"deny"}', '全租户', 1, 3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
 
 -- Default desensitize rules
 INSERT INTO desensitize_rule (name, pattern, mask, example, create_time, update_time) VALUES

@@ -26,6 +26,7 @@ const props = defineProps({
 
 const mountEl = ref(null);
 let root = null;
+let renderRafId = 0;
 
 const renderReact = () => {
   if (!root) return;
@@ -44,6 +45,15 @@ const renderReact = () => {
   );
 };
 
+const scheduleRender = () => {
+  if (!root) return;
+  if (renderRafId) return;
+  renderRafId = window.requestAnimationFrame(() => {
+    renderRafId = 0;
+    renderReact();
+  });
+};
+
 onMounted(() => {
   if (!mountEl.value) return;
   root = createRoot(mountEl.value);
@@ -53,12 +63,15 @@ onMounted(() => {
 watch(
   () => [props.items, props.activeKey, props.showTitles],
   () => {
-    renderReact();
+    scheduleRender();
   },
-  { deep: true },
 );
 
 onBeforeUnmount(() => {
+  if (renderRafId) {
+    window.cancelAnimationFrame(renderRafId);
+    renderRafId = 0;
+  }
   if (root) {
     root.unmount();
     root = null;

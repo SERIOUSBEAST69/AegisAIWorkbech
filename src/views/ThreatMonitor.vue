@@ -2301,27 +2301,55 @@ function statusLabel(s) {
 }
 
 function eventTypeLabel(t) {
+  const raw = String(t || '').trim();
+  const key = raw.toUpperCase();
   const map = {
     FILE_STEAL: '文件窃取',
     SUSPICIOUS_UPLOAD: '可疑上传',
     BATCH_COPY: '批量复制',
     EXFILTRATION: '数据外泄',
+    DATA_EXFILTRATION: '数据外泄',
+    DATA_EXPORT: '数据导出',
+    DATA_LEAK_ALERT: '数据泄露告警',
     DATA_SCRAPE: '数据抓取',
     CREDENTIAL_DUMP: '凭证转储',
+    PRIVACY_ALERT: '隐私告警',
+    SECURITY_ALERT: '安全威胁告警',
+    SHADOW_AI_ALERT: '影子AI告警',
+    ANOMALY_ALERT: '行为异常告警',
+    BEHAVIOR_ANOMALY: '行为异常事件',
+    POLICY_VIOLATION: '策略违规事件',
+    ACCESS_CONTROL_VIOLATION: '访问控制违规',
+    SENSITIVE_OPERATION: '敏感操作事件',
     SLOW_QUERY_ALERT: '慢查询告警',
     RELIABILITY_ALERT: '韧性告警',
   };
-  return map[t] ?? t;
+  if (map[key]) return map[key];
+  if (/[\u4e00-\u9fa5]/.test(raw)) return raw;
+  return raw ? `未分类事件（${key}）` : '未知事件';
 }
 
 function centerEventTypeLabel(t) {
+  const raw = String(t || '').trim();
+  const key = raw.toUpperCase();
   const map = {
     PRIVACY_ALERT: '隐私告警',
     ANOMALY_ALERT: '行为异常',
     SHADOW_AI_ALERT: '影子AI',
     SECURITY_ALERT: '安全威胁',
+    DATA_LEAK_ALERT: '数据泄露告警',
+    SLOW_QUERY_ALERT: '慢查询告警',
+    RELIABILITY_ALERT: '韧性告警',
+    POLICY_VIOLATION: '策略违规',
+    ACCESS_CONTROL_VIOLATION: '访问控制违规',
+    ACCOUNT_COMPROMISE: '账号异常',
+    ACCOUNT_LOGIN_ANOMALY: '账号登录异常',
+    SENSITIVE_OPERATION: '敏感操作',
+    DATA_EXPORT: '数据导出',
   };
-  return map[t] ?? (t || '未知');
+  if (map[key]) return map[key];
+  if (/[\u4e00-\u9fa5]/.test(raw)) return raw;
+  return raw ? `未分类事件（${key}）` : '未知事件';
 }
 
 function attackTypeLabel(type) {

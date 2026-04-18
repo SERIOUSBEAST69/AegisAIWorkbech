@@ -36,7 +36,6 @@ const PERSONAS = {
     quickActions: [
       { title: '用户管理', description: '调整组织与角色', route: '/user-manage' },
       { title: '策略管理', description: '维护治理策略', route: '/policy-manage' },
-      { title: '合规风险记录', description: '总览风险闭环', route: '/risk-event-manage' },
     ],
     roleHints: ['admin', 'governance', '合规', '管理员'],
   },
@@ -59,7 +58,6 @@ const PERSONAS = {
       { step: '03', title: '输出结论', description: '形成复核结论并推动闭环。' },
     ],
     quickActions: [
-      { title: '审批中心', description: '复核治理申请', route: '/approval-center' },
       { title: '审计中心', description: '追踪证据链', route: '/audit-center' },
     ],
     roleHints: ['review', 'reviewer', '复核', '审计'],
@@ -79,12 +77,11 @@ const PERSONAS = {
     ],
     journey: [
       { step: '01', title: '签收告警', description: '优先处理高危告警。' },
-      { step: '02', title: '回溯证据', description: '关联日志与风险记录。' },
+      { step: '02', title: '回溯证据', description: '关联日志与审计证据。' },
       { step: '03', title: '策略处置', description: '调整策略并完成闭环。' },
     ],
     quickActions: [
       { title: 'AI攻击实时防御', description: '查看攻击告警态势', route: '/threat-monitor' },
-      { title: '审计中心', description: '核验处置证据', route: '/audit-center' },
     ],
     roleHints: ['security', 'soc', 'secops', '运维', '安全'],
   },
@@ -107,7 +104,6 @@ const PERSONAS = {
       { step: '03', title: '跟踪审批与结果', description: '查看审批与风险处置闭环。' },
     ],
     quickActions: [
-      { title: '审批中心', description: '跟进关键审批', route: '/approval-center' },
       { title: '影子AI发现与风险评级', description: '发起与查看风险评级', route: '/shadow-ai' },
     ],
     roleHints: ['business', 'owner', '业务', '产品'],
@@ -132,7 +128,6 @@ const PERSONAS = {
     ],
     quickActions: [
       { title: '审计中心', description: '查看日志与报告', route: '/audit-center' },
-      { title: '合规风险记录', description: '核验风险处理结果', route: '/risk-event-manage' },
     ],
     roleHints: ['audit', '审计'],
   },
@@ -144,7 +139,7 @@ const MENU_SECTIONS = [
     title: '指挥工作台',
     items: [
       { path: '/', label: '首页', icon: 'HomeFilled', audiences: ['governanceAdmin', 'governanceReviewer', 'secops', 'businessOwner', 'audit'] },
-      { path: '/operations-command', label: '安全指挥台', icon: 'Grid', audiences: ['governanceAdmin', 'secops'] },
+      { path: '/operations-command', label: '安全指挥台', icon: 'TrendCharts', audiences: ['governanceAdmin', 'governanceReviewer', 'secops', 'businessOwner', 'audit'] },
       { path: '/ops-observability', label: '运维观测', icon: 'TrendCharts', audiences: ['governanceAdmin', 'secops', 'governanceReviewer'] },
     ],
   },
@@ -154,16 +149,14 @@ const MENU_SECTIONS = [
     items: [
       { path: '/shadow-ai', label: '影子AI发现与风险评级', icon: 'View', audiences: ['governanceAdmin', 'governanceReviewer', 'secops', 'businessOwner', 'audit'] },
       { path: '/threat-monitor', label: 'AI攻击实时防御', icon: 'AlarmClock', audiences: ['governanceAdmin', 'secops'] },
-      { path: '/ai/anomaly', label: 'AI使用合规监控', icon: 'AlarmClock', audiences: ['governanceAdmin', 'governanceReviewer', 'secops', 'businessOwner', 'audit'] },
-      { path: '/audit-center', label: '审计中心', icon: 'Document', audiences: ['governanceAdmin', 'governanceReviewer', 'secops', 'audit'] },
+      { path: '/audit-center', label: '审计中心', icon: 'Document', audiences: ['governanceAdmin', 'governanceReviewer', 'secops', 'businessOwner', 'audit'] },
     ],
   },
   {
     key: 'process',
     title: '流转与履约',
     items: [
-      { path: '/approval-center', label: '审批中心', icon: 'Files', audiences: ['governanceAdmin', 'governanceReviewer', 'secops', 'businessOwner', 'audit'] },
-      { path: '/risk-event-manage', label: '合规风险记录', icon: 'Warning', audiences: ['governanceAdmin', 'governanceReviewer', 'secops', 'audit'] },
+      { path: '/approval-center', label: '审批中心', icon: 'Files', audiences: ['governanceAdmin', 'governanceReviewer'] },
     ],
   },
   {
@@ -173,7 +166,7 @@ const MENU_SECTIONS = [
       { path: '/user-manage', label: '用户管理', icon: 'UserFilled', audiences: ['governanceAdmin', 'governanceReviewer'] },
       { path: '/role-manage', label: '角色管理', icon: 'Avatar', audiences: ['governanceAdmin', 'governanceReviewer'] },
       { path: '/permission-manage', label: '权限管理', icon: 'Key', audiences: ['governanceAdmin', 'governanceReviewer'] },
-      { path: '/policy-manage', label: '策略管理', icon: 'Document', audiences: ['governanceAdmin', 'governanceReviewer', 'secops'] },
+      { path: '/policy-manage', label: '策略管理', icon: 'Document', audiences: ['governanceAdmin', 'governanceReviewer', 'secops', 'businessOwner', 'audit'] },
     ],
   },
 ];
@@ -181,49 +174,48 @@ const MENU_SECTIONS = [
 const EXTRA_ROUTE_AUDIENCES = {
   '/profile': [ALL],
   '/settings': [ALL],
-  '/operations-command': ['governanceAdmin', 'secops'],
+  '/operations-command': ['governanceAdmin', 'governanceReviewer', 'secops', 'businessOwner', 'audit'],
   '/ops-observability': ['governanceAdmin', 'governanceReviewer', 'secops'],
-  '/audit-center': ['governanceAdmin', 'governanceReviewer', 'secops', 'audit'],
-  '/approval-center': ['governanceAdmin', 'governanceReviewer', 'secops', 'businessOwner', 'audit'],
-  '/risk-event-manage': ['governanceAdmin', 'governanceReviewer', 'secops', 'audit'],
+  '/audit-center': ['governanceAdmin', 'governanceReviewer', 'secops', 'businessOwner', 'audit'],
+  '/approval-center': ['governanceAdmin', 'governanceReviewer'],
+  '/policy-manage': ['governanceAdmin', 'governanceReviewer', 'secops', 'businessOwner', 'audit'],
   '/ai/risk-rating': ['governanceAdmin', 'governanceReviewer', 'secops', 'businessOwner', 'audit'],
-  '/ai/anomaly': ['governanceAdmin', 'governanceReviewer', 'secops', 'businessOwner', 'audit'],
   '/shadow-ai': ['governanceAdmin', 'governanceReviewer', 'secops', 'businessOwner', 'audit'],
   '/threat-monitor': ['governanceAdmin', 'secops'],
 };
 
 const ROLE_PATH_ALLOWLIST = {
   ADMIN: [
-    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/threat-monitor', '/ai/risk-rating', '/ai/anomaly', '/audit-center', '/approval-center',
-    '/risk-event-manage', '/policy-manage', '/user-manage', '/role-manage', '/permission-manage', '/profile', '/settings',
+    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/threat-monitor', '/ai/risk-rating', '/audit-center', '/approval-center',
+    '/policy-manage', '/user-manage', '/role-manage', '/permission-manage', '/profile', '/settings',
   ],
   ADMIN_REVIEWER: [
-    '/', '/ops-observability', '/shadow-ai', '/ai/risk-rating', '/ai/anomaly', '/audit-center', '/approval-center', '/risk-event-manage',
+    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/ai/risk-rating', '/audit-center', '/approval-center',
     '/policy-manage', '/user-manage', '/role-manage', '/permission-manage', '/profile', '/settings',
   ],
   ADMIN_OPS: [
-    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/threat-monitor', '/ai/risk-rating', '/ai/anomaly', '/audit-center', '/approval-center',
-    '/risk-event-manage', '/policy-manage', '/profile', '/settings',
+    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/threat-monitor', '/ai/risk-rating', '/audit-center',
+    '/policy-manage', '/profile', '/settings',
   ],
   SECOPS: [
-    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/threat-monitor', '/ai/risk-rating', '/ai/anomaly', '/audit-center', '/approval-center',
-    '/risk-event-manage', '/policy-manage', '/profile', '/settings',
+    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/threat-monitor', '/ai/risk-rating', '/audit-center',
+    '/policy-manage', '/profile', '/settings',
   ],
   SECOPS_RESPONDER: [
-    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/threat-monitor', '/ai/risk-rating', '/ai/anomaly', '/audit-center', '/approval-center',
-    '/risk-event-manage', '/policy-manage', '/profile', '/settings',
+    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/threat-monitor', '/ai/risk-rating', '/audit-center',
+    '/policy-manage', '/profile', '/settings',
   ],
   BUSINESS_OWNER: [
-    '/', '/shadow-ai', '/ai/risk-rating', '/ai/anomaly', '/approval-center', '/profile', '/settings',
+    '/', '/operations-command', '/shadow-ai', '/ai/risk-rating', '/audit-center', '/policy-manage', '/profile', '/settings',
   ],
   BUSINESS_OWNER_APPROVER: [
-    '/', '/shadow-ai', '/ai/risk-rating', '/ai/anomaly', '/approval-center', '/profile', '/settings',
+    '/', '/operations-command', '/shadow-ai', '/ai/risk-rating', '/audit-center', '/policy-manage', '/profile', '/settings',
   ],
   AUDIT: [
-    '/', '/shadow-ai', '/ai/risk-rating', '/ai/anomaly', '/audit-center', '/approval-center', '/risk-event-manage', '/profile', '/settings',
+    '/', '/operations-command', '/shadow-ai', '/ai/risk-rating', '/audit-center', '/policy-manage', '/profile', '/settings',
   ],
   SEC: [
-    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/threat-monitor', '/audit-center', '/risk-event-manage', '/profile', '/settings',
+    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/threat-monitor', '/audit-center', '/profile', '/settings',
   ],
 };
 
@@ -291,7 +283,7 @@ function isPathPermissionAllowed(path, user) {
   if (isPlatformAdmin(user)) {
     return true;
   }
-  if (isGovernanceReviewer(user) && (path === '/user-manage' || path === '/role-manage' || path === '/permission-manage')) {
+  if (isGovernanceReviewer(user) && ['/user-manage', '/role-manage', '/permission-manage', '/policy-manage'].includes(path)) {
     return true;
   }
   return hasAnyPermission(user, requiredAny);

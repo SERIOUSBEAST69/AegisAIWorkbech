@@ -27,6 +27,10 @@ export function useHomeCinematicReveal({ stageRef, heroRef, motionTier, prefersR
   let revealFailSafeTimer = null;
   let revealEnterRequested = false;
   let revealEnteredByClick = false;
+  let revealRingTween = null;
+  let revealRingStarted = false;
+  let revealRingCompleted = false;
+  const ringSweepDuration = 0.42;
 
   function sortLeftToRight(nodes = []) {
     return [...nodes].sort((a, b) => {
@@ -260,53 +264,97 @@ export function useHomeCinematicReveal({ stageRef, heroRef, motionTier, prefersR
     if (!cinematicRevealPending.value || cinematicRevealDone.value) {
       return;
     }
-    if (homeRevealTimeline && !homeRevealBootFinished) {
-      revealEnteredByClick = true;
-      revealEnterRequested = true;
-      revealAwaitingClick.value = false;
-      gsap.killTweensOf(revealLogoBtnRef.value);
-      gsap.to(revealLogoBtnRef.value, {
-        scale: revealMobileLite.value ? 1.04 : 1.08,
-        duration: 0.12,
-        ease: 'power2.out',
-        yoyo: true,
-        repeat: 1,
-      });
-      homeRevealTimeline.timeScale(revealMobileLite.value ? 2.8 : 3.4);
-      window.setTimeout(() => {
-        if (revealOverlayVisible.value || cinematicRevealPending.value || cinematicRevealRunning.value) {
-          finalizeRevealAfterClick();
-        }
-      }, 1400);
-      return;
-    }
-    if (homeRevealOutroTimeline) {
-      revealEnteredByClick = true;
-      homeRevealOutroTimeline.progress(1);
-      window.setTimeout(() => {
-        if (revealOverlayVisible.value || cinematicRevealPending.value || cinematicRevealRunning.value) {
-          finalizeRevealAfterClick();
-        }
-      }, 260);
-      return;
-    }
-    if (!revealAwaitingClick.value) {
-      return;
-    }
     revealEnteredByClick = true;
     revealAwaitingClick.value = false;
     revealLogoBtnRef.value?.blur?.();
-    revealMainScene();
-    window.setTimeout(() => {
-      if (revealOverlayVisible.value || cinematicRevealPending.value || cinematicRevealRunning.value) {
-        finalizeRevealAfterClick();
-      }
-    }, 2600);
+    revealEnterRequested = true;
+    if (homeRevealTimeline) {
+      homeRevealTimeline.kill();
+      homeRevealTimeline = null;
+    }
+    if (homeRevealOutroTimeline) {
+      homeRevealOutroTimeline.kill();
+      homeRevealOutroTimeline = null;
+    }
+    if (revealRingTween) {
+      revealRingTween.kill();
+      revealRingTween = null;
+    }
+    finalizeRevealAfterClick();
+  }
+
+  function startRevealRingSweep() {
+    const trackNode = revealTrackRef.value;
+    const progressNode = revealProgressRef.value;
+    if (!trackNode || !progressNode || revealRingStarted || revealRingCompleted) {
+      return;
+    }
+    revealRingStarted = true;
+    revealAwaitingClick.value = false;
+
+    if (revealRingTween) {
+      revealRingTween.kill();
+      revealRingTween = null;
+    }
+
+    gsap.killTweensOf(revealLogoBtnRef.value);
+
+    revealRingTween = gsap.timeline({
+      onComplete: () => {
+        revealRingTween = null;
+        revealRingCompleted = true;
+        revealAwaitingClick.value = true;
+        gsap.to(revealLogoBtnRef.value, {
+          scale: 1.03,
+          duration: 0.9,
+          ease: 'sine.inOut',
+          yoyo: true,
+          repeat: -1,
+        });
+      },
+      onInterrupt: () => {
+        revealRingTween = null;
+      },
+    });
+
+    revealRingTween
+      .to(trackNode, {
+        strokeDashoffset: 0,
+        duration: ringSweepDuration,
+        ease: 'none',
+      }, 0)
+      .to('.home-pbc-svg-strokes svg', {
+        rotation: 360,
+        duration: ringSweepDuration,
+        ease: 'none',
+        transformOrigin: '50% 50%',
+      }, 0)
+      .to(progressNode, {
+        strokeDashoffset: 0,
+        duration: ringSweepDuration,
+        ease: 'none',
+      }, 0);
+  }
+
+  function handleRevealLogoHover() {
+    if (!cinematicRevealRunning.value || !revealOverlayVisible.value) {
+      return;
+    }
+    if (!homeRevealBootFinished && homeRevealTimeline) {
+      homeRevealTimeline.progress(1);
+    }
+    startRevealRingSweep();
   }
 
   function playHomeRevealTimeline() {
     if (!cinematicRevealPending.value || cinematicRevealDone.value) {
       return;
+    }
+    revealRingStarted = false;
+    revealRingCompleted = false;
+    if (revealRingTween) {
+      revealRingTween.kill();
+      revealRingTween = null;
     }
     const groups = getRevealTargets();
     const stats = groups.stats;
@@ -385,12 +433,8 @@ export function useHomeCinematicReveal({ stageRef, heroRef, motionTier, prefersR
         strokeDasharray: svgPathLength,
         strokeDashoffset: svgPathLength,
       });
+      gsap.set('.home-pbc-svg-strokes svg', { rotation: 0, transformOrigin: '50% 50%' });
     }
-
-    const progressStops = [0.2, 0.25, 0.85, 1].map((base, i) => {
-      if (i === 3) return 1;
-      return Math.max(0.08, Math.min(0.96, base + (Math.random() - 0.5) * 0.1));
-    });
 
     const tl = gsap.timeline({
       onComplete: () => {
@@ -403,14 +447,7 @@ export function useHomeCinematicReveal({ stageRef, heroRef, motionTier, prefersR
           revealMainScene();
           return;
         }
-        revealAwaitingClick.value = true;
-        gsap.to(revealLogoBtnRef.value, {
-          scale: 1.03,
-          duration: 0.9,
-          ease: 'sine.inOut',
-          yoyo: true,
-          repeat: -1,
-        });
+        revealAwaitingClick.value = false;
       },
       onInterrupt: () => {
         homeRevealTimeline = null;
@@ -422,7 +459,7 @@ export function useHomeCinematicReveal({ stageRef, heroRef, motionTier, prefersR
           revealMainScene();
           return;
         }
-        revealAwaitingClick.value = true;
+        revealAwaitingClick.value = false;
       },
     });
 
@@ -441,33 +478,7 @@ export function useHomeCinematicReveal({ stageRef, heroRef, motionTier, prefersR
         duration: 0.75,
         ease: 'power3.out',
         stagger: 0.1,
-      }, 0)
-        .to(trackNode, {
-          strokeDashoffset: 0,
-          duration: 2,
-          ease: 'hop',
-        }, 0)
-        .to('.home-pbc-svg-strokes svg', {
-          rotation: 270,
-          duration: 2,
-          ease: 'hop',
-          transformOrigin: '50% 50%',
-        }, 0)
-        .to(progressNode, {
-          strokeDashoffset: svgPathLength - (svgPathLength * progressStops[0]),
-          duration: 0.75,
-          ease: 'glide',
-          delay: 0.3,
-        }, 0);
-
-      for (let i = 1; i < progressStops.length; i += 1) {
-        tl.to(progressNode, {
-          strokeDashoffset: svgPathLength - (svgPathLength * progressStops[i]),
-          duration: 0.75,
-          ease: 'glide',
-          delay: 0.3 + Math.random() * 0.2,
-        });
-      }
+      }, 0);
 
       tl.to(revealCoreRef.value, { opacity: 1, scale: 1, y: 0, duration: 0.42, ease: 'expo.out' }, '<')
         .to(revealLogoBtnRef.value, { scale: 1, rotation: 0, duration: 0.44, ease: 'power3.out' }, '<')
@@ -532,6 +543,12 @@ export function useHomeCinematicReveal({ stageRef, heroRef, motionTier, prefersR
       homeRevealTimeline.kill();
       homeRevealTimeline = null;
     }
+    if (revealRingTween) {
+      revealRingTween.kill();
+      revealRingTween = null;
+    }
+    revealRingStarted = false;
+    revealRingCompleted = false;
     if (homeRevealOutroTimeline) {
       homeRevealOutroTimeline.kill();
       homeRevealOutroTimeline = null;
@@ -557,6 +574,7 @@ export function useHomeCinematicReveal({ stageRef, heroRef, motionTier, prefersR
     revealLogoBtnRef,
     revealTrackRef,
     revealProgressRef,
+    handleRevealLogoHover,
     skipHomeReveal,
     playEntryScene,
     initHomeRevealPending,
