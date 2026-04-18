@@ -180,8 +180,6 @@ public class UserController {
         }
         if (StringUtils.hasText(accountType)) {
             qw.eq("account_type", accountType);
-        } else {
-            qw.eq("account_type", "real");
         }
         qw.notLike("username", "walkthrough");
         qw.orderByDesc("update_time");

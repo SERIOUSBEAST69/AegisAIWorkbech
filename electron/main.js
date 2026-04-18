@@ -54,8 +54,8 @@ function loadConfig() {
     autoStart: true,
     minimizeToTray: true,
     enableClipboardMonitor: app.isPackaged ? false : true,
-    requireLoginBeforeScan: true,
-    requirePolicySync: true,
+    requireLoginBeforeScan: false,
+    requirePolicySync: false,
   };
   try {
     if (fs.existsSync(CONFIG_PATH)) {
@@ -321,9 +321,10 @@ function policyCapability(name, fallback = true) {
 }
 
 function canRunScan() {
-  if (config.requireLoginBeforeScan && !authState.authenticated) {
-    return false;
-  }
+  // 即使没有登录也允许扫描
+  // if (config.requireLoginBeforeScan && !authState.authenticated) {
+  //   return false;
+  // }
   if (!policyCapability('allowShadowScan', true)) {
     return false;
   }
@@ -358,14 +359,15 @@ function resolveBackendApiBase() {
 
 async function syncClientPolicy(force = false) {
   const token = resolveClientIngressToken();
-  if (!token) {
-    clientPolicyState = {
-      ...clientPolicyState,
-      synced: false,
-      lastError: 'missing-client-token',
-    };
-    return null;
-  }
+  // 即使没有令牌，也尝试同步策略
+  // if (!token) {
+  //   clientPolicyState = {
+  //     ...clientPolicyState,
+  //     synced: false,
+  //     lastError: 'missing-client-token',
+  //   };
+  //   return null;
+  // }
   const now = Date.now();
   if (!force && clientPolicyState.fetchedAt > 0 && now - clientPolicyState.fetchedAt < POLICY_SYNC_INTERVAL_MS) {
     return clientPolicyState.policy;
@@ -373,14 +375,19 @@ async function syncClientPolicy(force = false) {
 
   const endpoint = `${resolveBackendApiBase()}/api/client/policy/snapshot`;
   try {
+    const headers = {
+      'X-Company-Id': String(resolveReportCompanyId()),
+      'X-Client-Id': CLIENT_ID,
+      'X-Client-Username': resolvePolicyUsername(),
+    };
+    // 只有在有令牌时才添加令牌头
+    if (token) {
+      headers['X-Client-Token'] = token;
+    }
+    
     const resp = await fetch(endpoint, {
       method: 'GET',
-      headers: {
-        'X-Client-Token': token,
-        'X-Company-Id': String(resolveReportCompanyId()),
-        'X-Client-Id': CLIENT_ID,
-        'X-Client-Username': resolvePolicyUsername(),
-      },
+      headers: headers,
     });
     const payload = await resp.json().catch(() => ({}));
     const data = payload?.data || payload || {};
@@ -781,14 +788,14 @@ async function runScan() {
 
   console.log('[Aegis] 开始影子AI扫描…');
   try {
-    // Policy sync is best-effort: keep local scan available even when
-    // remote policy endpoint is temporarily unreachable.
+    // 即使策略同步失败，也允许扫描
     const hasClientToken = Boolean(resolveClientIngressToken());
     if (config.requirePolicySync !== false && hasClientToken && !policyIsFresh()) {
       try {
         await syncClientPolicy(true);
       } catch (syncErr) {
         console.warn('[Aegis] 策略同步失败，使用本地默认策略继续扫描:', syncErr?.message || syncErr);
+        // 即使策略同步失败，也继续扫描
       }
     }
 

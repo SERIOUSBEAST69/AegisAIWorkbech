@@ -149,6 +149,7 @@ const MENU_SECTIONS = [
     items: [
       { path: '/shadow-ai', label: '影子AI发现与风险评级', icon: 'View', audiences: ['governanceAdmin', 'governanceReviewer', 'secops', 'businessOwner', 'audit'] },
       { path: '/threat-monitor', label: 'AI攻击实时防御', icon: 'AlarmClock', audiences: ['governanceAdmin', 'secops'] },
+      { path: '/privacy-monitor', label: 'AI使用合规监控', icon: 'Warning', audiences: ['governanceAdmin', 'governanceReviewer', 'secops'] },
       { path: '/audit-center', label: '审计中心', icon: 'Document', audiences: ['governanceAdmin', 'governanceReviewer', 'secops', 'businessOwner', 'audit'] },
     ],
   },
@@ -182,27 +183,28 @@ const EXTRA_ROUTE_AUDIENCES = {
   '/ai/risk-rating': ['governanceAdmin', 'governanceReviewer', 'secops', 'businessOwner', 'audit'],
   '/shadow-ai': ['governanceAdmin', 'governanceReviewer', 'secops', 'businessOwner', 'audit'],
   '/threat-monitor': ['governanceAdmin', 'secops'],
+  '/privacy-monitor': ['governanceAdmin', 'governanceReviewer', 'secops'],
 };
 
 const ROLE_PATH_ALLOWLIST = {
   ADMIN: [
-    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/threat-monitor', '/ai/risk-rating', '/audit-center', '/approval-center',
+    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/threat-monitor', '/privacy-monitor', '/ai/risk-rating', '/audit-center', '/approval-center',
     '/policy-manage', '/user-manage', '/role-manage', '/permission-manage', '/profile', '/settings',
   ],
   ADMIN_REVIEWER: [
-    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/ai/risk-rating', '/audit-center', '/approval-center',
+    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/privacy-monitor', '/ai/risk-rating', '/audit-center', '/approval-center',
     '/policy-manage', '/user-manage', '/role-manage', '/permission-manage', '/profile', '/settings',
   ],
   ADMIN_OPS: [
-    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/threat-monitor', '/ai/risk-rating', '/audit-center',
+    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/threat-monitor', '/privacy-monitor', '/ai/risk-rating', '/audit-center',
     '/policy-manage', '/profile', '/settings',
   ],
   SECOPS: [
-    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/threat-monitor', '/ai/risk-rating', '/audit-center',
+    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/threat-monitor', '/privacy-monitor', '/ai/risk-rating', '/audit-center',
     '/policy-manage', '/profile', '/settings',
   ],
   SECOPS_RESPONDER: [
-    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/threat-monitor', '/ai/risk-rating', '/audit-center',
+    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/threat-monitor', '/privacy-monitor', '/ai/risk-rating', '/audit-center',
     '/policy-manage', '/profile', '/settings',
   ],
   BUSINESS_OWNER: [
@@ -215,7 +217,7 @@ const ROLE_PATH_ALLOWLIST = {
     '/', '/operations-command', '/shadow-ai', '/ai/risk-rating', '/audit-center', '/policy-manage', '/profile', '/settings',
   ],
   SEC: [
-    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/threat-monitor', '/audit-center', '/profile', '/settings',
+    '/', '/operations-command', '/ops-observability', '/shadow-ai', '/threat-monitor', '/privacy-monitor', '/audit-center', '/profile', '/settings',
   ],
 };
 

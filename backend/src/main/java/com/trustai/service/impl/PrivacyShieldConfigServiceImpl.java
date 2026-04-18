@@ -29,14 +29,16 @@ public class PrivacyShieldConfigServiceImpl implements PrivacyShieldConfigServic
         "百度文心系列",
         "DeepSeek",
         "豆包 AI",
-        "腾讯混元系列"
+        "腾讯混元系列",
+        "智谱GLM"
     );
     private static final List<String> DEFAULT_AI_WHITELIST = List.of(
         "阿里通义系列",
         "百度文心系列",
         "DeepSeek",
         "豆包 AI",
-        "腾讯混元系列"
+        "腾讯混元系列",
+        "智谱GLM"
     );
 
     private final SystemConfigRepository systemConfigRepository;

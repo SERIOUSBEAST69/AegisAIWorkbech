@@ -616,6 +616,8 @@ const handleDropdown = (command) => {
 .app-main { 
   padding: 0;
   position: relative;
+  display: flex;
+  flex-direction: column;
   flex: 1 1 auto;
   min-height: 0;
   overflow-x: hidden;

@@ -164,101 +164,6 @@
       @detail="handleHubDetail"
     />
 
-    <section
-      v-if="!compactHomeEnabled && !hideHomeTraceModules"
-      class="trace-grid scene-block reveal-phase phase-governance"
-      :class="{ 'trace-grid-admin': isAdmin }"
-    >
-      <el-card class="trace-card card-glass">
-        <div class="panel-head">
-          <div>
-            <div class="card-header">首页追溯上下文</div>
-            <p class="panel-subtitle">数据范围与溯源状态</p>
-          </div>
-        </div>
-        <div class="trace-context-row">
-          <span>公司ID：{{ traceContext.companyId ?? '-' }}</span>
-          <span>账号范围：{{ traceContext.companyUserCount ?? 0 }} 人</span>
-          <span>当前账号：{{ traceContext.currentUsername || '-' }} (#{{ traceContext.currentUserId ?? '-' }})</span>
-          <span>生成时间：{{ traceContext.generatedAt || '-' }}</span>
-          <span>统一异常：{{ traceContext.monitorAnomaly ?? 0 }}</span>
-          <span>统一隐私：{{ traceContext.monitorPrivacy ?? 0 }}</span>
-          <span>统一待处置：{{ traceContext.monitorPending ?? 0 }}</span>
-        </div>
-        <p class="trace-note">{{ traceContext.traceabilityStatement || '数据范围：按当前公司与账号统计；支持按原始记录溯源。' }}</p>
-        <p v-if="traceContext.monitorCaliberNote" class="trace-note">{{ traceContext.monitorCaliberNote }}</p>
-      </el-card>
-
-      <el-card class="trace-card card-glass">
-        <div class="panel-head">
-          <div>
-            <div class="card-header">模型谱系与漂移</div>
-            <p class="panel-subtitle">模型状态、样本覆盖与发布状态</p>
-          </div>
-          <div class="panel-actions">
-            <span class="verify-badge" :class="modelDriftBadgeClass">
-              {{ modelDriftBadgeText }}
-            </span>
-            <el-button size="small" :loading="modelGovernanceLoading" @click="fetchModelGovernance">刷新</el-button>
-          </div>
-        </div>
-        <div class="trace-context-row">
-          <span>累计训练运行：{{ modelLineage.totalRuns ?? 0 }}</span>
-          <span>跟踪模型数：{{ modelLineage.trackedModelCount ?? 0 }}</span>
-          <span>最新运行ID：{{ modelLineageRunId }}</span>
-          <span>漂移分数：{{ modelDriftScoreText }}</span>
-          <span>发布状态：{{ modelReleaseText }}</span>
-        </div>
-        <p class="trace-note">{{ modelGovernanceNote }}</p>
-      </el-card>
-
-      <el-card class="trace-card card-glass" v-if="isAdmin">
-        <div class="panel-head">
-          <div>
-            <div class="card-header">治理就绪度闭环</div>
-            <p class="panel-subtitle">闭环状态、风险预算与处置进展</p>
-          </div>
-          <div class="panel-actions">
-            <el-button size="small" :loading="awardReadinessLoading" @click="fetchAwardReadiness">刷新</el-button>
-            <el-button size="small" type="warning" :loading="autoRemediationLoading" @click="runAutoRemediationDryRun">自动处置演练</el-button>
-            <el-button size="small" type="success" :loading="exportEvidenceLoading" @click="exportAwardEvidencePackage">导出证据包</el-button>
-          </div>
-        </div>
-        <div class="trace-context-row">
-          <span>已实现项：{{ awardReadinessImplemented }}/8</span>
-          <span>待补项：{{ 8 - awardReadinessImplemented }}</span>
-          <span>错误预算：{{ awardErrorBudgetText }}</span>
-          <span>自动处置状态：{{ autoRemediationStatusText }}</span>
-        </div>
-        <p class="trace-note">{{ awardReadinessNote }}</p>
-      </el-card>
-    </section>
-
-    <el-card
-      v-if="!compactHomeEnabled && !hideHomeTraceModules"
-      class="trace-modules-card card-glass scene-block reveal-phase phase-governance"
-    >
-      <div class="panel-head">
-        <div>
-          <div class="card-header">模块追溯下钻</div>
-          <p class="panel-subtitle">按模块查看原始记录</p>
-        </div>
-      </div>
-      <div class="trace-module-list">
-        <button
-          v-for="entry in traceModuleEntries"
-          :key="entry.key"
-          type="button"
-          class="trace-module-item"
-          @click="openTraceDrilldown(entry.key)"
-        >
-          <div class="trace-module-title">{{ entry.label }}</div>
-          <div class="trace-module-meta">{{ entry.traceRule }}</div>
-          <div class="trace-module-count">{{ entry.count }}</div>
-        </button>
-      </div>
-    </el-card>
-
     <section class="pulse-grid scene-block reveal-phase phase-governance">
       <el-card class="pulse-card card-glass">
         <div class="panel-head">
@@ -378,40 +283,6 @@
           </div>
           <div class="module-entry-metric">{{ item.metric }}</div>
         </button>
-      </div>
-    </el-card>
-
-    <el-card
-      v-if="!compactHomeEnabled && !hideHomeTraceModules"
-      class="ai-workbench-card card-glass scene-block reveal-phase phase-governance"
-      style="grid-column: 1 / -1"
-    >
-      <div class="panel-head">
-        <div>
-          <div class="card-header">AI 调用审计日志</div>
-          <p class="panel-subtitle">审计记录与链路状态</p>
-        </div>
-        <div class="panel-actions">
-          <span class="verify-badge" :class="aiAuditVerify.passed ? 'ok' : 'warn'">
-            {{ aiAuditVerify.passed ? '链路验真通过' : '链路待校验' }}
-          </span>
-          <el-button :loading="aiAuditVerify.loading" @click="verifyAiAuditChain">校验链路</el-button>
-          <el-button :loading="aiAuditLoading" @click="loadAiAuditLogs">刷新</el-button>
-        </div>
-      </div>
-      <div v-if="aiAuditLoading" class="empty-state">加载中...</div>
-      <div v-else-if="!aiAuditLogs.length" class="empty-state">暂无记录</div>
-      <div v-else class="event-list">
-        <div v-for="item in aiAuditLogs" :key="item.id" class="event-item">
-          <strong>{{ item.modelCode || '-' }}</strong>
-          <span>{{ item.provider || '-' }}</span>
-          <span>{{ item.status || '-' }}</span>
-          <span>{{ item.durationMs || 0 }}ms</span>
-          <span>{{ item.username || '-' }} (#{{ item.userId ?? '-' }})</span>
-          <span>公司 {{ item.companyId ?? '-' }}</span>
-          <span>资产 {{ item.dataAssetId ?? '-' }}</span>
-          <span>{{ item.createTime || '-' }}</span>
-        </div>
       </div>
     </el-card>
 
@@ -3147,8 +3018,7 @@ onBeforeUnmount(() => {
   border: 1px solid rgba(169, 196, 255, 0.12);
   border-radius: 0;
   padding: 14px 24px 14px 14px;
-  overflow-x: hidden;
-  overflow-y: auto;
+  overflow: visible;
   touch-action: auto;
 }
 

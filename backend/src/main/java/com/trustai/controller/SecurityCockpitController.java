@@ -572,10 +572,12 @@ public class SecurityCockpitController {
         String sql = "SELECT ge.id, ge.username, ge.event_type, ge.severity, ge.status, ge.event_time, ge.title, ge.source_module "
             + "FROM governance_event ge WHERE ge.company_id = ? "
             + "AND ge.event_type IN ('PRIVACY_ALERT','ANOMALY_ALERT','SHADOW_AI_ALERT','SECURITY_ALERT') "
-            + "AND ge.id > ? ";
+            + "AND ge.id > ? "
+            + "AND ge.username NOT LIKE ? ";
         List<Object> params = new ArrayList<>();
         params.add(scope.companyId());
         params.add(afterIdExclusive);
+        params.add("walkthrough%");
         if (!scope.companyWide()) {
             sql += "AND ge.user_id = ? ";
             params.add(scope.userId());

@@ -14,6 +14,7 @@ const Profile = () => import('../views/Profile.vue');
 const Settings = () => import('../views/Settings.vue');
 const ShadowAiDiscovery = () => import('../views/ShadowAiDiscovery.vue');
 const ThreatMonitor = () => import('../views/ThreatMonitor.vue');
+const EmployeeAiBehaviorMonitor = () => import('../views/EmployeeAiBehaviorMonitor.vue');
 import { getSession, hasActiveSession } from '../utils/auth';
 import { canAccessPath } from '../utils/persona';
 import {
@@ -43,6 +44,8 @@ const routes = [
   { path: '/ai/anomaly', redirect: '/shadow-ai' },
   { path: '/shadow-ai', name: 'ShadowAiDiscovery', component: ShadowAiDiscovery, meta: { depth: 2 } },
   { path: '/threat-monitor', name: 'ThreatMonitor', component: ThreatMonitor, meta: { depth: 2 } },
+  { path: '/privacy-monitor', name: 'EmployeeAiBehaviorMonitor', component: EmployeeAiBehaviorMonitor, meta: { depth: 2 } },
+  { path: '/employee-ai-behavior', name: 'EmployeeAiBehaviorMonitor', component: EmployeeAiBehaviorMonitor, meta: { depth: 2 } },
   { path: '/profile', name: 'Profile', component: Profile, meta: { depth: 2 } },
   { path: '/settings', name: 'Settings', component: Settings, meta: { depth: 2 } }
 ];

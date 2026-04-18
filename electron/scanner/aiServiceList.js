@@ -6,10 +6,19 @@
 
 const AI_SERVICES = [
   {
+    name: 'TRAE',
+    aliases: ['trae', 'Trae', 'TRAE AI'],
+    domains: ['trae.ai', 'www.trae.ai'],
+    processNames: ['trae'],
+    category: 'chat',
+    riskLevel: 'high',
+    description: 'TRAE AI 服务',
+  },
+  {
     name: '阿里通义系列',
     aliases: ['通义千问', '通义', 'qwen'],
     domains: ['qianwen.aliyun.com', 'tongyi.aliyun.com', 'dashscope.aliyuncs.com'],
-    processNames: [],
+    processNames: ['qwen', 'tongyi'],
     category: 'chat',
     riskLevel: 'high',
     description: '阿里通义系列模型服务',
@@ -61,12 +70,12 @@ const AI_SERVICES = [
   },
   {
     name: '豆包 AI',
-    aliases: ['豆包', 'doubao'],
+    aliases: ['豆包', 'doubao', '火山引擎'],
     domains: ['doubao.com', 'www.doubao.com', 'ark.cn-beijing.volces.com'],
-    processNames: ['doubao'],
+    processNames: ['doubao', 'douyin', 'huoshan'],
     category: 'chat',
     riskLevel: 'high',
-    description: '豆包 AI 服务',
+    description: '豆包 AI 服务（字节跳动）',
   },
   {
     name: '科大讯飞星火',
@@ -88,9 +97,9 @@ const AI_SERVICES = [
   },
   {
     name: '腾讯混元系列',
-    aliases: ['混元', 'hunyuan'],
+    aliases: ['混元', 'hunyuan', '腾讯元宝'],
     domains: ['hunyuan.tencent.com', 'yuanqi.tencent.com'],
-    processNames: [],
+    processNames: ['hunyuan', 'yuanbao', 'tencent'],
     category: 'chat',
     riskLevel: 'high',
     description: '腾讯混元系列模型服务',

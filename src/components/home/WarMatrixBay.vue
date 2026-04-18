@@ -64,7 +64,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, ref, onMounted } from 'vue';
 
 const props = defineProps({
   rows: {
@@ -85,6 +85,7 @@ const emit = defineEmits(['detail', 'select']);
 
 const activeLayer = ref(0);
 const selectedCellId = ref('');
+const realTimeData = ref([]);
 
 const motionTierSafe = computed(() => {
   const raw = String(props.motionTier || 'high').toLowerCase();
@@ -114,12 +115,17 @@ const activeLayerMeta = computed(() => layerProfiles.value[activeLayer.value] ||
 const seedRows = computed(() => {
   const rows = Array.isArray(props.rows) ? props.rows : [];
   if (rows.length) return rows;
-  return [
-    { id: 'seed-risk', label: '风险事件', score: 76 },
-    { id: 'seed-asset', label: '敏感资产', score: 68 },
-    { id: 'seed-approval', label: '审批阻塞', score: 54 },
-    { id: 'seed-model', label: '模型漂移', score: 61 },
-    { id: 'seed-shadow', label: '影子AI', score: 70 },
+  
+  // 真实数据模拟
+  return realTimeData.value.length ? realTimeData.value : [
+    { id: 'risk-event', label: '风险事件', score: 76 },
+    { id: 'sensitive-asset', label: '敏感资产', score: 68 },
+    { id: 'approval-block', label: '审批阻塞', score: 54 },
+    { id: 'model-drift', label: '模型漂移', score: 61 },
+    { id: 'shadow-ai', label: '影子AI', score: 70 },
+    { id: 'privacy-violation', label: '隐私违规', score: 82 },
+    { id: 'external-call', label: '外部调用', score: 45 },
+    { id: 'data-leak', label: '数据泄露', score: 78 },
   ];
 });
 
@@ -192,6 +198,8 @@ function inferCode(cell) {
   if (raw.includes('approval') || raw.includes('审批')) return 'approval';
   if (raw.includes('asset') || raw.includes('资产')) return 'asset';
   if (raw.includes('risk') || raw.includes('风险')) return 'risk';
+  if (raw.includes('leak') || raw.includes('泄露')) return 'leak';
+  if (raw.includes('external') || raw.includes('外部')) return 'external';
   return '';
 }
 
@@ -204,7 +212,40 @@ function handleCellClick(cell) {
     codeHint: inferCode(cell),
     layer: cell.z,
   });
+  
+  // 添加点击效果
+  const element = document.querySelector(`[key="${cell.key}"]`);
+  if (element) {
+    element.classList.add('clicked');
+    setTimeout(() => element.classList.remove('clicked'), 300);
+  }
 }
+
+// 模拟实时数据更新
+onMounted(() => {
+  // 初始加载模拟数据
+  realTimeData.value = [
+    { id: 'risk-event', label: '风险事件', score: 76 + Math.random() * 10 - 5 },
+    { id: 'sensitive-asset', label: '敏感资产', score: 68 + Math.random() * 10 - 5 },
+    { id: 'approval-block', label: '审批阻塞', score: 54 + Math.random() * 10 - 5 },
+    { id: 'model-drift', label: '模型漂移', score: 61 + Math.random() * 10 - 5 },
+    { id: 'shadow-ai', label: '影子AI', score: 70 + Math.random() * 10 - 5 },
+    { id: 'privacy-violation', label: '隐私违规', score: 82 + Math.random() * 10 - 5 },
+    { id: 'external-call', label: '外部调用', score: 45 + Math.random() * 10 - 5 },
+    { id: 'data-leak', label: '数据泄露', score: 78 + Math.random() * 10 - 5 },
+  ];
+  
+  // 每5秒更新一次数据
+  const interval = setInterval(() => {
+    realTimeData.value = realTimeData.value.map(item => ({
+      ...item,
+      score: Math.max(30, Math.min(95, item.score + Math.random() * 6 - 3)),
+    }));
+  }, 5000);
+  
+  // 清理定时器
+  return () => clearInterval(interval);
+});
 </script>
 
 <style scoped>
@@ -224,6 +265,12 @@ function handleCellClick(cell) {
   border-radius: 10px;
   padding: 6px 8px;
   background: rgba(7, 16, 31, 0.6);
+  transition: all 0.3s ease;
+}
+
+.war-bay-kpis article:hover {
+  border-color: rgba(118, 172, 246, 0.5);
+  background: rgba(7, 16, 31, 0.8);
 }
 
 .war-bay-kpis span {
@@ -235,6 +282,8 @@ function handleCellClick(cell) {
   display: block;
   color: #f5fbff;
   margin-top: 4px;
+  font-size: 14px;
+  font-weight: 700;
 }
 
 .matrix-stage {
@@ -278,17 +327,23 @@ function handleCellClick(cell) {
   padding: 7px;
   text-align: left;
   transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+  transform-style: preserve-3d;
 }
 
 .matrix-voxel:hover,
 .matrix-voxel.is-selected {
-  transform: translateY(-4px) scale(1.03);
+  transform: translateY(-4px) scale(1.03) rotateX(5deg);
   border-color: rgba(161, 208, 255, 0.88);
   box-shadow: 0 10px 24px rgba(2, 8, 20, 0.45);
 }
 
 .matrix-voxel.is-hot {
   box-shadow: 0 0 0 1px rgba(255, 126, 126, 0.5), 0 12px 28px rgba(107, 12, 12, 0.3);
+  animation: hotPulse 2s ease-in-out infinite;
+}
+
+.matrix-voxel.clicked {
+  animation: clickEffect 0.3s ease-in-out;
 }
 
 .voxel-glow {
@@ -303,6 +358,7 @@ function handleCellClick(cell) {
   position: relative;
   z-index: 1;
   font-size: 11px;
+  font-weight: 500;
 }
 
 .voxel-risk {
@@ -332,6 +388,12 @@ function handleCellClick(cell) {
   border-radius: 999px;
   padding: 4px 10px;
   cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.layer-tabs button:hover {
+  border-color: rgba(120, 175, 248, 0.6);
+  background: rgba(8, 18, 34, 0.9);
 }
 
 .layer-tabs button.active {
@@ -339,6 +401,7 @@ function handleCellClick(cell) {
   border-color: rgba(164, 207, 255, 0.82);
   color: #06182f;
   font-weight: 700;
+  transform: translateY(-1px);
 }
 
 .legend-row {
@@ -352,6 +415,7 @@ function handleCellClick(cell) {
 .layer-tip {
   color: #d1e6ff;
   margin-right: 8px;
+  font-weight: 500;
 }
 
 .legend-row i {
@@ -380,6 +444,18 @@ function handleCellClick(cell) {
 @keyframes scanlineMove {
   0% { transform: translateY(-85%); }
   100% { transform: translateY(85%); }
+}
+
+@keyframes hotPulse {
+  0% { box-shadow: 0 0 0 1px rgba(255, 126, 126, 0.5), 0 12px 28px rgba(107, 12, 12, 0.3); }
+  50% { box-shadow: 0 0 0 1px rgba(255, 126, 126, 0.8), 0 15px 35px rgba(107, 12, 12, 0.5); }
+  100% { box-shadow: 0 0 0 1px rgba(255, 126, 126, 0.5), 0 12px 28px rgba(107, 12, 12, 0.3); }
+}
+
+@keyframes clickEffect {
+  0% { transform: scale(1); }
+  50% { transform: scale(0.95); }
+  100% { transform: scale(1); }
 }
 
 @media (max-width: 980px) {

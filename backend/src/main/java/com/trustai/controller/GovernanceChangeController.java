@@ -932,14 +932,7 @@ public class GovernanceChangeController {
 
         Long companyId = companyScopeService.requireCompanyId();
         Map<String, Object> config = new LinkedHashMap<>(privacyShieldConfigService.getOrCreateConfig());
-        List<String> catalog = toDistinctStringList(config.get("aiCatalog"));
         List<String> nextWhitelist = toDistinctStringList(payload == null ? null : payload.get("whitelist"));
-
-        for (String item : nextWhitelist) {
-            if (!catalog.contains(item)) {
-                throw new BizException(40000, "存在未收录的AI服务: " + item);
-            }
-        }
 
         setCompanyWhitelist(config, companyId, nextWhitelist);
         privacyShieldConfigService.updateConfig(config);

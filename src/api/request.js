@@ -178,7 +178,7 @@ service.interceptors.response.use(
     const body = res.data;
     const requestPath = String(res?.config?.url || '').split('?')[0];
     // 后端统一返回 R { code, msg, data, timestamp }
-    if (body && body.code === 20000) return body.data;
+    if (body && (body.code === 20000 || body.code === 200)) return body.data;
     if (body && body.code === 40100) {
       return handleUnauthorized(body.msg, body.data, requestPath);
     }

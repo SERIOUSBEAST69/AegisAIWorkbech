@@ -305,19 +305,75 @@ function renderTopology() {
     });
   }
 
-  const nodes = (topology.value.nodes || []).map(item => ({
-    id: item.id,
-    name: item.displayLabel || item.label,
-    rawLabel: item.label,
-    roleType: item.type,
-    value: Number(item.value || 1),
-    symbolSize: Math.min(48, 12 + Number(item.value || 1) * 2),
-    itemStyle: {
-      color: item.type === 'source' ? '#38bdf8' : '#f97316',
-      borderColor: '#cbd5e1',
-      borderWidth: 1,
-    },
-  }));
+  // IP地址到用户的映射表
+  const ipToUserMap = {
+    '192.168.1.101': '张三',
+    '192.168.1.102': '李四',
+    '192.168.1.103': '王五',
+    '192.168.1.104': '赵六',
+    '192.168.1.105': '钱七',
+    '192.168.1.106': '管理员',
+    '192.168.1.107': '审计员-王五',
+    '192.168.1.108': '安全运维',
+    '192.168.1.109': '业务负责人'
+  };
+
+  const nodes = (topology.value.nodes || []).map(item => {
+    // 简化并中文处理节点标签
+    let displayLabel = item.label;
+    
+    // 处理IP地址
+    if (item.label.match(/\d+\.\d+\.\d+\.\d+/)) {
+      // 检查IP是否对应到用户
+      if (ipToUserMap[item.label]) {
+        displayLabel = `${ipToUserMap[item.label]} (${item.label})`;
+      } else {
+        displayLabel = `IP: ${item.label}`;
+      }
+    }
+    // 处理用户
+    else if (item.label.includes('user') || item.label.includes('User')) {
+      // 映射到真实用户名称
+      const userMap = {
+        'user_001': '张三',
+        'user_002': '李四', 
+        'user_003': '王五',
+        'user_004': '赵六',
+        'user_005': '钱七',
+        'admin': '管理员',
+        'audit01': '审计员-王五',
+        'secops': '安全运维',
+        'bizowner': '业务负责人'
+      };
+      displayLabel = userMap[item.label] || `用户: ${item.label}`;
+    }
+    // 处理系统组件
+    else if (item.label.includes('system') || item.label.includes('System')) {
+      displayLabel = `系统: ${item.label.replace(/system/i, '系统')}`;
+    }
+    // 处理应用
+    else if (item.label.includes('app') || item.label.includes('App')) {
+      displayLabel = `应用: ${item.label.replace(/app/i, '应用')}`;
+    }
+    // 处理其他类型的节点
+    else {
+      displayLabel = item.label;
+    }
+    
+    return {
+      id: item.id,
+      name: displayLabel,
+      rawLabel: item.label,
+      roleType: item.type,
+      value: Number(item.value || 1),
+      symbolSize: Math.min(48, 12 + Number(item.value || 1) * 2),
+      itemStyle: {
+        color: item.type === 'source' ? '#38bdf8' : '#f97316',
+        borderColor: '#cbd5e1',
+        borderWidth: 1,
+      },
+    };
+  });
   const links = (topology.value.edges || []).map(edge => ({
     source: edge.source,
     target: edge.target,
@@ -338,7 +394,7 @@ function renderTopology() {
         if (params?.dataType === 'edge') {
           return `传播链路<br/>次数: ${Number(params?.data?.value || 0)}<br/>风险: ${severityText(params?.data?.risk)}`;
         }
-        const role = params?.data?.roleType === 'source' ? '来源IP' : '目标对象';
+        const role = params?.data?.roleType === 'source' ? '来源' : '目标';
         return `${role}<br/>${params?.data?.name || '-'}<br/>关联告警: ${Number(params?.data?.value || 0)}`;
       },
     },
@@ -641,8 +697,13 @@ onBeforeUnmount(() => {
 
 .charts-row { margin-bottom: 16px; }
 
-.chart-card,
+.chart-card {
+  background: rgba(7, 19, 36, 0.72);
+  border: 1px solid rgba(90, 131, 176, 0.24);
+}
+
 .stream-card {
+  margin: 0 16px 16px;
   background: rgba(7, 19, 36, 0.72);
   border: 1px solid rgba(90, 131, 176, 0.24);
 }

@@ -52,8 +52,8 @@ const DEFAULT_CONFIG = {
     pathKeywords: ['confidential', 'secret', '核心', '机密', '财务', '合同', '投标', '预算'],
   },
   aiWindowRules: {
-    titleKeywords: ['通义', '文心', 'DeepSeek', '稿定', 'ModelWhale', '即梦', '豆包', '星火', 'Kimi', '混元', '智谱'],
-    processNames: ['chrome', 'msedge', 'firefox', 'doubao', 'qqbrowser'],
+    titleKeywords: ['TRAE', 'trae', '通义', '文心', 'DeepSeek', '稿定', 'ModelWhale', '即梦', '豆包', '星火', 'Kimi', '混元', '智谱', '火山引擎', 'Doubao'],
+    processNames: ['chrome', 'msedge', 'firefox', 'doubao', 'douyin', 'huoshan', 'trae', 'qwen', 'tongyi', 'qqbrowser'],
   },
   exfilWindowRules: DEFAULT_EXFIL_WINDOW_RULES,
 };

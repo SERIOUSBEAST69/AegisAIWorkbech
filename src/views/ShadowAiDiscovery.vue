@@ -400,6 +400,10 @@
       </div>
     </div>
 
+    <template v-if="activeTab === 'risk'">
+      <AiRiskRating />
+    </template>
+
     <!-- 详情抽屉 -->
     <el-drawer
       v-model="drawerVisible"
@@ -788,8 +792,8 @@ async function refresh() {
 
 async function loadDownloadInfo() {
   try {
-    const data = await request.get('/download/info');
-    downloadInfo.value = data || { windows: null, macos: null, linux: null };
+    const response = await request.get('/download/info');
+    downloadInfo.value = response?.data || { windows: null, macos: null, linux: null };
   } catch (err) {
     console.warn('[ShadowAI] 下载信息加载失败:', err?.message || err);
   }

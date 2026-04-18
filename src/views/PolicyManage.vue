@@ -5,7 +5,7 @@
         <h2>合规策略列表</h2>
         <p>策略内容已简化为：策略名称、策略描述、是否启用、风险等级</p>
       </div>
-      <el-button type="primary" :disabled="!canWrite" @click="openCreate">新增策略</el-button>
+      <el-button type="primary" :disabled="!isAdmin" @click="openCreate">新增策略</el-button>
     </div>
 
     <el-form :inline="true" @submit.prevent class="query-form">
@@ -59,11 +59,11 @@
       <el-table-column label="操作" width="280" fixed="right">
         <template #default="scope">
           <el-space>
-            <el-button size="small" :disabled="!canWrite" @click="openEdit(scope.row)">编辑</el-button>
+            <el-button size="small" :disabled="!canOperatePolicy(scope.row)" @click="openEdit(scope.row)">编辑</el-button>
             <el-button
               size="small"
               :type="scope.row.enabled ? 'warning' : 'success'"
-              :disabled="!canWrite"
+              :disabled="!canOperatePolicy(scope.row)"
               @click="toggleEnabled(scope.row)"
             >
               {{ scope.row.enabled ? '禁用' : '启用' }}
@@ -71,7 +71,7 @@
             <el-button
               size="small"
               type="danger"
-              :disabled="!canWrite || scope.row.enabled"
+              :disabled="!canOperatePolicy(scope.row) || scope.row.enabled"
               @click="removePolicy(scope.row)"
             >删除</el-button>
           </el-space>
@@ -124,7 +124,12 @@ import request from '../api/request';
 import { getSession } from '../utils/auth';
 
 const roleCode = String(getSession()?.user?.roleCode || '').trim().toUpperCase();
-const canWrite = roleCode === 'ADMIN';
+const username = String(getSession()?.user?.username || '').trim().toLowerCase();
+const isAdmin = username === 'admin' || roleCode === 'ADMIN' || roleCode === 'ADMIN_OPS';
+
+const canOperatePolicy = (policy) => {
+  return isAdmin && (policy.name === '手机号脱敏' || policy.name === 'mobile-phone-masking' || policy.name === '手机号敏感脱敏');
+};
 
 const loading = ref(false);
 const saving = ref(false);
@@ -358,7 +363,7 @@ async function fetchPolicies() {
 }
 
 async function submitForm() {
-  if (!canWrite || !formRef.value) return;
+  if (!isAdmin || !formRef.value) return;
   await formRef.value.validate();
   const creds = await collectOperatorConfirmPassword(dialog.mode === 'create' ? '新增策略' : '更新策略');
   saving.value = true;
@@ -382,7 +387,7 @@ async function submitForm() {
 }
 
 async function toggleEnabled(row) {
-  if (!canWrite) return;
+  if (!isAdmin) return;
   const nextEnabled = !row.enabled;
   const creds = await collectOperatorConfirmPassword(nextEnabled ? '启用策略' : '禁用策略');
   try {
@@ -407,7 +412,7 @@ async function toggleEnabled(row) {
 }
 
 async function removePolicy(row) {
-  if (!canWrite) return;
+  if (!isAdmin) return;
   await ElMessageBox.confirm(`确认删除策略「${row.name}」吗？`, '删除确认', {
     type: 'warning',
     confirmButtonText: '确认删除',

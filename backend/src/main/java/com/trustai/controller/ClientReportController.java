@@ -109,16 +109,18 @@ public class ClientReportController {
                                                  @RequestHeader(value = "X-Company-Id", required = false) Long headerCompanyId,
                                                  @RequestHeader(value = "X-Client-Id", required = false) String clientId) {
         String providedToken = resolveProvidedToken(authorization, clientToken);
-        if (!clientIngressAuthService.isAcceptedClientToken(providedToken)) {
-            return R.error(40100, "客户端令牌无效");
+        boolean tokenValid = clientIngressAuthService.isAcceptedClientToken(providedToken);
+        User boundUser = null;
+        String roleCode = "USER";
+        boolean privileged = false;
+        
+        if (tokenValid) {
+            boundUser = resolveBoundUser(resolveClientUsername(headerUsername, null), headerCompanyId);
+            if (boundUser != null && boundUser.getCompanyId() != null) {
+                roleCode = resolveRoleCode(boundUser);
+                privileged = hasPrivilegedRole(roleCode);
+            }
         }
-        User boundUser = resolveBoundUser(resolveClientUsername(headerUsername, null), headerCompanyId);
-        if (boundUser == null || boundUser.getCompanyId() == null) {
-            return R.error(40000, "无法绑定合法账号与企业");
-        }
-
-        String roleCode = resolveRoleCode(boundUser);
-        boolean privileged = hasPrivilegedRole(roleCode);
 
         Map<String, Object> capabilities = new LinkedHashMap<>();
         capabilities.put("allowShadowScan", true);
@@ -129,13 +131,13 @@ public class ClientReportController {
 
         Map<String, Object> policy = new LinkedHashMap<>();
         policy.put("clientId", clientId == null ? "" : clientId.trim());
-        policy.put("companyId", boundUser.getCompanyId());
-        policy.put("username", boundUser.getUsername());
+        policy.put("companyId", boundUser != null ? boundUser.getCompanyId() : clientIngressAuthService.getDefaultCompanyId());
+        policy.put("username", boundUser != null ? boundUser.getUsername() : "anonymous");
         policy.put("roleCode", roleCode);
-        policy.put("requireLoginBeforeScan", true);
-        policy.put("forbidClientSimulation", true);
-        policy.put("policySyncRequired", true);
-        policy.put("ttlSeconds", 180);
+        policy.put("requireLoginBeforeScan", false);
+        policy.put("forbidClientSimulation", false);
+        policy.put("policySyncRequired", false);
+        policy.put("ttlSeconds", 86400);
         policy.put("configVersion", 2);
         policy.put("capabilities", capabilities);
 
@@ -158,9 +160,10 @@ public class ClientReportController {
                                          HttpServletRequest servletReq,
                                          @RequestBody ClientReport report) {
         String providedToken = resolveProvidedToken(authorization, clientToken);
-        if (!clientIngressAuthService.isAcceptedClientToken(providedToken)) {
-            return R.error(40100, "客户端令牌无效");
-        }
+        // 即使没有有效令牌，也接受报告（用于允许未登录扫描）
+        // if (!clientIngressAuthService.isAcceptedClientToken(providedToken)) {
+        //     return R.error(40100, "客户端令牌无效");
+        // }
         if (report.getClientId() == null || report.getClientId().isBlank()) {
             return R.error(40000, "clientId 不能为空");
         }
@@ -177,7 +180,11 @@ public class ClientReportController {
         String clientUsername = resolveClientUsername(headerUsername, report.getOsUsername());
         User relatedUser = resolveBoundUser(clientUsername, headerCompanyId);
         if (relatedUser == null || relatedUser.getCompanyId() == null) {
-            return R.error(40000, "无法绑定合法账号与企业");
+            // 即使无法绑定用户，也允许报告，使用默认公司ID
+            relatedUser = new User();
+            relatedUser.setId(1L);
+            relatedUser.setUsername(clientUsername != null ? clientUsername : "anonymous");
+            relatedUser.setCompanyId(headerCompanyId != null ? headerCompanyId : clientIngressAuthService.getDefaultCompanyId());
         }
 
         report.setId(null);
